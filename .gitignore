@@ -13,3 +13,6 @@
 .externalNativeBuild
 .cxx
 local.properties
+/app/src/main/assets/dummy.csv
+/app/src/main/assets/sentence_encoder.tflite
+/app/src/main/assets/vocab.txt
