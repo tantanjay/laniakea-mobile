@@ -5,7 +5,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import android.content.Context
 
-@Database(entities = [DiaryEntry::class, SentenceVector::class], version = 1)
+@Database(entities = [DiaryEntry::class, SentenceVector::class, AppSettings::class], version = 1)
 abstract class DiaryDatabase : RoomDatabase() {
     abstract fun diaryDao(): DiaryDao
 

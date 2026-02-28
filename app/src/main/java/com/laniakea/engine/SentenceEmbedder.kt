@@ -19,8 +19,8 @@ import java.nio.channels.FileChannel
 
 class SentenceEmbedder(
     private val context: Context,
-    modelFile: String = "sentence_encoder.tflite",
-    vocabFile: String = "vocab.txt",
+    private val modelFile: String = "sentence_encoder.tflite",
+    private val vocabFile: String = "vocab.txt",
     private val maxLen: Int = 64
 ) {
     private var interpreter: Interpreter? = null
@@ -30,15 +30,17 @@ class SentenceEmbedder(
     private val _ready = MutableSharedFlow<Boolean>(replay = 1)
     val ready: SharedFlow<Boolean> get() = _ready
 
-    init {
+    fun initialize() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                if (interpreter != null) return@launch
                 val modelBuffer = loadModelFile(modelFile)
                 interpreter = Interpreter(modelBuffer)
                 Log.i("SentenceEmbedder", "TFLite model loaded successfully")
                 _ready.emit(true) // emit ready once
             } catch (e: Exception) {
                 Log.e("SentenceEmbedder", "Failed to load TFLite model", e)
+                _ready.emit(false)
             }
         }
     }

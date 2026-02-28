@@ -41,7 +41,11 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(text = "Laniakea User", style = MaterialTheme.typography.headlineSmall)
-        Text(text = "Analyzing vibes since 2025", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
+        Text(
+            text = "Analyzing vibes since ${vm.vibeYear}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.outline
+        )
 
         Spacer(modifier = Modifier.height(32.dp))
 
@@ -53,21 +57,45 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     leadingContent = { Icon(Icons.Default.Settings, contentDescription = null) }
                 )
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                
+                // Auto-load Toggle moved from Dashboard
+                ListItem(
+                    headlineContent = { Text("Auto-load on startup") },
+                    supportingContent = { Text("Automatically initialize the engine when the app starts") },
+                    trailingContent = {
+                        Switch(
+                            checked = vm.autoLoadEnabled,
+                            onCheckedChange = { vm.toggleAutoLoad(it) }
+                        )
+                    }
+                )
+                
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
                 ListItem(
                     headlineContent = { Text("Import Data") },
                     supportingContent = {
-                        if (vm.isImporting) {
-                            Text("Importing: ${vm.importProgress.first}/${vm.importProgress.second}")
-                        } else {
-                            Text("Clear database and reload dummy CSV")
+                        when {
+                            vm.isImporting -> Text("Importing: ${vm.importProgress.first}/${vm.importProgress.second}")
+                            !vm.isEngineActive -> Text("Engine must be active to vectorize data")
+                            else -> Text("Clear database and reload dummy CSV")
                         }
                     },
                     trailingContent = {
-                        Button(
-                            onClick = { vm.importDummyData() },
-                            enabled = !vm.isImporting
-                        ) {
-                            Text(if (vm.isImporting) "Wait..." else "Import")
+                        if (!vm.isEngineActive && !vm.isImporting) {
+                            Button(
+                                onClick = { vm.initializeEngine() },
+                                enabled = !vm.isEngineLoading
+                            ) {
+                                Text(if (vm.isEngineLoading) "Loading..." else "Enable")
+                            }
+                        } else {
+                            Button(
+                                onClick = { vm.importDummyData() },
+                                enabled = !vm.isImporting && vm.isEngineActive
+                            ) {
+                                Text(if (vm.isImporting) "Wait..." else "Import")
+                            }
                         }
                     }
                 )

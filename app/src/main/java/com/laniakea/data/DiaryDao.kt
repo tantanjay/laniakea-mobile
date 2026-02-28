@@ -2,8 +2,10 @@ package com.laniakea.data
 
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
 
 @Dao
 interface DiaryDao {
@@ -12,6 +14,9 @@ interface DiaryDao {
 
     @Insert
     suspend fun insertVector(vector: SentenceVector)
+
+    @Update
+    suspend fun updateEntry(entry: DiaryEntry)
 
     @Transaction
     suspend fun insertEntryWithVector(entry: DiaryEntry, vector: FloatArray) {
@@ -22,8 +27,28 @@ interface DiaryDao {
     @Query("SELECT * FROM entries ORDER BY dateTime ASC")
     suspend fun getAllEntries(): List<DiaryEntry>
 
+    @Query("SELECT * FROM entries WHERE isVectorized = 0")
+    suspend fun getUnprocessedEntries(): List<DiaryEntry>
+
+    @Query("SELECT COUNT(*) FROM entries")
+    suspend fun getTotalEntriesCount(): Int
+
+    @Query("SELECT COUNT(*) FROM entries WHERE isVectorized = 0")
+    suspend fun getUnprocessedEntriesCount(): Int
+
+    @Query("SELECT MIN(dateTime) FROM entries")
+    suspend fun getOldestTimestamp(): Long?
+
     @Query("SELECT vector FROM vectors WHERE entryId = :entryId")
     suspend fun getVectorForEntry(entryId: Long): List<ByteArray>
+
+    @Query("""
+        SELECT v.vector 
+        FROM vectors v 
+        JOIN entries e ON v.entryId = e.id 
+        WHERE e.numericMood = :moodValue
+    """)
+    suspend fun getVectorsByNumericMood(moodValue: Double): List<ByteArray>
 
     @Query("DELETE FROM entries")
     suspend fun clearAllEntries()
@@ -36,6 +61,12 @@ interface DiaryDao {
         clearAllVectors()
         clearAllEntries()
     }
+
+    @Query("SELECT * FROM app_settings WHERE id = 0")
+    suspend fun getSettings(): AppSettings?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveSettings(settings: AppSettings)
 
     fun floatArrayToByteArray(floats: FloatArray): ByteArray {
         val buffer = java.nio.ByteBuffer.allocate(floats.size * 4)
