@@ -20,7 +20,7 @@ import java.nio.channels.FileChannel
 class SentenceEmbedder(
     private val context: Context,
     private val modelFile: String = "sentence_encoder.tflite",
-    private val vocabFile: String = "vocab.txt",
+    vocabFile: String = "vocab.txt",
     private val maxLen: Int = 64
 ) {
     private var interpreter: Interpreter? = null
