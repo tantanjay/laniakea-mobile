@@ -10,7 +10,8 @@ data class DiaryEntry(
     val dateTime: Long,
     val content: String,
     val mood: String,
-    val numericMood: Double = 0.0
+    val numericMood: Double = 0.0,
+    val latentVibe: Double = 0.0
 )
 
 @Entity(
