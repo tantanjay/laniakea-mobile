@@ -81,11 +81,11 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
     private suspend fun calibrateAnchors() {
         val dao = db.diaryDao()
-        val joyVectors = dao.getVectorsByNumericMood(2.0)    // "Awesome"
-        val sadVectors = dao.getVectorsByNumericMood(-2.0)   // "Terrible"
+        // Limit to most recent 20 entries per mood for performance and relevance
+        val joyVectors = dao.getRecentVectorsByNumericMood(2.0, 20)    // "Awesome"
+        val sadVectors = dao.getRecentVectorsByNumericMood(-2.0, 20)   // "Terrible"
 
         // Only calibrate if we have enough personal data for a stable mean
-        // 5 is a good balance for faster personalization
         if (joyVectors.size >= 5 && sadVectors.size >= 5) {
             val avgJoy = calculateAverageVector(joyVectors.map { dao.byteArrayToFloatArray(it) })
             val avgSad = calculateAverageVector(sadVectors.map { dao.byteArrayToFloatArray(it) })
@@ -198,9 +198,10 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 calibrateAnchors()
             }
 
-            val entries = dao.getAllEntries()
-            val manualValues = entries.map { it.numericMood.toFloat() }
-            val aiValues = entries.map { it.latentVibe.toFloat() }
+            // Optimization: Only fetch the scores, not the full encrypted content/blobs
+            val scores = dao.getAllMoodScores()
+            val manualValues = scores.map { it.numericMood.toFloat() }
+            val aiValues = scores.map { it.latentVibe.toFloat() }
             
             val oldest = dao.getOldestTimestamp()
             val year = if (oldest != null) {

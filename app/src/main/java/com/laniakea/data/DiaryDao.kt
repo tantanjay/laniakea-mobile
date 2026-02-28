@@ -7,6 +7,11 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
 
+data class MoodScores(
+    val numericMood: Double,
+    val latentVibe: Double
+)
+
 @Dao
 interface DiaryDao {
     @Insert
@@ -26,6 +31,9 @@ interface DiaryDao {
 
     @Query("SELECT * FROM entries ORDER BY dateTime ASC")
     suspend fun getAllEntries(): List<DiaryEntry>
+
+    @Query("SELECT numericMood, latentVibe FROM entries ORDER BY dateTime ASC")
+    suspend fun getAllMoodScores(): List<MoodScores>
 
     @Query("SELECT * FROM entries WHERE isVectorized = 0")
     suspend fun getUnprocessedEntries(): List<DiaryEntry>
@@ -47,8 +55,10 @@ interface DiaryDao {
         FROM vectors v 
         JOIN entries e ON v.entryId = e.id 
         WHERE e.numericMood = :moodValue
+        ORDER BY e.dateTime DESC
+        LIMIT :limit
     """)
-    suspend fun getVectorsByNumericMood(moodValue: Double): List<ByteArray>
+    suspend fun getRecentVectorsByNumericMood(moodValue: Double, limit: Int): List<ByteArray>
 
     @Query("DELETE FROM entries")
     suspend fun clearAllEntries()
