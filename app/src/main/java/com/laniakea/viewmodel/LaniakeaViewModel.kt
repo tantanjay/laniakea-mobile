@@ -1,6 +1,7 @@
 package com.laniakea.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -127,7 +128,26 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch(Dispatchers.IO) {
             val encryptedContent = securityManager.encrypt(content)
             val encryptedMood = securityManager.encrypt(mood)
-            
+
+            if (isEngineActive) {
+                val vector = embedder.embed(content)
+                if (vector != null) {
+                    val aiVibe = VibeEngine.calculateVibeScore(vector)
+                    val entry = DiaryEntry(
+                        dateTime = System.currentTimeMillis(),
+                        content = encryptedContent,
+                        mood = encryptedMood,
+                        numericMood = numericMood,
+                        latentVibe = aiVibe.toDouble(),
+                        isVectorized = true
+                    )
+                    db.diaryDao().insertEntryWithVector(entry, vector)
+                    refreshData()
+                    return@launch
+                }
+            }
+
+            // Fallback: save without vectorization if engine is not active or embedding fails
             val entry = DiaryEntry(
                 dateTime = System.currentTimeMillis(),
                 content = encryptedContent,
@@ -152,9 +172,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             missing.forEach { entry ->
                 try {
                     val decryptedContent = securityManager.decrypt(entry.content)
-                    val vector = suspendCancellableCoroutine { continuation ->
-                        embedder.embedAsync(decryptedContent) { result -> continuation.resume(result) }
-                    }
+                    val vector = embedder.embed(decryptedContent)
                     
                     if (vector != null) {
                         val aiVibe = VibeEngine.calculateVibeScore(vector)
@@ -202,7 +220,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             val scores = dao.getAllMoodScores()
             val manualValues = scores.map { it.numericMood.toFloat() }
             val aiValues = scores.map { it.latentVibe.toFloat() }
-            
+
             val oldest = dao.getOldestTimestamp()
             val year = if (oldest != null) {
                 val cal = Calendar.getInstance()
@@ -276,9 +294,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                         System.currentTimeMillis()
                     }
 
-                    val vector = suspendCancellableCoroutine { continuation ->
-                        embedder.embedAsync(content) { result -> continuation.resume(result) }
-                    }
+                    val vector = embedder.embed(content)
 
                     if (vector != null) {
                         val encryptedContent = securityManager.encrypt(content)
