@@ -200,8 +200,12 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             if (isEngineActive) calibrateAnchors()
 
             val scores = dao.getAllMoodScores()
-            val manualValues = scores.map { it.numericMood.toFloat() }
-            val aiValues = scores.map { it.latentVibe.toFloat() }
+            scores.forEach { it.numericMood.toFloat() }
+            scores.forEach { it.latentVibe.toFloat() }
+
+            // --- DAILY AGGREGATE for stable trend ---
+            val manualDaily = aggregateByDay(scores.map { it.dateTime to it.numericMood.toFloat() })
+            val aiDaily = aggregateByDay(scores.map { it.dateTime to it.latentVibe.toFloat() })
 
             val oldest = dao.getOldestTimestamp()
             val year = if (oldest != null) {
@@ -211,13 +215,38 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             } else LocalDate.now().year.toString()
 
             withContext(Dispatchers.Main) {
-                manualMomentum = calculateMomentum(manualValues)
-                aiMomentum = calculateMomentum(aiValues)
+                val manual = calculateMomentum(manualDaily, 7)
+                val ai = calculateMomentum(aiDaily, 7)
+
+                // Update ViewModel state
+                manualMomentum = Triple(
+                    manual.first,
+                    manual.second,
+                    manual.third.takeLast(30)
+                )
+
+                aiMomentum = Triple(
+                    ai.first,
+                    ai.second,
+                    ai.third.takeLast(30)
+                )
+
                 vibeYear = year
                 if (tagline == "Analyzing your cosmic vibes...") {
                     generateTagline(year)
                 }
             }
+        }
+    }
+
+    /** Aggregate multiple entries per day to average value */
+    private fun aggregateByDay(values: List<Pair<Long, Float>>): List<Float> {
+        val cal = Calendar.getInstance()
+        return values.groupBy { (timestamp, _) ->
+            cal.timeInMillis = timestamp
+            "${cal.get(Calendar.YEAR)}-${cal.get(Calendar.MONTH)}-${cal.get(Calendar.DAY_OF_MONTH)}"
+        }.map { (_, dayValues) ->
+            dayValues.map { it.second }.average().toFloat()
         }
     }
 
@@ -272,19 +301,79 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         tagline = templates.random()(year)
     }
 
-    fun calculateMomentum(values: List<Float>, span: Int = 7): Triple<Float, String, List<Float>> {
+    /**
+     * calculateMomentum
+     *
+     * Computes a robust momentum score for a series of emotional/mood values.
+     *
+     * This function is designed for general-purpose emotional tracking. It balances
+     * responsiveness to recent trends with stability, reducing the impact of
+     * single outlier entries (e.g., an unusually bad or good mood) while still
+     * capturing sustained trends.
+     *
+     * Key features:
+     * 1. Computes deltas between consecutive mood entries.
+     * 2. Uses median and MAD (Median Absolute Deviation) to suppress extreme outliers.
+     * 3. Normalizes deltas based on volatility to handle high-variance periods.
+     * 4. Applies EMA (Exponential Moving Average) for trend smoothing.
+     * 5. Produces a score in the range -100..100 and a qualitative status label.
+     *
+     * Parameters:
+     * - values: List of mood/emotion values (Float). Can be any scale (0–10, -5–5, etc.).
+     * - span: EMA span for smoothing. Larger span → smoother, slower-reacting momentum.
+     * - outlierMultiplier: Multiplier for MAD to define what counts as an outlier.
+     *
+     * Returns:
+     * - Triple<Float, String, List<Float>>:
+     *      1. score: Smoothed momentum score (-100 to 100).
+     *      2. status: Qualitative label ("STABLE", "IMPROVING", etc.).
+     *      3. trend: List of EMA values representing the momentum trend over time.
+     */
+    fun calculateMomentum(
+        values: List<Float>,
+        span: Int = 21,
+        outlierMultiplier: Float = 3f
+    ): Triple<Float, String, List<Float>> {
+
         if (values.size < 2) return Triple(0f, "STABLE", emptyList())
+
+        // 1. Compute deltas
         val deltas = mutableListOf(0f)
         for (i in 1 until values.size) deltas.add(values[i] - values[i - 1])
+
+        // 2. Compute median and MAD for outlier detection
+        val sortedDeltas = deltas.sorted()
+        val median = sortedDeltas[sortedDeltas.size / 2]
+        val mad = sortedDeltas.map { kotlin.math.abs(it - median) }.sorted()[sortedDeltas.size / 2].coerceAtLeast(0.001f)
+
+        // 3. Outlier suppression: reduce influence of extreme deltas
+        val filteredDeltas = deltas.map { delta ->
+            val deviation = delta - median
+            if (kotlin.math.abs(deviation) > outlierMultiplier * mad) {
+                median + deviation.coerceIn(-1.5f * mad, 1.5f * mad)
+            } else delta
+        }
+
+        // 4. Optional: volatility normalization
+        val volatility = filteredDeltas.maxOrNull()!! - filteredDeltas.minOrNull()!!
+        val normalizedDeltas = if (volatility > 0f) {
+            filteredDeltas.map { it / volatility }  // scale -1..1
+        } else filteredDeltas
+
+        // 5. EMA smoothing
         val alpha = 2f / (span + 1f)
         val trend = mutableListOf<Float>()
-        var ema = deltas[0]
+        var ema = normalizedDeltas[0]
         trend.add(ema)
-        for (i in 1 until deltas.size) {
-            ema = (deltas[i] * alpha) + (ema * (1f - alpha))
+        for (i in 1 until normalizedDeltas.size) {
+            ema = normalizedDeltas[i] * alpha + ema * (1f - alpha)
             trend.add(ema)
         }
+
+        // 6. Map EMA to -100..100 score
         val score = (ema * 100f).coerceIn(-100f, 100f)
+
+        // 7. Status mapping
         val status = listOf(
             -20f to "SHARP DECLINE",
             -5f to "DECLINING",
@@ -292,6 +381,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             20f to "IMPROVING",
             101f to "STRONG UPTURN"
         ).first { score < it.first }.second
+
         return Triple(score, status, trend)
     }
 
@@ -301,7 +391,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             withContext(Dispatchers.IO) {
                 val dao = db.diaryDao()
                 dao.clearDatabase()
-                val lines = getApplication<Application>().assets.open("dummy.csv").bufferedReader().use { it.readLines() }
+                val lines = getApplication<Application>().assets.open("real.csv").bufferedReader().use { it.readLines() }
                 val dataLines = lines.filter { it.isNotBlank() && !it.startsWith("date,") }
                 val dateFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                 dataLines.forEachIndexed { index, line ->

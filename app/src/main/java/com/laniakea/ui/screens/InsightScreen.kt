@@ -53,7 +53,9 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         manualScore = vm.manualMomentum.first,
                         manualStatus = vm.manualMomentum.second,
                         aiScore = vm.aiMomentum.first,
-                        aiStatus = vm.aiMomentum.second
+                        aiStatus = vm.aiMomentum.second,
+                        manualTrend = vm.manualMomentum.third,
+                        aiTrend = vm.aiMomentum.third
                     )
                 }
             }
