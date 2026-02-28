@@ -62,7 +62,7 @@ fun HomeScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     ) {
         Spacer(modifier = Modifier.height(12.dp))
         
-        HeaderSection()
+        HeaderSection(vm.userName)
 
         // Journal Input Card with AI Vibe
         MainInputCard(
@@ -95,10 +95,10 @@ fun HomeScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 }
 
 @Composable
-fun HeaderSection() {
+fun HeaderSection(userName: String) {
     Column {
         Text(
-            "Hello, Traveller",
+            "Hello, $userName",
             style = MaterialTheme.typography.headlineLarge.copy(
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -281,8 +281,7 @@ fun AnalysisStatusCard(vm: LaniakeaViewModel) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                    verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "Journal Analysis",
                         style = MaterialTheme.typography.titleSmall,

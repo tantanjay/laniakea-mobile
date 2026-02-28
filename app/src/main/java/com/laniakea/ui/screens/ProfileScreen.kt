@@ -68,12 +68,12 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "Laniakea Traveller", 
+            text = vm.userName,
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Analyzing your cosmic vibes since ${vm.vibeYear}",
+            text = vm.tagline,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -97,7 +97,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 
                 ListItem(
                     headlineContent = { Text("Neural Auto-Initialize") },
-                    supportingContent = { Text("Initialize the core engine on startup", style = MaterialTheme.typography.labelMedium) },
+                    supportingContent = { Text("Starts the core engine automatically on launch", style = MaterialTheme.typography.labelMedium) },
                     trailingContent = {
                         Switch(
                             checked = vm.autoLoadEnabled,
