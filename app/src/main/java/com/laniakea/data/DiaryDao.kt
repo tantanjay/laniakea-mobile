@@ -9,6 +9,7 @@ import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 data class MoodScores(
+    val dateTime: Long,
     val numericMood: Double,
     val latentVibe: Double
 )
@@ -33,7 +34,7 @@ interface DiaryDao {
     @Query("SELECT * FROM entries ORDER BY dateTime ASC")
     suspend fun getAllEntries(): List<DiaryEntry>
 
-    @Query("SELECT numericMood, latentVibe FROM entries ORDER BY dateTime ASC")
+    @Query("SELECT dateTime, numericMood, latentVibe FROM entries WHERE isVectorized = 1 ORDER BY dateTime ASC")
     suspend fun getAllMoodScores(): List<MoodScores>
 
     @Query("SELECT * FROM entries WHERE isVectorized = 0")

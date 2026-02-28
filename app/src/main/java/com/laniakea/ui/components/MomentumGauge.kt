@@ -26,7 +26,9 @@ fun MomentumGauge(
     manualScore: Float,
     manualStatus: String,
     aiScore: Float,
-    aiStatus: String
+    aiStatus: String,
+    manualTrend: List<Float> = emptyList(),
+    aiTrend: List<Float> = emptyList()
 ) {
     val animatedManualScore by animateFloatAsState(
         targetValue = manualScore,
@@ -56,7 +58,7 @@ fun MomentumGauge(
                 val radius = size.width / 2 - 30f
                 val strokeWidth = 28f
 
-                // 1. Soft Background Glow
+                // --- Soft Background Glow ---
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(Color.Gray.copy(alpha = 0.05f), Color.Transparent),
@@ -66,7 +68,7 @@ fun MomentumGauge(
                     center = center
                 )
 
-                // 2. Track Background
+                // --- Track Background ---
                 drawArc(
                     color = Color.LightGray.copy(alpha = 0.1f),
                     startAngle = 180f,
@@ -75,13 +77,12 @@ fun MomentumGauge(
                     style = Stroke(strokeWidth, cap = StrokeCap.Round)
                 )
 
-                // 3. Colored Segments (Gradient-style transition)
+                // --- Colored Segments (Decline / Stable / Improving) ---
                 val sections = listOf(
-                    Triple(180f, 60f, Color(0xFFE91E63)), // Decline (Crimson/Pink)
-                    Triple(240f, 60f, Color.LightGray),    // Stable
-                    Triple(300f, 60f, Color(0xFF00E676))  // Improving (Spring Green)
+                    Triple(180f, 60f, Color(0xFFE91E63)),
+                    Triple(240f, 60f, Color.LightGray),
+                    Triple(300f, 60f, Color(0xFF00E676))
                 )
-
                 sections.forEach { (start, sweep, color) ->
                     drawArc(
                         color = color.copy(alpha = 0.35f),
@@ -92,16 +93,55 @@ fun MomentumGauge(
                     )
                 }
 
-                // 4. Needles
-                // Shadow for manual needle
+                fun drawMiniTrend(trend: List<Float>, color: Color) {
+                    if (trend.isEmpty()) return
+
+                    val graphHeight = radius * 0.35f
+                    val graphRadius = radius - strokeWidth - 12f
+                    val scaledTrend = trend.map { it * graphHeight }
+                    val stepAngle = 180f / (scaledTrend.size - 1).coerceAtLeast(1)
+
+                    val pathPoints = scaledTrend.mapIndexed { i, value ->
+                        val angle = 180f + i * stepAngle
+                        val rad = Math.toRadians(angle.toDouble())
+                        Offset(
+                            center.x + (graphRadius + value) * cos(rad).toFloat(),
+                            center.y + (graphRadius + value) * sin(rad).toFloat()
+                        )
+                    }
+
+                    // Glow line
+                    for (i in 0 until pathPoints.size - 1) {
+                        drawLine(
+                            color = color.copy(alpha = 0.2f),
+                            start = pathPoints[i],
+                            end = pathPoints[i + 1],
+                            strokeWidth = 6f,
+                            cap = StrokeCap.Round
+                        )
+                    }
+
+                    // Main line
+                    for (i in 0 until pathPoints.size - 1) {
+                        drawLine(
+                            color = color.copy(alpha = 0.7f),
+                            start = pathPoints[i],
+                            end = pathPoints[i + 1],
+                            strokeWidth = 3f,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                }
+
+                drawMiniTrend(aiTrend, Color(0xFFFFA500))
+                drawMiniTrend(manualTrend, Color(0xFF00BCD4))
+
+                // --- Needles ---
                 drawNeedle(animatedManualScore, center, radius, Color.Black.copy(alpha = 0.2f), 14f, offset = 4f)
-                // Manual Needle (Perceive Mood)
                 drawNeedle(animatedManualScore, center, radius, Color.Cyan, 12f)
-                
-                // AI Needle (Latent Sentiment)
                 drawNeedle(animatedAiScore, center, radius * 0.78f, Color(0xFFBB86FC), 8f)
 
-                // 5. Center Pivot
+                // --- Center Pivot ---
                 drawCircle(color = Color(0xFF212121), radius = 20f, center = center)
                 drawCircle(color = Color.DarkGray, radius = 12f, center = center)
                 drawCircle(color = Color.LightGray, radius = 4f, center = center)
