@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
+import kotlinx.coroutines.flow.Flow
 
 data class MoodScores(
     val numericMood: Double,
@@ -74,6 +75,9 @@ interface DiaryDao {
 
     @Query("SELECT * FROM app_settings WHERE id = 0")
     suspend fun getSettings(): AppSettings?
+
+    @Query("SELECT * FROM app_settings WHERE id = 0")
+    fun getSettingsFlow(): Flow<AppSettings?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveSettings(settings: AppSettings)

@@ -7,7 +7,8 @@ import androidx.room.ForeignKey
 @Entity(tableName = "app_settings")
 data class AppSettings(
     @PrimaryKey val id: Int = 0,
-    val autoLoadEngine: Boolean = false
+    val autoLoadEngine: Boolean = false,
+    val userName: String = ""
 )
 
 @Entity(tableName = "entries")

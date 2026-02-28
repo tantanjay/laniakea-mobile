@@ -1,7 +1,6 @@
 package com.laniakea.viewmodel
 
 import android.app.Application
-import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -16,10 +15,9 @@ import com.laniakea.engine.SentenceEmbedder
 import com.laniakea.engine.VibeEngine
 import com.laniakea.security.SecurityManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.resume
-import kotlinx.coroutines.suspendCancellableCoroutine
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.util.Calendar
@@ -31,6 +29,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     private val securityManager = SecurityManager(application)
 
     // UI State
+    var userName by mutableStateOf("Traveller")
     var manualMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
     var aiMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
     var isImporting by mutableStateOf(false)
@@ -40,6 +39,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var isEngineLoading by mutableStateOf(false)
     var autoLoadEnabled by mutableStateOf(false)
     var vibeYear by mutableStateOf("2025")
+    var tagline by mutableStateOf("Analyzing your cosmic vibes...")
 
     // Processing State
     var totalEntries by mutableIntStateOf(0)
@@ -47,17 +47,22 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var isProcessing by mutableStateOf(false)
 
     init {
-        loadSettings()
+        observeSettings()
         observeEngineStatus()
         refreshData()
     }
 
-    private fun loadSettings() {
+    private fun observeSettings() {
         viewModelScope.launch {
-            val settings = db.diaryDao().getSettings()
-            autoLoadEnabled = settings?.autoLoadEngine ?: false
-            if (autoLoadEnabled) {
-                initializeEngine()
+            db.diaryDao().getSettingsFlow().collectLatest { settings ->
+                settings?.let {
+                    autoLoadEnabled = it.autoLoadEngine
+                    userName = it.userName.takeIf { name -> name.isNotEmpty() } ?: "Traveller"
+                    
+                    if (autoLoadEnabled && !isEngineActive && !isEngineLoading) {
+                        initializeEngine()
+                    }
+                }
             }
         }
     }
@@ -68,11 +73,8 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 isEngineActive = isReady
                 isEngineLoading = false
                 if (isReady) {
-                    // Set default anchors first
                     VibeEngine.joyAnchor = embedder.embed("I feel incredibly happy, fulfilled, and optimistic.")
                     VibeEngine.distressAnchor = embedder.embed("I feel miserable, exhausted, and hopeless.")
-
-                    // Attempt personalization
                     withContext(Dispatchers.IO) { calibrateAnchors() }
                     refreshData()
                 }
@@ -82,15 +84,12 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
     private suspend fun calibrateAnchors() {
         val dao = db.diaryDao()
-        // Limit to most recent 20 entries per mood for performance and relevance
-        val joyVectors = dao.getRecentVectorsByNumericMood(2.0, 20)    // "Awesome"
-        val sadVectors = dao.getRecentVectorsByNumericMood(-2.0, 20)   // "Terrible"
+        val joyVectors = dao.getRecentVectorsByNumericMood(2.0, 20)
+        val sadVectors = dao.getRecentVectorsByNumericMood(-2.0, 20)
 
-        // Only calibrate if we have enough personal data for a stable mean
         if (joyVectors.size >= 5 && sadVectors.size >= 5) {
             val avgJoy = calculateAverageVector(joyVectors.map { dao.byteArrayToFloatArray(it) })
             val avgSad = calculateAverageVector(sadVectors.map { dao.byteArrayToFloatArray(it) })
-
             VibeEngine.joyAnchor = avgJoy
             VibeEngine.distressAnchor = avgSad
         }
@@ -118,9 +117,9 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun toggleAutoLoad(enabled: Boolean) {
-        autoLoadEnabled = enabled
         viewModelScope.launch {
-            db.diaryDao().saveSettings(AppSettings(autoLoadEngine = enabled))
+            val currentSettings = db.diaryDao().getSettings() ?: AppSettings()
+            db.diaryDao().saveSettings(currentSettings.copy(autoLoadEngine = enabled))
         }
     }
 
@@ -147,7 +146,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 }
             }
 
-            // Fallback: save without vectorization if engine is not active or embedding fails
             val entry = DiaryEntry(
                 dateTime = System.currentTimeMillis(),
                 content = encryptedContent,
@@ -163,32 +161,21 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
     fun processMissingEntries() {
         if (isProcessing || !isEngineActive) return
-        
         viewModelScope.launch(Dispatchers.IO) {
             isProcessing = true
             val dao = db.diaryDao()
             val missing = dao.getUnprocessedEntries()
-            
             missing.forEach { entry ->
                 try {
                     val decryptedContent = securityManager.decrypt(entry.content)
                     val vector = embedder.embed(decryptedContent)
-                    
                     if (vector != null) {
                         val aiVibe = VibeEngine.calculateVibeScore(vector)
-                        val updatedEntry = entry.copy(
-                            latentVibe = aiVibe.toDouble(),
-                            isVectorized = true
-                        )
+                        val updatedEntry = entry.copy(latentVibe = aiVibe.toDouble(), isVectorized = true)
                         dao.updateEntry(updatedEntry)
-                        dao.insertVector(SentenceVector(
-                            entryId = entry.id,
-                            vector = dao.floatArrayToByteArray(vector)
-                        ))
+                        dao.insertVector(SentenceVector(entryId = entry.id, vector = dao.floatArrayToByteArray(vector)))
                     }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+                } catch (e: Exception) { e.printStackTrace() }
                 refreshProcessingStats()
             }
             isProcessing = false
@@ -210,13 +197,8 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch(Dispatchers.IO) {
             refreshProcessingStats()
             val dao = db.diaryDao()
-            
-            // Recalibrate anchors if possible before calculating scores
-            if (isEngineActive) {
-                calibrateAnchors()
-            }
+            if (isEngineActive) calibrateAnchors()
 
-            // Optimization: Only fetch the scores, not the full encrypted content/blobs
             val scores = dao.getAllMoodScores()
             val manualValues = scores.map { it.numericMood.toFloat() }
             val aiValues = scores.map { it.latentVibe.toFloat() }
@@ -232,28 +214,76 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 manualMomentum = calculateMomentum(manualValues)
                 aiMomentum = calculateMomentum(aiValues)
                 vibeYear = year
+                if (tagline == "Analyzing your cosmic vibes...") {
+                    generateTagline(year)
+                }
             }
         }
     }
 
+    private fun generateTagline(year: String) {
+        val templates: List<(String) -> String> = listOf(
+            // Calm & Reflective
+            { y -> "Finding patterns in your entries since $y" },
+            { y -> "Uncovering trends from your journal since $y" },
+            { y -> "Connecting insights across your entries since $y" },
+            { y -> "Learning from your 기록 since $y" },
+            { y -> "Reading between the lines since $y" },
+            { y -> "Quietly learning from your entries since $y" },
+            { y -> "A quiet witness to your journey since $y" },
+            { y -> "Holding space for your reflections since $y" },
+            { y -> "Listening to the rhythm of your heart since $y" },
+            { y -> "Your silent partner in reflection since $y" },
+            { y -> "Tracing the threads of your story since $y" },
+            { y -> "A mirror to your evolving self since $y" },
+            { y -> "Capturing the essence of your days since $y" },
+            
+            // Witty & Funny
+            { y -> "Making sense of your entries since $y" },
+            { y -> "Knowing you better than your future self since $y" },
+            { y -> "Overthinking your overthinking since $y" },
+            { y -> "Your diary's favorite eavesdropper since $y" },
+            { y -> "The only one who actually reads these since $y" },
+            { y -> "Knowing exactly what you did last summer (and $y)" },
+            { y -> "Decoding your cosmic chaos since $y" },
+            { y -> "Keeping your secrets (mostly) since $y" },
+            { y -> "Tracing patterns in your thoughts since $y" },
+            { y -> "Analyzing your character arc since $y" },
+            { y -> "Archiving your adventures and misadventures since $y" },
+            { y -> "Your digital confidante (and occasional critic) since $y" },
+            { y -> "Remembering what you forgot since $y" },
+            
+            // Playful & Cosmic
+            { y -> "Stargazing through your memories since $y" },
+            { y -> "Translating your late-night thoughts since $y" },
+            { y -> "Sifting through your cosmic crumbs since $y" },
+            { y -> "Dancing with your data since $y" },
+            { y -> "Floating through your reflections since $y" },
+            { y -> "Whispering to your inner universe since $y" },
+            { y -> "Mapping your emotional nebula since $y" },
+            { y -> "Charting your orbit through the emotional galaxy since $y" },
+            { y -> "Chasing shooting stars in your journal since $y" },
+            { y -> "Building a constellation out of your moods since $y" },
+            { y -> "Observing how things evolve since $y" },
+            { y -> "Navigating your inner labyrinth since $y" },
+            { y -> "Seeing the magic in your mundane since $y" },
+            { y -> "Your personal time capsule since $y" }
+        )
+        tagline = templates.random()(year)
+    }
+
     fun calculateMomentum(values: List<Float>, span: Int = 7): Triple<Float, String, List<Float>> {
         if (values.size < 2) return Triple(0f, "STABLE", emptyList())
-
         val deltas = mutableListOf(0f)
-        for (i in 1 until values.size) {
-            deltas.add(values[i] - values[i - 1])
-        }
-
+        for (i in 1 until values.size) deltas.add(values[i] - values[i - 1])
         val alpha = 2f / (span + 1f)
         val trend = mutableListOf<Float>()
         var ema = deltas[0]
         trend.add(ema)
-
         for (i in 1 until deltas.size) {
             ema = (deltas[i] * alpha) + (ema * (1f - alpha))
             trend.add(ema)
         }
-
         val score = (ema * 100f).coerceIn(-100f, 100f)
         val status = listOf(
             -20f to "SHARP DECLINE",
@@ -262,7 +292,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             20f to "IMPROVING",
             101f to "STRONG UPTURN"
         ).first { score < it.first }.second
-
         return Triple(score, status, trend)
     }
 
@@ -275,7 +304,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 val lines = getApplication<Application>().assets.open("dummy.csv").bufferedReader().use { it.readLines() }
                 val dataLines = lines.filter { it.isNotBlank() && !it.startsWith("date,") }
                 val dateFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-
                 dataLines.forEachIndexed { index, line ->
                     val parts = line.split(",")
                     val (dateString, content, mood) = when {
@@ -287,45 +315,19 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                         }
                         else -> Triple(parts[0].trim(), parts[1].trim(), parts[2].trim())
                     }
-
-                    val timestamp = try {
-                        dateFormatter.parse(dateString)?.time ?: System.currentTimeMillis()
-                    } catch (_: Exception) {
-                        System.currentTimeMillis()
-                    }
-
+                    val timestamp = runCatching { dateFormatter.parse(dateString)?.time ?: System.currentTimeMillis() }.getOrDefault(System.currentTimeMillis())
                     val vector = embedder.embed(content)
-
                     if (vector != null) {
                         val encryptedContent = securityManager.encrypt(content)
                         val encryptedMood = securityManager.encrypt(mood)
-
                         val numericMood = when (mood.trim()) {
-                            "Awesome" -> 2.0
-                            "Good" -> 1.0
-                            "Fine" -> 0.0
-                            "Bad" -> -1.0
-                            "Terrible" -> -2.0
-                            else -> 0.0
+                            "Awesome" -> 2.0; "Good" -> 1.0; "Fine" -> 0.0; "Bad" -> -1.0; "Terrible" -> -2.0; else -> 0.0
                         }
-                        
-                        // We use default anchors for initial import calculation
-                        // or recalibrate after a batch
                         val aiVibe = VibeEngine.calculateVibeScore(vector)
-                        val entry = DiaryEntry(
-                            dateTime = timestamp,
-                            content = encryptedContent,
-                            mood = encryptedMood,
-                            numericMood = numericMood,
-                            latentVibe = aiVibe.toDouble(),
-                            isVectorized = true
-                        )
+                        val entry = DiaryEntry(dateTime = timestamp, content = encryptedContent, mood = encryptedMood, numericMood = numericMood, latentVibe = aiVibe.toDouble(), isVectorized = true)
                         dao.insertEntryWithVector(entry, vector)
                     }
-
-                    withContext(Dispatchers.Main) {
-                        importProgress = (index + 1) to dataLines.size
-                    }
+                    withContext(Dispatchers.Main) { importProgress = (index + 1) to dataLines.size }
                 }
             }
             refreshData()
