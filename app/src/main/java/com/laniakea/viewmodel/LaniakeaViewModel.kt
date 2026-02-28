@@ -2,26 +2,32 @@ package com.laniakea.viewmodel
 
 import android.app.Application
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.laniakea.data.AppSettings
 import com.laniakea.data.DiaryDatabase
 import com.laniakea.data.DiaryEntry
+import com.laniakea.data.SentenceVector
 import com.laniakea.engine.SentenceEmbedder
 import com.laniakea.engine.VibeEngine
+import com.laniakea.security.SecurityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.text.SimpleDateFormat
+import java.time.LocalDate
+import java.util.Calendar
 import java.util.Locale
 
-// This class handles all logic, making the UI "dumb" and lean
 class LaniakeaViewModel(application: Application) : AndroidViewModel(application) {
     private val db = DiaryDatabase.getDatabase(application)
     private val embedder = SentenceEmbedder(application)
+    private val securityManager = SecurityManager(application)
 
     // UI State
     var manualMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
@@ -29,31 +35,184 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var isImporting by mutableStateOf(false)
     var importProgress by mutableStateOf(0 to 0)
 
+    var isEngineActive by mutableStateOf(false)
+    var isEngineLoading by mutableStateOf(false)
+    var autoLoadEnabled by mutableStateOf(false)
+    var vibeYear by mutableStateOf("2025")
+
+    // Processing State
+    var totalEntries by mutableIntStateOf(0)
+    var unprocessedCount by mutableIntStateOf(0)
+    var isProcessing by mutableStateOf(false)
+
     init {
-        initializeEngine()
+        loadSettings()
+        observeEngineStatus()
+        refreshData()
     }
 
-    private fun initializeEngine() {
+    private fun loadSettings() {
+        viewModelScope.launch {
+            val settings = db.diaryDao().getSettings()
+            autoLoadEnabled = settings?.autoLoadEngine ?: false
+            if (autoLoadEnabled) {
+                initializeEngine()
+            }
+        }
+    }
+
+    private fun observeEngineStatus() {
         viewModelScope.launch {
             embedder.ready.collect { isReady ->
+                isEngineActive = isReady
+                isEngineLoading = false
                 if (isReady) {
+                    // Set default anchors first
                     VibeEngine.joyAnchor = embedder.embed("I feel incredibly happy, fulfilled, and optimistic.")
                     VibeEngine.distressAnchor = embedder.embed("I feel miserable, exhausted, and hopeless.")
+
+                    // Attempt personalization
+                    withContext(Dispatchers.IO) { calibrateAnchors() }
                     refreshData()
                 }
             }
         }
     }
 
+    private suspend fun calibrateAnchors() {
+        val dao = db.diaryDao()
+        val joyVectors = dao.getVectorsByNumericMood(2.0)    // "Awesome"
+        val sadVectors = dao.getVectorsByNumericMood(-2.0)   // "Terrible"
+
+        // Only calibrate if we have enough personal data for a stable mean
+        // 5 is a good balance for faster personalization
+        if (joyVectors.size >= 5 && sadVectors.size >= 5) {
+            val avgJoy = calculateAverageVector(joyVectors.map { dao.byteArrayToFloatArray(it) })
+            val avgSad = calculateAverageVector(sadVectors.map { dao.byteArrayToFloatArray(it) })
+
+            VibeEngine.joyAnchor = avgJoy
+            VibeEngine.distressAnchor = avgSad
+        }
+    }
+
+    private fun calculateAverageVector(vectors: List<FloatArray>): FloatArray {
+        if (vectors.isEmpty()) return FloatArray(0)
+        val size = vectors[0].size
+        val avg = FloatArray(size)
+        for (vector in vectors) {
+            for (i in 0 until size) {
+                avg[i] += vector[i]
+            }
+        }
+        for (i in 0 until size) {
+            avg[i] /= vectors.size.toFloat()
+        }
+        return avg
+    }
+
+    fun initializeEngine() {
+        if (isEngineActive || isEngineLoading) return
+        isEngineLoading = true
+        embedder.initialize()
+    }
+
+    fun toggleAutoLoad(enabled: Boolean) {
+        autoLoadEnabled = enabled
+        viewModelScope.launch {
+            db.diaryDao().saveSettings(AppSettings(autoLoadEngine = enabled))
+        }
+    }
+
+    fun addDiaryEntry(content: String, mood: String, numericMood: Double) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val encryptedContent = securityManager.encrypt(content)
+            val encryptedMood = securityManager.encrypt(mood)
+            
+            val entry = DiaryEntry(
+                dateTime = System.currentTimeMillis(),
+                content = encryptedContent,
+                mood = encryptedMood,
+                numericMood = numericMood,
+                latentVibe = 0.0,
+                isVectorized = false
+            )
+            db.diaryDao().insertEntry(entry)
+            refreshData()
+        }
+    }
+
+    fun processMissingEntries() {
+        if (isProcessing || !isEngineActive) return
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            isProcessing = true
+            val dao = db.diaryDao()
+            val missing = dao.getUnprocessedEntries()
+            
+            missing.forEach { entry ->
+                try {
+                    val decryptedContent = securityManager.decrypt(entry.content)
+                    val vector = suspendCancellableCoroutine { continuation ->
+                        embedder.embedAsync(decryptedContent) { result -> continuation.resume(result) }
+                    }
+                    
+                    if (vector != null) {
+                        val aiVibe = VibeEngine.calculateVibeScore(vector)
+                        val updatedEntry = entry.copy(
+                            latentVibe = aiVibe.toDouble(),
+                            isVectorized = true
+                        )
+                        dao.updateEntry(updatedEntry)
+                        dao.insertVector(SentenceVector(
+                            entryId = entry.id,
+                            vector = dao.floatArrayToByteArray(vector)
+                        ))
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                refreshProcessingStats()
+            }
+            isProcessing = false
+            refreshData()
+        }
+    }
+
+    private suspend fun refreshProcessingStats() {
+        val dao = db.diaryDao()
+        val total = dao.getTotalEntriesCount()
+        val unprocessed = dao.getUnprocessedEntriesCount()
+        withContext(Dispatchers.Main) {
+            totalEntries = total
+            unprocessedCount = unprocessed
+        }
+    }
+
     fun refreshData() {
         viewModelScope.launch(Dispatchers.IO) {
-            val entries = db.diaryDao().getAllEntries()
+            refreshProcessingStats()
+            val dao = db.diaryDao()
+            
+            // Recalibrate anchors if possible before calculating scores
+            if (isEngineActive) {
+                calibrateAnchors()
+            }
+
+            val entries = dao.getAllEntries()
             val manualValues = entries.map { it.numericMood.toFloat() }
             val aiValues = entries.map { it.latentVibe.toFloat() }
+            
+            val oldest = dao.getOldestTimestamp()
+            val year = if (oldest != null) {
+                val cal = Calendar.getInstance()
+                cal.timeInMillis = oldest
+                cal.get(Calendar.YEAR).toString()
+            } else LocalDate.now().year.toString()
 
             withContext(Dispatchers.Main) {
                 manualMomentum = calculateMomentum(manualValues)
                 aiMomentum = calculateMomentum(aiValues)
+                vibeYear = year
             }
         }
     }
@@ -61,7 +220,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     fun calculateMomentum(values: List<Float>, span: Int = 7): Triple<Float, String, List<Float>> {
         if (values.size < 2) return Triple(0f, "STABLE", emptyList())
 
-        // It doesn't care if these values are Manual labels or AI vibes anymore
         val deltas = mutableListOf(0f)
         for (i in 1 until values.size) {
             deltas.add(values[i] - values[i - 1])
@@ -111,7 +269,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                         else -> Triple(parts[0].trim(), parts[1].trim(), parts[2].trim())
                     }
 
-                    // 2. Convert "2025-01-01" to Long timestamp
                     val timestamp = try {
                         dateFormatter.parse(dateString)?.time ?: System.currentTimeMillis()
                     } catch (_: Exception) {
@@ -123,6 +280,9 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     }
 
                     if (vector != null) {
+                        val encryptedContent = securityManager.encrypt(content)
+                        val encryptedMood = securityManager.encrypt(mood)
+
                         val numericMood = when (mood.trim()) {
                             "Awesome" -> 2.0
                             "Good" -> 1.0
@@ -131,13 +291,17 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                             "Terrible" -> -2.0
                             else -> 0.0
                         }
+                        
+                        // We use default anchors for initial import calculation
+                        // or recalibrate after a batch
                         val aiVibe = VibeEngine.calculateVibeScore(vector)
                         val entry = DiaryEntry(
                             dateTime = timestamp,
-                            content = content,
-                            mood = mood,
+                            content = encryptedContent,
+                            mood = encryptedMood,
                             numericMood = numericMood,
-                            latentVibe = aiVibe.toDouble()
+                            latentVibe = aiVibe.toDouble(),
+                            isVectorized = true
                         )
                         dao.insertEntryWithVector(entry, vector)
                     }

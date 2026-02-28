@@ -3,8 +3,8 @@ package com.laniakea.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBox
-import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.*
@@ -21,14 +21,14 @@ enum class AppDestinations(
     val icon: ImageVector,
 ) {
     HOME("Home", Icons.Default.Home),
-    FAVORITES("Favorites", Icons.Default.AddCircle),
+    INSIGHTS("Insights", Icons.Default.Info),
     PROFILE("Profile", Icons.Default.AccountBox),
 }
 
 @Composable
 fun LaniakeaApp(vm: LaniakeaViewModel = viewModel()) {
     // Explicitly specifying the type for rememberSaveable to fix inference errors
-    var currentDestination by rememberSaveable { mutableStateOf<AppDestinations>(AppDestinations.HOME) }
+    var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
 
     NavigationSuiteScaffold(
         navigationSuiteItems = {
@@ -46,8 +46,8 @@ fun LaniakeaApp(vm: LaniakeaViewModel = viewModel()) {
             modifier = Modifier.fillMaxSize(),
         ) { paddingValues ->
             when (currentDestination) {
-                AppDestinations.HOME -> DashboardScreen(paddingValues, vm)
-                AppDestinations.FAVORITES -> FavoritesScreen(paddingValues)
+                AppDestinations.HOME -> HomeScreen(paddingValues, vm)
+                AppDestinations.INSIGHTS -> InsightScreen(paddingValues, vm)
                 AppDestinations.PROFILE -> ProfileScreen(paddingValues, vm)
             }
         }

@@ -12,21 +12,29 @@ import com.laniakea.ui.components.MomentumGauge
 import com.laniakea.ui.components.InsightBox
 
 @Composable
-fun DashboardScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
+fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(padding) // Respects System Bars
+            .padding(padding)
             .padding(16.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         Text(
-            "Dashboard",
+            text = "Insights",
             style = MaterialTheme.typography.headlineMedium
         )
 
-        // 1. Momentum Visualization
+        // Insights Card
+        InsightBox(
+            manualScore = vm.manualMomentum.first,
+            manualStatus = vm.manualMomentum.second,
+            aiScore = vm.aiMomentum.first,
+            aiStatus = vm.aiMomentum.second
+        )
+
+        // Sentiment Trajectory
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("Sentiment Trajectory", style = MaterialTheme.typography.titleMedium)
@@ -37,23 +45,6 @@ fun DashboardScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     aiStatus = vm.aiMomentum.second
                 )
             }
-        }
-
-        // 2. Insight Section
-        InsightBox(
-            manualScore = vm.manualMomentum.first,
-            manualStatus = vm.manualMomentum.second,
-            aiScore = vm.aiMomentum.first,
-            aiStatus = vm.aiMomentum.second
-        )
-
-        // 3. Technical Stats (Example of lean dashboard content)
-        Card(modifier = Modifier.fillMaxWidth()) {
-            ListItem(
-                headlineContent = { Text("Database Status") },
-                supportingContent = { Text("System ready for new entries") },
-                trailingContent = { Text("OK", color = MaterialTheme.colorScheme.primary) }
-            )
         }
     }
 }
