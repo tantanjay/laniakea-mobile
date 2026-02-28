@@ -9,10 +9,15 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.AddCircle
@@ -22,6 +27,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
@@ -36,26 +42,32 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.laniakea.data.DiaryDatabase
 import com.laniakea.data.DiaryEntry
 import com.laniakea.engine.SentenceEmbedder
+import com.laniakea.engine.VibeEngine
 import com.laniakea.ui.theme.LaniakeaTheme
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.coroutines.resume
+import kotlin.math.cos
+import kotlin.math.sin
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,7 +81,17 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Change this function
+fun mapMoodToValue(mood: String): Double {
+    return when (mood.trim()) {
+        "Awesome" -> 2.0
+        "Good" -> 1.0
+        "Fine" -> 0.0
+        "Bad" -> -1.0
+        "Terrible" -> -2.0
+        else -> 0.0
+    }
+}
+
 suspend fun saveDiaryEntry(
     context: Context,
     content: String,
@@ -79,16 +101,20 @@ suspend fun saveDiaryEntry(
 ) = withContext(Dispatchers.IO) {
     val db = DiaryDatabase.getDatabase(context)
     val dao = db.diaryDao()
-    val numericMood: Double = embedding.map { it.toDouble() }.average().coerceIn(-2.0, 2.0)
+
+    val aiVibeScore = VibeEngine.calculateVibeScore(embedding)
+    val manualMoodScore = mapMoodToValue(mood)
+
     val entry = DiaryEntry(
         dateTime = dateTime,
         content = content,
         mood = mood,
-        numericMood = numericMood
+        numericMood = manualMoodScore,
+        latentVibe = aiVibeScore.toDouble()
     )
-    dao.insertEntryWithVector(entry, embedding)
 
-    Log.d("DB", "Entry saved successfully")
+    dao.insertEntryWithVector(entry, embedding)
+    Log.d("DB", "Saved: $mood ($manualMoodScore) | AI Vibe: $aiVibeScore")
 }
 
 @Composable
@@ -106,22 +132,36 @@ fun EmbeddingTestScreen() {
     val scope = rememberCoroutineScope()
 
     val db = remember { DiaryDatabase.getDatabase(context) }
-    var momentumData by remember { mutableStateOf(Triple(0.0, "STABLE", emptyList<Double>())) }
+    var momentumData: Triple<Float, String, List<Float>> by remember {
+        mutableStateOf(Triple(0f, "STABLE", emptyList()))
+    }
+    var aiResult: Triple<Float, String, List<Float>> by remember {
+        mutableStateOf(Triple(0f, "STABLE", emptyList()))
+    }
 
     LaunchedEffect(Unit) {
-        Log.d("MOMENTUM", "Computing momentum from numericMood...")
+        embedder.ready.collect { isReady ->
+            if (isReady) {
+                VibeEngine.joyAnchor = embedder.embed("I feel incredibly happy, fulfilled, and optimistic.")
+                VibeEngine.distressAnchor = embedder.embed("I feel miserable, exhausted, and hopeless.")
+                Log.d("VIBE", "Anchors initialized successfully")
+            }
+        }
+    }
 
+    LaunchedEffect(Unit) {
         val entries = db.diaryDao().getAllEntries()
 
-        // 1️⃣ Extract numericMood
-        val numericMoods = entries.map { it.numericMood }
+        val manualValues = entries.map { it.numericMood.toFloat() }
+        momentumData = calculateMomentum(manualValues)
 
-        // 2️⃣ Compute momentum
-        momentumData = calculateMomentumFromNumeric(numericMoods)
+        val aiValues = entries.map { it.latentVibe.toFloat() }
+        aiResult = calculateMomentum(aiValues)
 
         Log.d(
             "MOMENTUM",
-            "Score: %.6f, Status: %s".format(momentumData.first, momentumData.second)
+            "Entries: %d : MANUAL : Score: %.6f, Status: %s : AI : Score: %.6f, Status: %s "
+                .format(entries.size, momentumData.first, momentumData.second, aiResult.first, aiResult.second)
         )
     }
 
@@ -140,16 +180,13 @@ fun EmbeddingTestScreen() {
 
         Button(onClick = {
             embedder.embedAsync(inputText) { embedding ->
-                // 1. Check if embedding was successful
                 if (embedding == null) {
                     Log.e("UI", "Embedding failed or model not loaded yet")
                     return@embedAsync
                 }
 
-                // 2. Update UI state
                 embeddingResult = embedding
 
-                // 3. Save to DB using the vector we ALREADY generated
                 scope.launch {
                     saveDiaryEntry(context, inputText, "Good", embedding)
                 }
@@ -180,13 +217,13 @@ fun EmbeddingTestScreen() {
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
-        // Show the Gauge!
-        MomentumGauge(score = momentumData.first, status = momentumData.second)
+        MomentumScreen(
+            momentumData,
+            aiResult
+        )
 
-        // --- Progress Display ---
         if (isImporting) {
             Text("Processing: $currentProgress out of $totalItems")
-            // Optional: Add a LinearProgressIndicator here
         }
 
         embeddingResult?.let { vector ->
@@ -200,130 +237,35 @@ fun EmbeddingTestScreen() {
     }
 }
 
-fun calculateMomentumFromNumeric(numericMoods: List<Double>, span: Int = 7): Triple<Double, String, List<Double>> {
-    if (numericMoods.size < 2) return Triple(0.0, "STABLE", emptyList())
+fun calculateMomentum(values: List<Float>, span: Int = 7): Triple<Float, String, List<Float>> {
+    if (values.size < 2) return Triple(0f, "STABLE", emptyList())
 
-    // Compute deltas
-    val deltas = mutableListOf<Double>()
-    for (i in 1 until numericMoods.size) {
-        deltas.add(numericMoods[i] - numericMoods[i - 1])
+    // It doesn't care if these values are Manual labels or AI vibes anymore
+    val deltas = mutableListOf(0f)
+    for (i in 1 until values.size) {
+        deltas.add(values[i] - values[i - 1])
     }
 
-    // EMA: alpha = 2/(span+1)
-    val alpha = 2.0 / (span + 1.0)
-    var ema = 0.0
-    val trend = mutableListOf<Double>()
-    deltas.forEach { delta ->
-        ema = alpha * delta + (1 - alpha) * ema
-        trend.add(ema)
-    }
-
-    val score = (ema * 100.0).coerceIn(-100.0, 100.0)
-
-    // Python-style status
-    val statusMap = listOf(
-        -20.0 to "SHARP DECLINE",
-        -5.0 to "DECLINING",
-        5.0 to "STABLE",
-        20.0 to "IMPROVING",
-        101.0 to "STRONG UPTURN"
-    )
-    val status = statusMap.first { score < it.first }.second
-
-    return Triple(score, status, trend)
-}
-
-suspend fun computeMoodNumeric(
-    embedder: SentenceEmbedder,
-    entry: DiaryEntry
-): Double {
-    // 1️⃣ Embed the text
-    val embedding = embedder.embed(entry.content) ?: return 0.0
-
-    // 2️⃣ Linear projection to numeric mood [-2,2] approximation
-    // Python model likely has trained weights; here we simulate with a simple weighted sum
-    val weights = DoubleArray(embedding.size) { 1.0 / embedding.size } // uniform weights
-    var mood = 0.0
-    for (i in embedding.indices) {
-        mood += embedding[i].toDouble() * weights[i]
-    }
-
-    // 3️⃣ Clip to [-2,2]
-    return mood.coerceIn(-2.0, 2.0)
-}
-
-fun calculateMomentumPythonStyle(
-    entries: List<DiaryEntry>,
-    span: Int = 7
-): Triple<Float, String, List<Float>> {
-    if (entries.size < 2) return Triple(0f, "STABLE", emptyList())
-
-    // 1️⃣ Mood mapping
-    val moodMap = mapOf("Terrible" to -2f, "Bad" to -1f, "Fine" to 0f, "Good" to 1f, "Awesome" to 2f)
-    val numericMoods = entries.map { moodMap[it.mood] ?: 0f }
-
-    // 2️⃣ Compute day-to-day deltas
-    val deltas = mutableListOf<Float>()
-    for (i in 1 until numericMoods.size) {
-        deltas.add(numericMoods[i] - numericMoods[i - 1])
-    }
-
-    // 3️⃣ Compute EMA (alpha = 2 / (span + 1)) like pandas ewm(span=7)
-    val alpha = 2f / (span + 1f)  // 2 / (7 + 1) = 0.25
+    val alpha = 2f / (span + 1f)
     val trend = mutableListOf<Float>()
-    var ema = 0f
-    deltas.forEach { delta ->
-        ema = alpha * delta + (1 - alpha) * ema
+    var ema = deltas[0]
+    trend.add(ema)
+
+    for (i in 1 until deltas.size) {
+        ema = (deltas[i] * alpha) + (ema * (1f - alpha))
         trend.add(ema)
     }
 
-    // 4️⃣ Scale and clip
     val score = (ema * 100f).coerceIn(-100f, 100f)
-
-    // 5️⃣ Python-style status mapping
-    val statusMap = listOf(
+    val status = listOf(
         -20f to "SHARP DECLINE",
         -5f to "DECLINING",
         5f to "STABLE",
         20f to "IMPROVING",
         101f to "STRONG UPTURN"
-    )
-
-    val status = statusMap.first { score < it.first }.second
+    ).first { score < it.first }.second
 
     return Triple(score, status, trend)
-}
-
-fun calculateMomentum(entries: List<DiaryEntry>): Pair<Float, String> {
-    if (entries.size < 2) return 0f to "STABLE"
-
-    val moodMap = mapOf("Terrible" to -2f, "Bad" to -1f, "Fine" to 0f, "Good" to 1f, "Awesome" to 2f)
-
-    // 1. Get numeric values and calculate deltas (differences between days)
-    val numericMoods = entries.map { moodMap[it.mood] ?: 0f }
-    val deltas = mutableListOf<Float>()
-    for (i in 1 until numericMoods.size) {
-        deltas.add(numericMoods[i] - numericMoods[i - 1])
-    }
-
-    // 2. Simple EMA (Alpha 0.3 is roughly a 7-day span)
-    var ema = 0f
-    val alpha = 0.3f
-    deltas.forEach { delta ->
-        ema = alpha * delta + (1 - alpha) * ema
-    }
-
-    // 3. Scale and Status
-    val score = (ema * 100f).coerceIn(-100f, 100f)
-    val status = when {
-        score < -20 -> "SHARP DECLINE"
-        score < -5 -> "DECLINING"
-        score < 5 -> "STABLE"
-        score < 20 -> "IMPROVING"
-        else -> "STRONG UPTURN"
-    }
-
-    return score to status
 }
 
 suspend fun importCsvData(
@@ -346,34 +288,38 @@ suspend fun importCsvData(
     dataLines.forEachIndexed { index, line ->
         // Use a limit in split to ensure content with commas doesn't break everything
         val parts = line.split(",")
-
-        if (parts.size >= 3) {
-            val dateString = parts[0].trim()
-            val content = parts[1].trim()
-            val mood = parts[2].trim()
-
-            // 2. Convert "2025-01-01" to Long timestamp
-            val timestamp = try {
-                dateFormatter.parse(dateString)?.time ?: System.currentTimeMillis()
-            } catch (_: Exception) {
-                System.currentTimeMillis()
+        val (dateString, content, mood) = when {
+            line.contains("\"") -> {
+                // Handle: 2025-01-14,"Honestly, missing...",Good
+                val date = line.substringBefore(",")
+                val m = line.substringAfterLast(",").trim()
+                val c = line.substringAfter(",").substringBeforeLast(",").trim().removeSurrounding("\"")
+                Triple(date, c, m)
             }
+            else -> Triple(parts[0].trim(), parts[1].trim(), parts[2].trim())
+        }
 
-            val vector = suspendCancellableCoroutine { continuation ->
-                embedder.embedAsync(content) { result ->
-                    continuation.resume(result)
-                }
-            }
+        // 2. Convert "2025-01-01" to Long timestamp
+        val timestamp = try {
+            dateFormatter.parse(dateString)?.time ?: System.currentTimeMillis()
+        } catch (_: Exception) {
+            System.currentTimeMillis()
+        }
 
-            if (vector != null) {
-                saveDiaryEntry(
-                    context = context,
-                    content = content,
-                    mood = mood,
-                    embedding = vector,
-                    dateTime = timestamp
-                )
+        val vector = suspendCancellableCoroutine { continuation ->
+            embedder.embedAsync(content) { result ->
+                continuation.resume(result)
             }
+        }
+
+        if (vector != null) {
+            saveDiaryEntry(
+                context = context,
+                content = content,
+                mood = mood,
+                embedding = vector,
+                dateTime = timestamp
+            )
         }
 
         withContext(Dispatchers.Main) {
@@ -383,52 +329,212 @@ suspend fun importCsvData(
 }
 
 @Composable
-fun MomentumGauge(score: Double, status: String) {
+fun MomentumGauge(
+    manualScore: Double,
+    manualStatus: String,
+    aiScore: Double,
+    aiStatus: String
+) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(text = "7-Day Momentum: $status", style = MaterialTheme.typography.titleMedium)
+        // Primary focus: The user's input
+        Text(
+            text = "Perceived Mood: $manualStatus",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+        )
+        Text(
+            text = "(How you felt)",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.Gray
+        )
 
-        Canvas(modifier = Modifier.size(250.dp, 130.dp).padding(16.dp)) {
-            val strokeWidth = 40f
+        Spacer(modifier = Modifier.height(4.dp))
 
-            // 1. Draw Static Background Segments (The "Meter" background)
-            // Left: Crimson (Negative range)
+        // Secondary focus: The AI's insight
+        Text(
+            text = "Latent Sentiment: $aiStatus",
+            style = MaterialTheme.typography.titleSmall,
+            color = Color(0xFFBB86FC)
+        )
+        Text(
+            text = "(How you wrote)",
+            style = MaterialTheme.typography.bodySmall, // Or a smaller font size
+            color = Color(0xFFBB86FC).copy(alpha = 0.7f)
+        )
+
+        Canvas(modifier = Modifier.size(280.dp, 150.dp).padding(16.dp)) {
+            val strokeWidth = 35f
+            val center = Offset(size.width / 2, size.height)
+            val radius = size.width / 2
+
+            // 1. DRAW BACKGROUND METER SEGMENTS
+            // Total range is 200 units (-100 to 100). Total degrees is 180.
+            // Degree per unit = 180 / 200 = 0.9
+
+            // SHARP DECLINE (-100 to -20) -> 80 units * 0.9 = 72 degrees
             drawArc(
-                color = Color(0xFFDC143C).copy(alpha = 0.2f),
+                color = Color(0xFFDC143C).copy(alpha = 0.3f), // Crimson
                 startAngle = 180f,
-                sweepAngle = 45f, // Covers -100 to -50
+                sweepAngle = 72f,
                 useCenter = false,
                 style = Stroke(strokeWidth, cap = StrokeCap.Butt)
             )
 
-            // Right: SpringGreen (Positive range)
+            // DECLINING (-20 to -5) -> 15 units * 0.9 = 13.5 degrees
             drawArc(
-                color = Color(0xFF00FF7F).copy(alpha = 0.2f),
-                startAngle = 315f,
-                sweepAngle = 45f, // Covers 50 to 100
+                color = Color(0xFFFF4500).copy(alpha = 0.3f), // OrangeRed
+                startAngle = 252f,
+                sweepAngle = 13.5f,
                 useCenter = false,
                 style = Stroke(strokeWidth, cap = StrokeCap.Butt)
             )
 
-            // 2. Draw the actual Indicator (The "Needle")
-            // Map -100..100 to 0..180 degrees
-            val indicatorAngle: Double = ((score + 100) / 200) * 180f
-
+            // STABLE (-5 to 5) -> 10 units * 0.9 = 9 degrees
             drawArc(
-                color = when {
-                    score < -20 -> Color(0xFFDC143C)
-                    score > 20 -> Color(0xFF00FF7F)
-                    else -> Color.White
-                },
-                startAngle = 180f,
-                sweepAngle = indicatorAngle.toFloat(),
+                color = Color.White.copy(alpha = 0.3f), // Neutral
+                startAngle = 265.5f,
+                sweepAngle = 9f,
                 useCenter = false,
-                style = Stroke(strokeWidth, cap = StrokeCap.Round)
+                style = Stroke(strokeWidth, cap = StrokeCap.Butt)
             )
+
+            // IMPROVING (5 to 20) -> 15 units * 0.9 = 13.5 degrees
+            drawArc(
+                color = Color(0xFFADFF2F).copy(alpha = 0.3f), // GreenYellow
+                startAngle = 274.5f,
+                sweepAngle = 13.5f,
+                useCenter = false,
+                style = Stroke(strokeWidth, cap = StrokeCap.Butt)
+            )
+
+            // STRONG UPTURN (20 to 100) -> 80 units * 0.9 = 72 degrees
+            drawArc(
+                color = Color(0xFF00FF7F).copy(alpha = 0.3f), // SpringGreen
+                startAngle = 288f,
+                sweepAngle = 72f,
+                useCenter = false,
+                style = Stroke(strokeWidth, cap = StrokeCap.Butt)
+            )
+
+            // 2. DRAW NEEDLES
+            drawNeedle(manualScore, center, radius, Color.Blue, strokeWidth = 10f)
+            drawNeedle(aiScore, center, radius * 0.75f, Color(0xFFBB86FC), strokeWidth = 7f)
+
+            // Pivot center
+            drawCircle(color = Color.DarkGray, radius = 15f, center = center)
         }
     }
+}
+
+fun getDivergenceInsight(
+    manualScore: Float,
+    manualStatus: String,
+    aiScore: Float,
+    aiStatus: String
+): String {
+    return when {
+        // Case 1: Perfect Alignment
+        manualStatus == aiStatus -> "Your self-perception and writing style are perfectly in sync today."
+
+        // Case 2: Positive Masking (Blue needle high, Purple needle low)
+        manualScore > 10 && aiScore < 5 ->
+            "Insight: You're pushing for a positive outlook, but your words suggest a more cautious, stable pace."
+
+        // Case 3: Subconscious Optimism (Purple needle higher than Blue)
+        aiScore > manualScore + 15 ->
+            "Insight: Your writing carries more optimism than you're giving yourself credit for!"
+
+        // Case 4: Critical Divergence (Manual is Good, AI is Bad)
+        manualScore > 0 && aiScore < -15 ->
+            "Alert: There's a notable gap between your reported mood and your writing context. Consider a self-care break."
+
+        // Default/Neutral
+        else -> "You are maintaining a steady balance between your reported feelings and your inner context."
+    }
+}
+
+@Composable
+fun MomentumScreen(manualMomentum: Triple<Float, String, Any>, aiMomentum: Triple<Float, String, Any>) {
+    val manualScore = manualMomentum.first
+    val aiScore = aiMomentum.first
+
+    val insight = remember(manualScore, aiScore) {
+        getDivergenceInsight(manualScore, manualMomentum.second, aiScore, aiMomentum.second)
+    }
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        MomentumGauge(
+            manualScore = manualScore.toDouble(),
+            manualStatus = manualMomentum.second,
+            aiScore = aiScore.toDouble(),
+            aiStatus = aiMomentum.second
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // THE INSIGHT BOX
+        Surface(
+            color = Color(0xFFBB86FC).copy(alpha = 0.1f), // Light purple tint
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "💡", fontSize = 20.sp)
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = insight,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "Technical Note: While the system successfully identifies divergence between perceived and latent mood, the current model assumes a linear projection of the 768-dimensional space. Future iterations could utilize a personalized calibration layer to account for individual linguistic nuances.",
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                fontStyle = FontStyle.Italic,
+                textAlign = TextAlign.Center
+            ),
+            color = Color.Gray.copy(alpha = 0.6f),
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+    }
+}
+
+// Helper function to handle the math for needle placement
+fun DrawScope.drawNeedle(
+    score: Double,
+    center: Offset,
+    length: Float,
+    color: Color,
+    strokeWidth: Float
+) {
+    // Map score (-100..100) to angle (180..360 degrees)
+    // -100 is 180 degrees (Left)
+    // 0 is 270 degrees (Top)
+    // 100 is 360 degrees (Right)
+    val angleInDegrees = 180f + ((score + 100f) / 200f * 180f).toFloat()
+    val angleInRadians = Math.toRadians(angleInDegrees.toDouble())
+
+    val endX = center.x + length * cos(angleInRadians).toFloat()
+    val endY = center.y + length * sin(angleInRadians).toFloat()
+
+    drawLine(
+        color = color,
+        start = center,
+        end = Offset(endX, endY),
+        strokeWidth = strokeWidth,
+        cap = StrokeCap.Round
+    )
 }
 
 @Composable
