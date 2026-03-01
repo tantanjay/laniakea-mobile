@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -46,6 +47,10 @@ fun MomentumGauge(
         label = "aiScore"
     )
 
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val tertiaryColor = MaterialTheme.colorScheme.tertiary
+    val onSurfaceColor = MaterialTheme.colorScheme.onSurface
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -66,7 +71,7 @@ fun MomentumGauge(
                 // --- Soft Background Glow ---
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color.Gray.copy(alpha = 0.05f), Color.Transparent),
+                        colors = listOf(onSurfaceColor.copy(alpha = 0.05f), Color.Transparent),
                         center = center,
                         radius = radius * 1.5f
                     ),
@@ -75,7 +80,7 @@ fun MomentumGauge(
 
                 // --- Track Background ---
                 drawArc(
-                    color = Color.LightGray.copy(alpha = 0.1f),
+                    color = onSurfaceColor.copy(alpha = 0.1f),
                     startAngle = 180f,
                     sweepAngle = 180f,
                     useCenter = false,
@@ -84,9 +89,9 @@ fun MomentumGauge(
 
                 // --- Colored Segments (Decline / Stable / Improving) ---
                 val sections = listOf(
-                    Triple(180f, 60f, Color(0xFFE91E63)),
-                    Triple(240f, 60f, Color.LightGray),
-                    Triple(300f, 60f, Color(0xFF00E676))
+                    Triple(180f, 60f, Color(0xFFE91E63)), // Red-ish for decline
+                    Triple(240f, 60f, onSurfaceColor.copy(alpha = 0.2f)), // Neutral
+                    Triple(300f, 60f, Color(0xFF00E676)) // Green-ish for improvement
                 )
                 sections.forEach { (start, sweep, color) ->
                     drawArc(
@@ -138,18 +143,18 @@ fun MomentumGauge(
                     }
                 }
 
-                drawMiniTrend(aiTrend, Color(0xFFFFA500))
-                drawMiniTrend(manualTrend, Color(0xFF00BCD4))
+                drawMiniTrend(aiTrend, tertiaryColor)
+                drawMiniTrend(manualTrend, primaryColor)
 
                 // --- Needles ---
-                drawNeedle(animatedManualScore, center, radius, Color.Black.copy(alpha = 0.2f), 14f, offset = 4f)
-                drawNeedle(animatedManualScore, center, radius, Color.Cyan, 12f)
-                drawNeedle(animatedAiScore, center, radius * 0.78f, Color(0xFFBB86FC), 8f)
+                drawNeedle(animatedManualScore, center, radius, onSurfaceColor.copy(alpha = 0.15f), 14f, offset = 4f)
+                drawNeedle(animatedManualScore, center, radius, primaryColor, 12f)
+                drawNeedle(animatedAiScore, center, radius * 0.78f, tertiaryColor, 8f)
 
                 // --- Center Pivot ---
-                drawCircle(color = Color(0xFF212121), radius = 20f, center = center)
-                drawCircle(color = Color.DarkGray, radius = 12f, center = center)
-                drawCircle(color = Color.LightGray, radius = 4f, center = center)
+                drawCircle(color = onSurfaceColor.copy(alpha = 0.8f), radius = 20f, center = center)
+                drawCircle(color = onSurfaceColor.copy(alpha = 0.5f), radius = 12f, center = center)
+                drawCircle(color = onSurfaceColor.copy(alpha = 0.2f), radius = 4f, center = center)
             }
         }
 
@@ -166,14 +171,14 @@ fun MomentumGauge(
                 label = "Perceive Mood",
                 subLabel = "(How you felt)",
                 status = manualStatus,
-                color = Color.Cyan,
+                color = primaryColor,
                 modifier = Modifier.weight(1f)
             )
             StatusCard(
                 label = "Latent Sentiment",
                 subLabel = "(How you wrote)",
                 status = aiStatus,
-                color = Color(0xFFBB86FC),
+                color = tertiaryColor,
                 modifier = Modifier.weight(1f)
             )
         }
