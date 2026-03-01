@@ -46,8 +46,6 @@ class SentenceEmbedder(
     fun initialize() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                if (interpreter != null) return@launch
-
                 val settings = db.diaryDao().getSettings()
                 val seed = try {
                     settings?.privacySeed?.let {
@@ -58,10 +56,13 @@ class SentenceEmbedder(
                 }
                 cachedPermutation = generatePermutation(seed)
 
-                val modelBuffer = loadModelFile(modelFile)
-                interpreter = Interpreter(modelBuffer)
-
-                Log.i("SentenceEmbedder", "Model and Privacy Shield initialized")
+                if (interpreter == null) {
+                    val modelBuffer = loadModelFile(modelFile)
+                    interpreter = Interpreter(modelBuffer)
+                    Log.i("SentenceEmbedder", "Model and Privacy Shield initialized")
+                } else {
+                    Log.i("SentenceEmbedder", "Privacy Shield updated with new seed")
+                }
 
                 _ready.emit(true)
             } catch (e: Exception) {

@@ -1,6 +1,11 @@
 package com.laniakea.viewmodel
 
 import android.app.Application
+import android.net.Uri
+import android.util.Base64
+import android.util.JsonReader
+import android.util.JsonWriter
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -19,6 +24,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.util.Calendar
@@ -34,8 +41,15 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var theme by mutableStateOf("PURPLE")
     var manualMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
     var aiMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
+    
+    // Sync states
     var isImporting by mutableStateOf(false)
     var importProgress by mutableStateOf(0 to 0)
+
+    // Vault states
+    var isVaultRestoring by mutableStateOf(false)
+    var isVaultBackingUp by mutableStateOf(false)
+    var vaultProgress by mutableStateOf(0 to 0)
 
     var isEngineActive by mutableStateOf(false)
     var isEngineLoading by mutableStateOf(false)
@@ -226,8 +240,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             if (isEngineActive) calibrateAnchors()
 
             val scores = dao.getAllMoodScores()
-            scores.forEach { it.numericMood.toFloat() }
-            scores.forEach { it.latentVibe.toFloat() }
 
             // --- DAILY AGGREGATE for stable trend ---
             val manualDaily = aggregateByDay(scores.map { it.dateTime to it.numericMood.toFloat() })
@@ -280,21 +292,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         tagline = TaglineTemplates.ALL.random()(year)
     }
 
-    /**
-     * Computes a robust momentum score for a series of emotional/mood values.
-     *
-     * This function is designed for general-purpose emotional tracking. It balances
-     * responsiveness to recent trends with stability, reducing the impact of
-     * single outlier entries (e.g., an unusually bad or good mood) while still
-     * capturing sustained trends.
-     *
-     * Key features:
-     * 1. Computes deltas between consecutive mood entries.
-     * 2. Uses median and MAD (Median Absolute Deviation) to suppress extreme outliers.
-     * 3. Normalizes deltas based on volatility to handle high-variance periods.
-     * 4. Applies EMA (Exponential Moving Average) for trend smoothing.
-     * 5. Produces a score in the range -100..100 and a qualitative status label.
-     */
     fun calculateMomentum(
         values: List<Float>,
         span: Int = 7,
@@ -354,13 +351,230 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         return Triple(score, status, trend)
     }
 
+    fun exportDataStream(uri: Uri, password: String, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.Main) { 
+                isVaultBackingUp = true
+                vaultProgress = 0 to 0 
+            }
+            try {
+                val context = getApplication<Application>()
+                val outputStream = context.contentResolver.openOutputStream(uri) ?: throw Exception("Failed to open URI")
+                
+                val encryptedStream = securityManager.getEncryptingStream(outputStream, password.toCharArray())
+                val writer = JsonWriter(OutputStreamWriter(encryptedStream, "UTF-8"))
+                
+                writer.beginObject()
+                
+                val dao = db.diaryDao()
+                
+                // Settings
+                val settings = dao.getSettings()
+                if (settings != null) {
+                    writer.name("settings")
+                    writer.beginObject()
+                    writer.name("userName").value(settings.userName)
+                    writer.name("theme").value(settings.theme)
+                    settings.privacySeed?.let {
+                        writer.name("privacySeed").value(securityManager.decrypt(it))
+                    }
+                    writer.endObject()
+                }
+                
+                // Entries
+                writer.name("entries")
+                writer.beginArray()
+                val entries = dao.getAllEntries()
+                val totalCount = entries.size
+                entries.forEachIndexed { index, entry ->
+                    writer.beginObject()
+                    writer.name("id").value(entry.id)
+                    writer.name("dateTime").value(entry.dateTime)
+                    writer.name("content").value(securityManager.decrypt(entry.content))
+                    writer.name("mood").value(securityManager.decrypt(entry.mood))
+                    writer.name("category").value(securityManager.decrypt(entry.category))
+                    writer.name("weather").value(securityManager.decrypt(entry.weather))
+                    writer.name("activities").value(securityManager.decrypt(entry.activities))
+                    writer.name("numericMood").value(entry.numericMood)
+                    writer.name("latentVibe").value(entry.latentVibe)
+                    writer.name("isVectorized").value(entry.isVectorized)
+                    writer.endObject()
+                    withContext(Dispatchers.Main) { vaultProgress = (index + 1) to totalCount }
+                }
+                writer.endArray()
+                
+                // Vectors
+                writer.name("vectors")
+                writer.beginArray()
+                val vectors = dao.getAllVectors()
+                vectors.forEach { vector ->
+                    writer.beginObject()
+                    writer.name("entryId").value(vector.entryId)
+                    writer.name("vector").value(Base64.encodeToString(vector.vector, Base64.DEFAULT))
+                    writer.endObject()
+                }
+                writer.endArray()
+                
+                writer.endObject()
+                writer.close()
+                
+                withContext(Dispatchers.Main) { onComplete(true) }
+            } catch (e: Exception) {
+                e.message?.let { Log.e("LaniakeaViewModel", it) }
+                e.printStackTrace()
+                withContext(Dispatchers.Main) { onComplete(false) }
+            } finally {
+                withContext(Dispatchers.Main) { isVaultBackingUp = false }
+            }
+        }
+    }
+
+    fun importDataStream(uri: Uri, password: String, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.Main) { 
+                isVaultRestoring = true
+                vaultProgress = 0 to 0 
+            }
+            try {
+                val context = getApplication<Application>()
+                val inputStream = context.contentResolver.openInputStream(uri) ?: throw Exception("Failed to open URI")
+                
+                val decryptedStream = securityManager.getDecryptingStream(inputStream, password.toCharArray())
+                val reader = JsonReader(InputStreamReader(decryptedStream, "UTF-8"))
+                
+                val dao = db.diaryDao()
+                dao.clearDatabase()
+                
+                val oldToNewIdMap = mutableMapOf<Long, Long>()
+                
+                reader.beginObject()
+                while (reader.hasNext()) {
+                    when (reader.nextName()) {
+                        "settings" -> {
+                            reader.beginObject()
+                            val currentSettings = dao.getSettings() ?: AppSettings()
+                            var userName = currentSettings.userName
+                            var theme = currentSettings.theme
+                            var privacySeed = currentSettings.privacySeed
+                            
+                            while (reader.hasNext()) {
+                                when (reader.nextName()) {
+                                    "userName" -> userName = reader.nextString()
+                                    "theme" -> theme = reader.nextString()
+                                    "privacySeed" -> privacySeed = securityManager.encrypt(reader.nextString())
+                                    else -> reader.skipValue()
+                                }
+                            }
+                            dao.saveSettings(currentSettings.copy(
+                                userName = userName,
+                                theme = theme,
+                                privacySeed = privacySeed
+                            ))
+                            reader.endObject()
+                        }
+                        "entries" -> {
+                            reader.beginArray()
+                            var count = 0
+                            while (reader.hasNext()) {
+                                reader.beginObject()
+                                var oldId = -1L
+                                var dateTime = 0L
+                                var content = ""
+                                var mood = ""
+                                var category = ""
+                                var weather = ""
+                                var activities = ""
+                                var numericMood = 0.0
+                                var latentVibe = 0.0
+                                var isVectorized = false
+                                
+                                while (reader.hasNext()) {
+                                    when (reader.nextName()) {
+                                        "id" -> oldId = reader.nextLong()
+                                        "dateTime" -> dateTime = reader.nextLong()
+                                        "content" -> content = reader.nextString()
+                                        "mood" -> mood = reader.nextString()
+                                        "category" -> category = reader.nextString()
+                                        "weather" -> weather = reader.nextString()
+                                        "activities" -> activities = reader.nextString()
+                                        "numericMood" -> numericMood = reader.nextDouble()
+                                        "latentVibe" -> latentVibe = reader.nextDouble()
+                                        "isVectorized" -> isVectorized = reader.nextBoolean()
+                                        else -> reader.skipValue()
+                                    }
+                                }
+                                
+                                val entry = DiaryEntry(
+                                    dateTime = dateTime,
+                                    content = securityManager.encrypt(content),
+                                    mood = securityManager.encrypt(mood),
+                                    category = securityManager.encrypt(category),
+                                    weather = securityManager.encrypt(weather),
+                                    activities = securityManager.encrypt(activities),
+                                    numericMood = numericMood,
+                                    latentVibe = latentVibe,
+                                    isVectorized = isVectorized
+                                )
+                                val newId = dao.insertEntry(entry)
+                                if (oldId != -1L) oldToNewIdMap[oldId] = newId
+                                
+                                count++
+                                withContext(Dispatchers.Main) { vaultProgress = count to 0 }
+                                reader.endObject()
+                            }
+                            reader.endArray()
+                        }
+                        "vectors" -> {
+                            reader.beginArray()
+                            while (reader.hasNext()) {
+                                reader.beginObject()
+                                var oldEntryId = -1L
+                                var vectorBase64 = ""
+                                while (reader.hasNext()) {
+                                    when (reader.nextName()) {
+                                        "entryId" -> oldEntryId = reader.nextLong()
+                                        "vector" -> vectorBase64 = reader.nextString()
+                                        else -> reader.skipValue()
+                                    }
+                                }
+                                val newEntryId = oldToNewIdMap[oldEntryId]
+                                if (newEntryId != null && vectorBase64.isNotEmpty()) {
+                                    dao.insertVector(SentenceVector(
+                                        entryId = newEntryId,
+                                        vector = Base64.decode(vectorBase64, Base64.DEFAULT)
+                                    ))
+                                }
+                                reader.endObject()
+                            }
+                            reader.endArray()
+                        }
+                        else -> reader.skipValue()
+                    }
+                }
+                reader.endObject()
+                reader.close()
+                
+                withContext(Dispatchers.Main) {
+                    if (isEngineActive) embedder.initialize()
+                    refreshData()
+                    onComplete(true)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) { onComplete(false) }
+            } finally {
+                withContext(Dispatchers.Main) { isVaultRestoring = false }
+            }
+        }
+    }
+
     fun importDummyData() {
         viewModelScope.launch {
             isImporting = true
             withContext(Dispatchers.IO) {
                 val dao = db.diaryDao()
                 dao.clearDatabase()
-                val lines = getApplication<Application>().assets.open("real.csv").bufferedReader().use { it.readLines() }
+                val lines = getApplication<Application>().assets.open("dummy.csv").bufferedReader().use { it.readLines() }
                 val dataLines = lines.filter { it.isNotBlank() && !it.startsWith("date,") }
                 val dateFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                 dataLines.forEachIndexed { index, line ->

@@ -34,6 +34,9 @@ interface DiaryDao {
     @Query("SELECT * FROM entries ORDER BY dateTime ASC")
     suspend fun getAllEntries(): List<DiaryEntry>
 
+    @Query("SELECT * FROM vectors")
+    suspend fun getAllVectors(): List<SentenceVector>
+
     @Query("SELECT dateTime, numericMood, latentVibe FROM entries WHERE isVectorized = 1 ORDER BY dateTime ASC")
     suspend fun getAllMoodScores(): List<MoodScores>
 
