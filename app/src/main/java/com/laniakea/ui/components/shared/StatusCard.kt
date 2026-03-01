@@ -1,4 +1,4 @@
-package com.laniakea.ui.components
+package com.laniakea.ui.components.shared
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer

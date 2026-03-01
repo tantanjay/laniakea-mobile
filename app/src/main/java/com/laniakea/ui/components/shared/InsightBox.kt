@@ -1,5 +1,6 @@
-package com.laniakea.ui.components
+package com.laniakea.ui.components.shared
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -34,7 +36,7 @@ fun InsightBox(
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
         shape = RoundedCornerShape(24.dp),
         modifier = Modifier.fillMaxWidth(),
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             1.dp,
             MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
         )
@@ -44,7 +46,7 @@ fun InsightBox(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
-                shape = androidx.compose.foundation.shape.CircleShape,
+                shape = CircleShape,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                 modifier = Modifier.size(52.dp)
             ) {
