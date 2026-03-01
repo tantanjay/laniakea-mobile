@@ -2,19 +2,23 @@ package com.laniakea.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.laniakea.viewmodel.LaniakeaViewModel
@@ -89,6 +93,41 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         ) {
             Column(modifier = Modifier.padding(vertical = 8.dp)) {
                 ListItem(
+                    headlineContent = { Text("Visual Persona", fontWeight = FontWeight.SemiBold) },
+                    leadingContent = { Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    ThemeOption(
+                        color = Color(0xFF6750A4), // Purple
+                        selected = vm.theme == "PURPLE",
+                        onClick = { vm.updateTheme("PURPLE") }
+                    )
+                    ThemeOption(
+                        color = Color(0xFF386A20), // Green
+                        selected = vm.theme == "GREEN",
+                        onClick = { vm.updateTheme("GREEN") }
+                    )
+                    ThemeOption(
+                        color = Color(0xFF8B5000), // Orange
+                        selected = vm.theme == "ORANGE",
+                        onClick = { vm.updateTheme("ORANGE") }
+                    )
+                    ThemeOption(
+                        color = Color(0xFF0061A4), // Blue
+                        selected = vm.theme == "BLUE",
+                        onClick = { vm.updateTheme("BLUE") }
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                ListItem(
                     headlineContent = { Text("Laniakea Core Settings", fontWeight = FontWeight.SemiBold) },
                     leadingContent = { Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
                 )
@@ -162,6 +201,36 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun ThemeOption(
+    color: Color,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(color)
+            .clickable(onClick = onClick)
+            .border(
+                width = if (selected) 3.dp else 0.dp,
+                color = if (selected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                shape = CircleShape
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (selected) {
+            Icon(
+                imageVector = Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(24.dp)
             )
         }
     }

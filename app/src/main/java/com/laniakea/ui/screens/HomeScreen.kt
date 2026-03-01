@@ -194,7 +194,7 @@ fun MainInputCard(
             ) {
                 Icon(Icons.Default.AutoAwesome, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Transmit to Archive", fontWeight = FontWeight.Bold)
+                Text("Keep This Thought", fontWeight = FontWeight.Bold)
             }
         }
     }
