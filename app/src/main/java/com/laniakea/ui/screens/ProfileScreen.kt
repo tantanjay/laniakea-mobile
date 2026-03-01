@@ -8,8 +8,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -32,6 +34,7 @@ import com.laniakea.viewmodel.LaniakeaViewModel
 @Composable
 fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val context = LocalContext.current
+    val scrollState = rememberScrollState()
     
     var showExportDialog by remember { mutableStateOf(false) }
     var showImportDialog by remember { mutableStateOf(false) }
@@ -84,6 +87,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         )
                     )
                 )
+                .verticalScroll(scrollState)
                 .padding(padding)
                 .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -233,16 +237,13 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                     ListItem(
-                        headlineContent = { Text("Memory Synchronization") },
+                        headlineContent = { Text("Core Activation") },
                         supportingContent = {
-                            when {
-                                vm.isImporting -> Text("Syncing fragments: ${vm.importProgress.first}/${vm.importProgress.second}")
-                                !vm.isEngineActive -> Text("Core must be active to sync memories")
-                                else -> Text("Reload thought fragments from source")
-                            }
+                            if (!vm.isEngineActive) Text("Core must be active to sync memories")
+                            else Text("Neural engine is currently operational")
                         },
                         trailingContent = {
-                            if (!vm.isEngineActive && !vm.isImporting) {
+                            if (!vm.isEngineActive) {
                                 FilledTonalButton(
                                     onClick = { vm.initializeEngine() },
                                     enabled = !vm.isEngineLoading,
@@ -251,26 +252,14 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                                     Text(if (vm.isEngineLoading) "Wait..." else "Init Core")
                                 }
                             } else {
-                                Button(
-                                    onClick = { vm.importDummyData() },
-                                    enabled = !vm.isImporting && vm.isEngineActive,
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    if (vm.isImporting) {
-                                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                                    } else {
-                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(Modifier.width(8.dp))
-                                        Text("Sync")
-                                    }
-                                }
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             }
                         }
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(32.dp))
 
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),

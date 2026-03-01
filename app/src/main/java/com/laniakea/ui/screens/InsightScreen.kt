@@ -13,8 +13,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.laniakea.viewmodel.LaniakeaViewModel
-import com.laniakea.ui.components.MomentumGauge
-import com.laniakea.ui.components.InsightBox
+import com.laniakea.ui.components.insight.MomentumGauge
+import com.laniakea.ui.components.shared.InsightBox
 
 @Composable
 fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {

@@ -21,15 +21,24 @@ import com.laniakea.engine.SentenceEmbedder
 import com.laniakea.engine.VibeEngine
 import com.laniakea.security.SecurityManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
-import java.text.SimpleDateFormat
 import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
 import java.util.Calendar
-import java.util.Locale
 
 class LaniakeaViewModel(application: Application) : AndroidViewModel(application) {
     private val db = DiaryDatabase.getDatabase(application)
@@ -42,10 +51,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var manualMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
     var aiMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
     
-    // Sync states
-    var isImporting by mutableStateOf(false)
-    var importProgress by mutableStateOf(0 to 0)
-
     // Vault states
     var isVaultRestoring by mutableStateOf(false)
     var isVaultBackingUp by mutableStateOf(false)
@@ -62,10 +67,53 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var unprocessedCount by mutableIntStateOf(0)
     var isProcessing by mutableStateOf(false)
 
+    // Journal Screen State
+    private val _selectedDateRange = MutableStateFlow<Pair<Long, Long>?>(null)
+    val selectedDateRange: StateFlow<Pair<Long, Long>?> = _selectedDateRange.asStateFlow()
+
+    private val _viewingMonth = MutableStateFlow(YearMonth.now())
+    val viewingMonth: StateFlow<YearMonth> = _viewingMonth.asStateFlow()
+
+    val allEntries = db.diaryDao().getAllEntriesFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val filteredEntries = combine(_selectedDateRange, _viewingMonth) { range, month ->
+        range ?: run {
+            val start = month.atDay(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val end = month.atEndOfMonth().atTime(23, 59, 59).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            start to end
+        }
+    }.flatMapLatest { (start, end) ->
+        db.diaryDao().getEntriesInRange(start, end)
+    }.map { entries ->
+        entries.map { it.copy(
+            content = try { securityManager.decrypt(it.content) } catch (_: Exception) { "[Encrypted]" },
+            mood = try { securityManager.decrypt(it.mood) } catch (_: Exception) { "" },
+            category = try { securityManager.decrypt(it.category) } catch (_: Exception) { "" },
+            weather = try { securityManager.decrypt(it.weather) } catch (_: Exception) { "" },
+            activities = try { securityManager.decrypt(it.activities) } catch (_: Exception) { "" }
+        )}
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     init {
         observeSettings()
         observeEngineStatus()
         refreshData()
+    }
+
+    fun setSelectedDateRange(start: Long?, end: Long?) {
+        if (start == null || end == null) {
+            _selectedDateRange.value = null
+        } else {
+            _selectedDateRange.value = minOf(start, end) to maxOf(start, end)
+        }
+    }
+
+    fun setViewingMonth(month: YearMonth) {
+        _viewingMonth.value = month
+        // Reset range selection when changing months to show the new month's entries
+        _selectedDateRange.value = null
     }
 
     private fun observeSettings() {
@@ -565,46 +613,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             } finally {
                 withContext(Dispatchers.Main) { isVaultRestoring = false }
             }
-        }
-    }
-
-    fun importDummyData() {
-        viewModelScope.launch {
-            isImporting = true
-            withContext(Dispatchers.IO) {
-                val dao = db.diaryDao()
-                dao.clearDatabase()
-                val lines = getApplication<Application>().assets.open("dummy.csv").bufferedReader().use { it.readLines() }
-                val dataLines = lines.filter { it.isNotBlank() && !it.startsWith("date,") }
-                val dateFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                dataLines.forEachIndexed { index, line ->
-                    val parts = line.split(",")
-                    val (dateString, content, mood) = when {
-                        line.contains("\"") -> {
-                            val date = line.substringBefore(",")
-                            val m = line.substringAfterLast(",").trim()
-                            val c = line.substringAfter(",").substringBeforeLast(",").trim().removeSurrounding("\"")
-                            Triple(date, c, m)
-                        }
-                        else -> Triple(parts[0].trim(), parts[1].trim(), parts[2].trim())
-                    }
-                    val timestamp = runCatching { dateFormatter.parse(dateString)?.time ?: System.currentTimeMillis() }.getOrDefault(System.currentTimeMillis())
-                    val vector = embedder.embed(content)
-                    if (vector != null) {
-                        val encryptedContent = securityManager.encrypt(content)
-                        val encryptedMood = securityManager.encrypt(mood)
-                        val numericMood = when (mood.trim()) {
-                            "Awesome" -> 2.0; "Good" -> 1.0; "Fine" -> 0.0; "Bad" -> -1.0; "Terrible" -> -2.0; else -> 0.0
-                        }
-                        val aiVibe = VibeEngine.calculateVibeScore(vector)
-                        val entry = DiaryEntry(dateTime = timestamp, content = encryptedContent, mood = encryptedMood, numericMood = numericMood, latentVibe = aiVibe.toDouble(), isVectorized = true)
-                        dao.insertEntryWithVector(entry, vector)
-                    }
-                    withContext(Dispatchers.Main) { importProgress = (index + 1) to dataLines.size }
-                }
-            }
-            refreshData()
-            isImporting = false
         }
     }
 }

@@ -1,9 +1,21 @@
 package com.laniakea.data
 
+import androidx.compose.ui.graphics.Color
+
 data class Alias(
     val name: String,
     val tags: List<String>
 )
+
+fun getMoodColor(value: Double): Color {
+    return when {
+        value > 1.0 -> Color(0xFF00E676)
+        value > 0.0 -> Color(0xFFAEEA00)
+        value > -1.0 -> Color(0xFFFFD600)
+        value > -2.0 -> Color(0xFFFF9100)
+        else -> Color(0xFFFF5252)
+    }
+}
 
 object Aliases {
 

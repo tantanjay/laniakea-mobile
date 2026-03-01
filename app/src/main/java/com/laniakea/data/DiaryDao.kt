@@ -34,6 +34,12 @@ interface DiaryDao {
     @Query("SELECT * FROM entries ORDER BY dateTime ASC")
     suspend fun getAllEntries(): List<DiaryEntry>
 
+    @Query("SELECT * FROM entries ORDER BY dateTime DESC")
+    fun getAllEntriesFlow(): Flow<List<DiaryEntry>>
+
+    @Query("SELECT * FROM entries WHERE dateTime >= :startDate AND dateTime <= :endDate ORDER BY dateTime DESC")
+    fun getEntriesInRange(startDate: Long, endDate: Long): Flow<List<DiaryEntry>>
+
     @Query("SELECT * FROM vectors")
     suspend fun getAllVectors(): List<SentenceVector>
 
