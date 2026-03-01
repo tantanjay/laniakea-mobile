@@ -33,7 +33,8 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         Text(
             text = "Journal History",
             style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
         )
         
         Spacer(modifier = Modifier.height(16.dp))
@@ -56,13 +57,21 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = if (selectedRange == null) "Entries in ${currentMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())}" else "Filtered Selection",
+                text = if (selectedRange == null) {
+                    "Entries in ${currentMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())}"
+                } else {
+                    "Filtered Selection"
+                },
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
             )
             
             if (selectedRange != null) {
-                TextButton(onClick = { vm.setSelectedDateRange(null, null) }) {
+                TextButton(
+                    onClick = { vm.setSelectedDateRange(null, null) },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.secondary)
+                ) {
                     Text("Clear Filter")
                 }
             }
@@ -89,6 +98,7 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     ) {
                         Text(
                             "No entries found for this selection.",
+                            style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }

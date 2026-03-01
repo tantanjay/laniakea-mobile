@@ -1,6 +1,7 @@
 package com.laniakea.data
 
 import androidx.compose.ui.graphics.Color
+import com.laniakea.ui.theme.*
 
 data class Alias(
     val name: String,
@@ -9,11 +10,11 @@ data class Alias(
 
 fun getMoodColor(value: Double): Color {
     return when {
-        value > 1.0 -> Color(0xFF00E676)
-        value > 0.0 -> Color(0xFFAEEA00)
-        value > -1.0 -> Color(0xFFFFD600)
-        value > -2.0 -> Color(0xFFFF9100)
-        else -> Color(0xFFFF5252)
+        value > 1.5 -> MoodAwesome
+        value > 0.5 -> MoodGood
+        value > -0.5 -> MoodFine
+        value > -1.5 -> MoodBad
+        else -> MoodTerrible
     }
 }
 
