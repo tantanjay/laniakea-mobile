@@ -12,10 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.BuildCircle
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,6 +32,10 @@ import com.laniakea.ui.theme.*
 fun HomeScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     var journalText by remember { mutableStateOf("") }
     var selectedMood by remember { mutableStateOf<MoodOption?>(null) }
+    var selectedCategory by remember { mutableStateOf<String?>(null) }
+    var selectedWeather by remember { mutableStateOf<String?>(null) }
+    var selectedActivities by remember { mutableStateOf(setOf<String>()) }
+    var customActivity by remember { mutableStateOf("") }
 
     val moods = listOf(
         MoodOption("Terrible", "😫", -2.0, MoodTerrible),
@@ -42,6 +43,27 @@ fun HomeScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         MoodOption("Fine", "😐", 0.0, MoodFine),
         MoodOption("Good", "🙂", 1.0, MoodGood),
         MoodOption("Awesome", "🤩", 2.0, MoodAwesome)
+    )
+
+    val categories = listOf(
+        SelectOption("Home", "🏠", MaterialTheme.colorScheme.primary),
+        SelectOption("Work", "💼", MaterialTheme.colorScheme.secondary),
+        SelectOption("Social", "👥", Color(0xFFFF4081)),
+        SelectOption("Other", "✨", Color(0xFF7C4DFF))
+    )
+
+    val weatherOptions = listOf(
+        SelectOption("Sunny", "☀️", Color(0xFFFFD600)),
+        SelectOption("Rain", "🌧️", Color(0xFF448AFF)),
+        SelectOption("Cloudy", "☁️", Color(0xFF90A4AE)),
+        SelectOption("Snow", "❄️", Color(0xFF00B0FF))
+    )
+
+    val activityOptions = listOf(
+        SelectOption("Exercise", "🏃", Color(0xFF4CAF50)),
+        SelectOption("Meeting", "🤝", Color(0xFFFF9800)),
+        SelectOption("Relax", "🧘", Color(0xFF9C27B0)),
+        SelectOption("Travel", "✈️", Color(0xFF00BCD4))
     )
 
     Column(
@@ -71,15 +93,44 @@ fun HomeScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             moods = moods,
             selectedMood = selectedMood,
             onMoodSelect = { selectedMood = it },
+            categories = categories,
+            selectedCategory = selectedCategory,
+            onCategorySelect = { selectedCategory = it },
+            weatherOptions = weatherOptions,
+            selectedWeather = selectedWeather,
+            onWeatherSelect = { selectedWeather = it },
+            activityOptions = activityOptions,
+            selectedActivities = selectedActivities,
+            onActivityToggle = { activity ->
+                selectedActivities = if (selectedActivities.contains(activity)) {
+                    selectedActivities - activity
+                } else {
+                    selectedActivities + activity
+                }
+            },
+            customActivity = customActivity,
+            onCustomActivityChange = { customActivity = it },
+            onAddCustomActivity = {
+                if (customActivity.isNotBlank()) {
+                    selectedActivities = selectedActivities + customActivity.trim()
+                    customActivity = ""
+                }
+            },
             onSave = {
                 if (journalText.isNotBlank() && selectedMood != null) {
                     vm.addDiaryEntry(
                         content = journalText,
                         mood = selectedMood!!.name,
-                        numericMood = selectedMood!!.value
+                        numericMood = selectedMood!!.value,
+                        category = selectedCategory ?: "",
+                        weather = selectedWeather ?: "",
+                        activities = selectedActivities.joinToString(", ")
                     )
                     journalText = ""
                     selectedMood = null
+                    selectedActivities = emptySet()
+                    selectedCategory = null
+                    selectedWeather = null
                 }
             }
         )
@@ -119,8 +170,22 @@ fun MainInputCard(
     moods: List<MoodOption>,
     selectedMood: MoodOption?,
     onMoodSelect: (MoodOption) -> Unit,
+    categories: List<SelectOption>,
+    selectedCategory: String?,
+    onCategorySelect: (String) -> Unit,
+    weatherOptions: List<SelectOption>,
+    selectedWeather: String?,
+    onWeatherSelect: (String) -> Unit,
+    activityOptions: List<SelectOption>,
+    selectedActivities: Set<String>,
+    onActivityToggle: (String) -> Unit,
+    customActivity: String,
+    onCustomActivityChange: (String) -> Unit,
+    onAddCustomActivity: () -> Unit,
     onSave: () -> Unit
 ) {
+    var showMoreDetails by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -152,7 +217,7 @@ fun MainInputCard(
                 onValueChange = onTextChange,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 160.dp),
+                    .heightIn(min = 120.dp),
                 placeholder = { Text("What's on your mind? Safe to write.", color = Color.Gray) },
                 shape = RoundedCornerShape(16.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -161,22 +226,91 @@ fun MainInputCard(
                 )
             )
 
-            Text(
-                "How does it feel?",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-            )
+            // Mood Selection
+            SelectionSection("How does it feel?", moods.map { it.toSelectOption() }, selectedMood?.name) { 
+                val mood = moods.find { m -> m.name == it }
+                if (mood != null) onMoodSelect(mood)
+            }
 
-            Row(
+            // Expandable details section
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                moods.forEach { mood ->
-                    MoodEmoji(
-                        option = mood,
-                        isSelected = selectedMood == mood,
-                        onSelect = { onMoodSelect(mood) }
+                TextButton(
+                    onClick = { showMoreDetails = !showMoreDetails },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text(if (showMoreDetails) "Show Less" else "Add More Details (Category, Weather, Activities)")
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        if (showMoreDetails) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = null
                     )
+                }
+            }
+
+            AnimatedVisibility(visible = showMoreDetails) {
+                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    // Category Selection
+                    SelectionSection("Category", categories, selectedCategory, onCategorySelect)
+
+                    // Weather Selection
+                    SelectionSection("Weather", weatherOptions, selectedWeather, onWeatherSelect)
+
+                    // Activities Selection
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Activities",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                        )
+                        
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            activityOptions.forEach { activity ->
+                                SelectableEmoji(
+                                    option = activity,
+                                    isSelected = selectedActivities.contains(activity.name),
+                                    onSelect = { onActivityToggle(activity.name) }
+                                )
+                            }
+                            
+                            // Display selected custom activities as chips
+                            selectedActivities.filter { name -> activityOptions.none { it.name == name } }.forEach { custom ->
+                                AssistChip(
+                                    onClick = { onActivityToggle(custom) },
+                                    label = { Text(custom) },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        labelColor = MaterialTheme.colorScheme.primary,
+                                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                    ),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = customActivity,
+                                onValueChange = onCustomActivityChange,
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text("Add more...", fontSize = 12.sp) },
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodySmall
+                            )
+                            IconButton(onClick = onAddCustomActivity) {
+                                Icon(Icons.Default.Add, contentDescription = "Add Activity")
+                            }
+                        }
+                    }
                 }
             }
 
@@ -201,6 +335,78 @@ fun MainInputCard(
 }
 
 @Composable
+fun SelectionSection(
+    title: String,
+    options: List<SelectOption>,
+    selectedName: String?,
+    onSelect: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            options.forEach { option ->
+                SelectableEmoji(
+                    option = option,
+                    isSelected = selectedName == option.name,
+                    onSelect = { onSelect(option.name) }
+                )
+            }
+        }
+    }
+}
+
+data class SelectOption(val name: String, val emoji: String, val color: Color)
+fun MoodOption.toSelectOption() = SelectOption(name, emoji, color)
+
+@Composable
+fun SelectableEmoji(
+    option: SelectOption,
+    isSelected: Boolean,
+    onSelect: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { onSelect() }
+            .background(
+                if (isSelected) option.color.copy(alpha = 0.15f) 
+                else Color.Transparent
+            )
+            .border(
+                width = 1.dp,
+                color = if (isSelected) option.color.copy(alpha = 0.5f) else Color.Transparent,
+                shape = RoundedCornerShape(16.dp)
+            )
+            .padding(8.dp)
+    ) {
+        Text(
+            text = option.emoji,
+            fontSize = 24.sp,
+            modifier = Modifier.graphicsLayer(
+                scaleX = if (isSelected) 1.2f else 1.0f,
+                scaleY = if (isSelected) 1.2f else 1.0f,
+                alpha = if (isSelected) 1f else 0.7f
+            )
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = option.name,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            color = if (isSelected) option.color else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
 fun EngineStatusCard(vm: LaniakeaViewModel) {
     val statusColor by animateColorAsState(
         targetValue = when {
@@ -214,9 +420,8 @@ fun EngineStatusCard(vm: LaniakeaViewModel) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
         ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     ) {
         Row(
             modifier = Modifier
@@ -310,8 +515,7 @@ fun AnalysisStatusCard(vm: LaniakeaViewModel) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                        verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             "${vm.unprocessedCount} fragments pending sync",
                             style = MaterialTheme.typography.labelMedium

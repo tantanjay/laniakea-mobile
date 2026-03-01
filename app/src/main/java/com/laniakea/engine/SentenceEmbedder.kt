@@ -45,15 +45,6 @@ class SentenceEmbedder(
         }
     }
 
-    fun embedAsync(text: String, onComplete: (FloatArray?) -> Unit) {
-        CoroutineScope(Dispatchers.IO).launch {
-            val result = embed(text)
-            withContext(Dispatchers.Main) {
-                onComplete(result)
-            }
-        }
-    }
-
     suspend fun embed(text: String): FloatArray? = mutex.withLock {
         val activeInterpreter = interpreter ?: run {
             Log.w("SentenceEmbedder", "Interpreter not ready yet")

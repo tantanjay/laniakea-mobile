@@ -28,15 +28,8 @@ abstract class DiaryDatabase : RoomDatabase() {
                         super.onCreate(db)
                         // Pre-populate database with a random name
                         CoroutineScope(Dispatchers.IO).launch {
-                            val names = listOf(
-                                "Stardust", "Nebula", "Cosmos", "Voyager", "Nova", 
-                                "Quasar", "Zenith", "Aether", "Lumen", "Solstice",
-                                "Eclipse", "Orion", "Lyra", "Altair", "Sirius",
-                                "Polaris", "Vega", "Rigel", "Antares", "Spica",
-                                "Arcturus", "Capella", "Castor", "Pollux", "Deneb",
-                                "Regulus", "Fomalhaut", "Aldebaran", "Betelgeuse", "Procyon"
-                            )
-                            val randomName = names.random()
+                            val randomAlias = Aliases.ALL.random()
+                            val randomName = randomAlias.name
                             INSTANCE?.diaryDao()?.saveSettings(AppSettings(id = 0, userName = randomName))
                         }
                     }
