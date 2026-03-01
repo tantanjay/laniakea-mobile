@@ -2,7 +2,6 @@ package com.laniakea.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -48,8 +47,8 @@ fun HomeScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val categories = listOf(
         SelectOption("Home", "🏠", MaterialTheme.colorScheme.primary),
         SelectOption("Work", "💼", MaterialTheme.colorScheme.secondary),
-        SelectOption("Social", "👥", Color(0xFFFF4081)),
-        SelectOption("Other", "✨", Color(0xFF7C4DFF))
+        SelectOption("Social", "👥", MaterialTheme.colorScheme.tertiary),
+        SelectOption("Other", "✨", MaterialTheme.colorScheme.outline)
     )
 
     val weatherOptions = listOf(
@@ -218,7 +217,7 @@ fun MainInputCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 120.dp),
-                placeholder = { Text("What's on your mind? Safe to write.", color = Color.Gray) },
+                placeholder = { Text("What's on your mind? Safe to write.", color = MaterialTheme.colorScheme.outline) },
                 shape = RoundedCornerShape(16.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -241,7 +240,7 @@ fun MainInputCard(
                     onClick = { showMoreDetails = !showMoreDetails },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Text(if (showMoreDetails) "Show Less" else "Add More Details (Category, Weather, Activities)")
+                    Text(if (showMoreDetails) "Show Less" else "Add More Details")
                     Spacer(Modifier.width(4.dp))
                     Icon(
                         if (showMoreDetails) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
@@ -304,10 +303,14 @@ fun MainInputCard(
                                 placeholder = { Text("Add more...", fontSize = 12.sp) },
                                 shape = RoundedCornerShape(12.dp),
                                 singleLine = true,
-                                textStyle = MaterialTheme.typography.bodySmall
+                                textStyle = MaterialTheme.typography.bodySmall,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                                )
                             )
                             IconButton(onClick = onAddCustomActivity) {
-                                Icon(Icons.Default.Add, contentDescription = "Add Activity")
+                                Icon(Icons.Default.Add, contentDescription = "Add Activity", tint = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
@@ -552,44 +555,3 @@ fun AnalysisStatusCard(vm: LaniakeaViewModel) {
 }
 
 data class MoodOption(val name: String, val emoji: String, val value: Double, val color: Color)
-
-@Composable
-fun MoodEmoji(
-    option: MoodOption,
-    isSelected: Boolean,
-    onSelect: () -> Unit
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onSelect() }
-            .background(
-                if (isSelected) option.color.copy(alpha = 0.15f) 
-                else Color.Transparent
-            )
-            .border(
-                width = 1.dp,
-                color = if (isSelected) option.color.copy(alpha = 0.5f) else Color.Transparent,
-                shape = RoundedCornerShape(16.dp)
-            )
-            .padding(10.dp)
-    ) {
-        Text(
-            text = option.emoji,
-            fontSize = 32.sp,
-            modifier = Modifier.graphicsLayer(
-                scaleX = if (isSelected) 1.2f else 1.0f,
-                scaleY = if (isSelected) 1.2f else 1.0f,
-                alpha = if (isSelected) 1f else 0.7f
-            )
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = option.name,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            color = if (isSelected) option.color else MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
