@@ -1,19 +1,8 @@
 package com.laniakea.ui.components.journal
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,8 +13,7 @@ import com.laniakea.data.getMoodColor
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.TextStyle
-import java.util.Locale
-import kotlin.text.ifEmpty
+import java.util.*
 
 @Composable
 fun JournalEntryCard(entry: DiaryEntry) {
@@ -34,36 +22,29 @@ fun JournalEntryCard(entry: DiaryEntry) {
 
     val date = dateTime.toLocalDate()
     val time = dateTime.toLocalTime()
-
     val moodColor = getMoodColor(entry.numericMood)
 
-    Card(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp), // subtle outer margin
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp,
+        shadowElevation = 0.5.dp
     ) {
-        Column(
-            modifier = Modifier
-                .padding(16.dp)
-        ) {
+        Column(modifier = Modifier.padding(16.dp)) {
 
-            /* ───────── Date + Mood Row ───────── */
-
+            /* Date + Mood Row */
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-
-                /* Date chip */
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
                 ) {
                     Text(
                         text = "${date.dayOfMonth} ${
@@ -71,76 +52,64 @@ fun JournalEntryCard(entry: DiaryEntry) {
                         }",
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontWeight = FontWeight.Bold
                     )
                 }
 
-                /* Mood chip */
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = moodColor.copy(alpha = 0.15f)
+                    shape = RoundedCornerShape(12.dp),
+                    color = moodColor.copy(alpha = 0.15f),
+                    contentColor = moodColor
                 ) {
                     Text(
                         text = entry.mood.ifEmpty { "Neutral" },
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = moodColor
+                        fontWeight = FontWeight.ExtraBold
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            /* ───────── Time + Content ───────── */
-
-            Row(
-                verticalAlignment = Alignment.Top
-            ) {
-
-                /* Time pill */
+            /* Time + Content */
+            Row(verticalAlignment = Alignment.Top) {
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 ) {
                     Text(
-                        text = String.format(
-                            Locale.getDefault(),
-                            "%02d:%02d",
-                            time.hour,
-                            time.minute
-                        ),
+                        text = String.format(Locale.getDefault(), "%02d:%02d", time.hour, time.minute),
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary
+                        fontWeight = FontWeight.Bold
                     )
                 }
 
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(12.dp))
 
-                /* Entry content */
                 Text(
                     text = entry.content,
+                    modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
-                    lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 1.1
+                    color = MaterialTheme.colorScheme.onSurface,
+                    lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 1.2
                 )
             }
-
-            /* ───────── Optional Activities ───────── */
 
             if (entry.activities.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.08f)
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f),
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer
                 ) {
                     Text(
                         text = entry.activities,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
