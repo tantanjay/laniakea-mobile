@@ -8,7 +8,8 @@ import androidx.room.ForeignKey
 data class AppSettings(
     @PrimaryKey val id: Int = 0,
     val autoLoadEngine: Boolean = false,
-    val userName: String = ""
+    val userName: String = "",
+    val theme: String = "PURPLE" // Default theme
 )
 
 @Entity(tableName = "entries")

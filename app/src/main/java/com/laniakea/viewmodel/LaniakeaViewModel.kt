@@ -30,6 +30,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
     // UI State
     var userName by mutableStateOf("Traveller")
+    var theme by mutableStateOf("PURPLE")
     var manualMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
     var aiMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
     var isImporting by mutableStateOf(false)
@@ -58,6 +59,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 settings?.let {
                     autoLoadEnabled = it.autoLoadEngine
                     userName = it.userName.takeIf { name -> name.isNotEmpty() } ?: "Traveller"
+                    theme = it.theme
                     
                     if (autoLoadEnabled && !isEngineActive && !isEngineLoading) {
                         initializeEngine()
@@ -120,6 +122,13 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val currentSettings = db.diaryDao().getSettings() ?: AppSettings()
             db.diaryDao().saveSettings(currentSettings.copy(autoLoadEngine = enabled))
+        }
+    }
+
+    fun updateTheme(newTheme: String) {
+        viewModelScope.launch {
+            val currentSettings = db.diaryDao().getSettings() ?: AppSettings()
+            db.diaryDao().saveSettings(currentSettings.copy(theme = newTheme))
         }
     }
 

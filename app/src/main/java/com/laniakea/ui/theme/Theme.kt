@@ -3,6 +3,7 @@ package com.laniakea.ui.theme
 import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -16,49 +17,75 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-private val DarkColorScheme = darkColorScheme(
-    primary = CosmicNebulaPurple,
-    secondary = CosmicStardustCyan,
-    tertiary = CosmicSoftGlow,
-    background = CosmicDeepSpace,
-    surface = CosmicSurface,
-    onPrimary = Color.White,
-    onSecondary = Color.Black,
-    onTertiary = Color.Black,
-    onBackground = Color.White,
-    onSurface = Color.White,
-    surfaceVariant = Color(0xFF252830)
+private val PurpleLightColorScheme = lightColorScheme(
+    primary = PurplePrimaryLight,
+    secondary = PurpleSecondaryLight,
+    background = PurpleBackgroundLight,
+    surface = PurpleBackgroundLight,
 )
 
-private val LightColorScheme = lightColorScheme(
-    primary = LaniakeaPrimary,
-    secondary = LaniakeaSecondary,
-    tertiary = CosmicNebulaPurple,
-    background = LaniakeaSky,
-    surface = LaniakeaSurface,
-    onPrimary = Color.White,
-    onSecondary = Color.Black,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    surfaceVariant = Color(0xFFE1E2EC)
+private val PurpleDarkColorScheme = darkColorScheme(
+    primary = PurplePrimaryDark,
+    secondary = PurpleSecondaryDark,
+    background = PurpleBackgroundDark,
+    surface = PurpleBackgroundDark,
+)
+
+private val GreenLightColorScheme = lightColorScheme(
+    primary = GreenPrimaryLight,
+    secondary = GreenSecondaryLight,
+    background = GreenBackgroundLight,
+    surface = GreenBackgroundLight,
+)
+
+private val GreenDarkColorScheme = darkColorScheme(
+    primary = GreenPrimaryDark,
+    secondary = GreenSecondaryDark,
+    background = GreenBackgroundDark,
+    surface = GreenBackgroundDark,
+)
+
+private val OrangeLightColorScheme = lightColorScheme(
+    primary = OrangePrimaryLight,
+    secondary = OrangeSecondaryLight,
+    background = OrangeBackgroundLight,
+    surface = OrangeBackgroundLight,
+)
+
+private val OrangeDarkColorScheme = darkColorScheme(
+    primary = OrangePrimaryDark,
+    secondary = OrangeSecondaryDark,
+    background = OrangeBackgroundDark,
+    surface = OrangeBackgroundDark,
+)
+
+private val BlueLightColorScheme = lightColorScheme(
+    primary = BluePrimaryLight,
+    secondary = BlueSecondaryLight,
+    background = BlueBackgroundLight,
+    surface = BlueBackgroundLight,
+)
+
+private val BlueDarkColorScheme = darkColorScheme(
+    primary = BluePrimaryDark,
+    secondary = BlueSecondaryDark,
+    background = BlueBackgroundDark,
+    surface = BlueBackgroundDark,
 )
 
 @Composable
 fun LaniakeaTheme(
+    theme: String = "PURPLE",
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // We want to keep our custom AI vibe, so we disable dynamic color by default
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+    val colorScheme = when (theme.uppercase()) {
+        "PURPLE" -> if (darkTheme) PurpleDarkColorScheme else PurpleLightColorScheme
+        "GREEN" -> if (darkTheme) GreenDarkColorScheme else GreenLightColorScheme
+        "ORANGE" -> if (darkTheme) OrangeDarkColorScheme else OrangeLightColorScheme
+        "BLUE" -> if (darkTheme) BlueDarkColorScheme else BlueLightColorScheme
+        else -> if (darkTheme) PurpleDarkColorScheme else PurpleLightColorScheme
     }
 
     val view = LocalView.current
