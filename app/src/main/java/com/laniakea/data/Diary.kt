@@ -7,6 +7,7 @@ import androidx.room.ForeignKey
 @Entity(tableName = "app_settings")
 data class AppSettings(
     @PrimaryKey val id: Int = 0,
+    val privacySeed: String? = null,
     val autoLoadEngine: Boolean = false,
     val userName: String = "",
     val theme: String = "PURPLE"
@@ -17,13 +18,13 @@ data class DiaryEntry(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val dateTime: Long,
     val content: String,
-    val mood: String, // potential to iterate
-    val numericMood: Double = 0.0,
-    val latentVibe: Double = 0.0,
-    val isVectorized: Boolean = false,
+    val mood: String, // potential to iterate but for now mood == numericMood
     val category: String = "",
     val weather: String = "",
-    val activities: String = ""
+    val activities: String = "",
+    val numericMood: Double = 0.0,
+    val latentVibe: Double = 0.0,
+    val isVectorized: Boolean = false
 )
 
 @Entity(

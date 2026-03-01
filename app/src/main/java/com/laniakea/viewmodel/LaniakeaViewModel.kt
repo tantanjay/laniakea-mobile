@@ -26,8 +26,8 @@ import java.util.Locale
 
 class LaniakeaViewModel(application: Application) : AndroidViewModel(application) {
     private val db = DiaryDatabase.getDatabase(application)
-    private val embedder = SentenceEmbedder(application)
     private val securityManager = SecurityManager(application)
+    private val embedder = SentenceEmbedder(application, db, securityManager)
 
     // UI State
     var userName by mutableStateOf("Traveller")
@@ -241,8 +241,8 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             } else LocalDate.now().year.toString()
 
             withContext(Dispatchers.Main) {
-                val manual = calculateMomentum(manualDaily, 7)
-                val ai = calculateMomentum(aiDaily, 7)
+                val manual = calculateMomentum(manualDaily, 14)
+                val ai = calculateMomentum(aiDaily, 14)
 
                 // Update ViewModel state
                 manualMomentum = Triple(
@@ -281,8 +281,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * calculateMomentum
-     *
      * Computes a robust momentum score for a series of emotional/mood values.
      *
      * This function is designed for general-purpose emotional tracking. It balances
@@ -296,22 +294,18 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
      * 3. Normalizes deltas based on volatility to handle high-variance periods.
      * 4. Applies EMA (Exponential Moving Average) for trend smoothing.
      * 5. Produces a score in the range -100..100 and a qualitative status label.
-     *
-     * Parameters:
-     * - values: List of mood/emotion values (Float). Can be any scale (0–10, -5–5, etc.).
-     * - span: EMA span for smoothing. Larger span → smoother, slower-reacting momentum.
-     * - outlierMultiplier: Multiplier for MAD to define what counts as an outlier.
-     *
-     * Returns:
-     * - Triple<Float, String, List<Float>>:
-     *      1. score: Smoothed momentum score (-100 to 100).
-     *      2. status: Qualitative label ("STABLE", "IMPROVING", etc.).
-     *      3. trend: List of EMA values representing the momentum trend over time.
      */
     fun calculateMomentum(
         values: List<Float>,
-        span: Int = 21,
-        outlierMultiplier: Float = 3f
+        span: Int = 7,
+        outlierMultiplier: Float = 3f,
+        statusMap: Map<Float, String> = mapOf(
+            -20f to "SHARP DECLINE",
+            -5f to "DECLINING",
+            5f to "STABLE",
+            20f to "IMPROVING",
+            Float.MAX_VALUE to "STRONG UPTURN"
+        )
     ): Triple<Float, String, List<Float>> {
 
         if (values.size < 2) return Triple(0f, "STABLE", emptyList())
@@ -353,13 +347,9 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         val score = (ema * 100f).coerceIn(-100f, 100f)
 
         // 7. Status mapping
-        val status = listOf(
-            -20f to "SHARP DECLINE",
-            -5f to "DECLINING",
-            5f to "STABLE",
-            20f to "IMPROVING",
-            101f to "STRONG UPTURN"
-        ).first { score < it.first }.second
+        val status = statusMap.entries
+            .sortedBy { it.key }
+            .firstOrNull { score < it.key }?.value ?: "UNKNOWN"
 
         return Triple(score, status, trend)
     }
