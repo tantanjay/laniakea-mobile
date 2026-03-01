@@ -9,7 +9,7 @@ data class AppSettings(
     @PrimaryKey val id: Int = 0,
     val autoLoadEngine: Boolean = false,
     val userName: String = "",
-    val theme: String = "PURPLE" // Default theme
+    val theme: String = "PURPLE"
 )
 
 @Entity(tableName = "entries")
@@ -17,10 +17,13 @@ data class DiaryEntry(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val dateTime: Long,
     val content: String,
-    val mood: String,
+    val mood: String, // potential to iterate
     val numericMood: Double = 0.0,
     val latentVibe: Double = 0.0,
-    val isVectorized: Boolean = false
+    val isVectorized: Boolean = false,
+    val category: String = "",
+    val weather: String = "",
+    val activities: String = ""
 )
 
 @Entity(
