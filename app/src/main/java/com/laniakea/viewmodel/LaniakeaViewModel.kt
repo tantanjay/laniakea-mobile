@@ -372,11 +372,11 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             } else delta
         }
 
-        // 4. Optional: volatility normalization
-        val volatility = filteredDeltas.maxOrNull()!! - filteredDeltas.minOrNull()!!
-        val normalizedDeltas = if (volatility > 0f) {
-            filteredDeltas.map { it / volatility }  // scale -1..1
-        } else filteredDeltas
+        // Ensure we don't blow up tiny changes into massive scores
+        val sensitivityFloor = 5f // If the real volatility is smaller than 5, pretend it’s 5
+        val rawVolatility = filteredDeltas.maxOrNull()!! - filteredDeltas.minOrNull()!!
+        val volatility = if (rawVolatility < 0.001f) 1f else rawVolatility.coerceAtLeast(sensitivityFloor)
+        val normalizedDeltas = filteredDeltas.map { it / volatility }
 
         // 5. EMA smoothing
         val alpha = 2f / (span + 1f)
