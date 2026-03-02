@@ -13,9 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.tensorflow.lite.Interpreter
-import java.io.BufferedReader
 import java.io.FileInputStream
-import java.io.InputStreamReader
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 import kotlin.math.abs
@@ -24,16 +22,20 @@ import kotlin.math.sign
 import kotlin.math.sqrt
 import kotlin.random.Random
 
+/**
+ * SentenceEmbedder generates high-dimensional vectors for text using on-device TFLite.
+ * It includes a 'Privacy Shield' to protect sensitive user data.
+ */
 class SentenceEmbedder(
     private val context: Context,
     private val db: DiaryDatabase,
     private val securityManager: SecurityManager,
     private val modelFile: String = "sentence_encoder.tflite",
-    vocabFile: String = "vocab.txt",
+    private val vocabFile: String = "vocab.txt",
     private val maxLen: Int = 64
 ) {
     private var interpreter: Interpreter? = null
-    private val tokenizer: Tokenizer = Tokenizer(context, vocabFile)
+    private var wordPieceTokenizer: WordPieceTokenizer? = null
     private val hiddenDim = 768
     private val mutex = Mutex()
     private val _ready = MutableSharedFlow<Boolean>(replay = 1)
@@ -46,6 +48,10 @@ class SentenceEmbedder(
     fun initialize() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                if (wordPieceTokenizer == null) {
+                    wordPieceTokenizer = WordPieceTokenizer(context, vocabFile)
+                }
+
                 val settings = db.diaryDao().getSettings()
                 val seed = try {
                     settings?.privacySeed?.let {
@@ -54,6 +60,9 @@ class SentenceEmbedder(
                 } catch (_: Exception) {
                     generateNewSeed(settings)
                 }
+                
+                // Fixed permutation ensures that while the vector is scrambled for privacy,
+                // it remains consistent for internal mathematical operations (like Vibe calculations).
                 cachedPermutation = generatePermutation(seed)
 
                 if (interpreter == null) {
@@ -78,9 +87,14 @@ class SentenceEmbedder(
             return null
         }
 
+        val activeTokenizer = wordPieceTokenizer ?: run {
+            Log.w("SentenceEmbedder", "Tokenizer not ready yet")
+            return null
+        }
+
         return try {
             // --- Tokenize ---
-            val tokens = tokenizer.tokenize(text, maxLen)
+            val tokens = activeTokenizer.tokenize(text, maxLen)
             val inputIds = Array(1) { tokens } // shape [1, maxLen]
             val attentionMask = Array(1) { tokens.map { if (it > 0) 1 else 0 }.toIntArray() }
 
@@ -122,12 +136,20 @@ class SentenceEmbedder(
         return newSeed
     }
 
+    /**
+     * Applies the Privacy Shield to an embedding.
+     * 
+     * NOTE ON SHUFFLING: The shuffle step (Step 4) uses a fixed permutation map for the user.
+     * This protects against outsiders comparing your vectors to standard models, while 
+     * preserving the Dot Product results used in VibeEngine because both the input 
+     * and the reference anchors are shuffled identically.
+     */
     private fun applyPrivacyShield(vector: FloatArray, doShuffle: Boolean = true): FloatArray {
         // 1. Initial normalization
         val norm = sqrt(vector.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
         val unitVector = FloatArray(vector.size) { vector[it] / (norm + 1e-9f) }
 
-        // 2. Add Laplace noise
+        // 2. Add Laplace noise (Differential Privacy)
         val noisy = FloatArray(unitVector.size) { i ->
             val u = Random.nextFloat() - 0.5f
             val noise = -LAPLACIAN_NOISE_SCALE * sign(u) *
@@ -135,10 +157,10 @@ class SentenceEmbedder(
             unitVector[i] + noise
         }
 
-        // 3. Precision clipping (3 decimal places)
+        // 3. Precision clipping (limits info leakage)
         val clipped = FloatArray(noisy.size) { i -> (noisy[i] * 1000).toInt() / 1000f }
 
-        // 4. Shuffle (Only if we have a permutation and doShuffle is true)
+        // 4. Shuffle (Obfuscation)
         val perm = cachedPermutation
         return if (doShuffle && perm != null) {
             FloatArray(clipped.size) { clipped[perm[it]] }
@@ -177,51 +199,77 @@ class SentenceEmbedder(
         }
     }
 
-    /**
-     * Simple tokenizer using vocab.txt
-     */
-    class Tokenizer(context: Context, vocabFile: String) {
-
+    class WordPieceTokenizer(context: Context, vocabFile: String) {
         private val word2id: Map<String, Int>
 
         init {
-            word2id = loadVocab(context, vocabFile)
+            // Pre-sizing the HashMap avoids memory spikes during load
+            val tempMap = HashMap<String, Int>(30522)
+            context.assets.open(vocabFile).bufferedReader().useLines { lines ->
+                lines.forEachIndexed { index, line ->
+                    tempMap[line.trim()] = index
+                }
+            }
+            word2id = tempMap
         }
 
         fun tokenize(text: String, maxLen: Int): IntArray {
-            // 1. Lowercase & split on non-word characters (anything except letters/numbers)
-            val words = text
-                .lowercase()
-                .split(Regex("[^a-z0-9]+")) // split on punctuation, multiple symbols treated as one
-                .filter { it.isNotBlank() }  // remove empty strings
+            val result = mutableListOf<Int>()
 
-            // 2. Map to vocab, unknown words → 0
-            val tokens = words.map { word2id[it] ?: 0 }.toMutableList()
+            // Step 1: Handle punctuation like "hard.life" -> "hard . life"
+            val words = text.lowercase()
+                .replace(Regex("(\\p{Punct})"), " $1 ")
+                .split(Regex("\\s+"))
+                .filter { it.isNotBlank() }
 
-            // 3. Pad or truncate to maxLen
-            if (tokens.size > maxLen) tokens.subList(maxLen, tokens.size).clear()
-            else if (tokens.size < maxLen) repeat(maxLen - tokens.size) { tokens.add(0) }
+            // Step 2: WordPiece Greedy Matching
+            for (word in words) {
+                var start = 0
+                while (start < word.length) {
+                    var end = word.length
+                    var curSubwordId: Int? = null
 
-            return tokens.toIntArray()
-        }
+                    while (start < end) {
+                        var substr = word.substring(start, end)
+                        if (start > 0) substr = "##$substr" // Add suffix marker
 
-        private fun loadVocab(context: Context, vocabFile: String): Map<String, Int> {
-            val map = mutableMapOf<String, Int>()
-            context.assets.open(vocabFile).use { input ->
-                BufferedReader(InputStreamReader(input)).use { reader ->
-                    reader.forEachLineIndexed { idx, line ->
-                        val word = line.trim()
-                        if (word.isNotEmpty()) map[word] = idx
+                        if (word2id.containsKey(substr)) {
+                            curSubwordId = word2id[substr]
+                            break
+                        }
+                        end--
+                    }
+
+                    if (curSubwordId == null) {
+                        result.add(word2id["[UNK]"] ?: 0)
+                        break // Move to next word
+                    } else {
+                        result.add(curSubwordId)
+                        start = end
                     }
                 }
             }
-            return map
-        }
 
-        private inline fun BufferedReader.forEachLineIndexed(crossinline action: (Int, String) -> Unit) {
-            var index = 0
-            this.forEachLine { line ->
-                action(index++, line)
+            // Step 3: Add special tokens with Truncation Safety
+            val clsId = word2id["[CLS]"] ?: 101
+            val sepId = word2id["[SEP]"] ?: 102
+
+            // We take maxLen - 2 to leave room for [CLS] at the start and [SEP] at the end
+            val limitedResult = if (result.size > maxLen - 2) {
+                result.subList(0, maxLen - 2)
+            } else {
+                result
+            }
+
+            val finalTokens = mutableListOf<Int>().apply {
+                add(clsId)
+                addAll(limitedResult)
+                add(sepId)
+            }
+
+            // Step 4: Final Padding to exactly maxLen
+            return IntArray(maxLen) { i ->
+                if (i < finalTokens.size) finalTokens[i] else 0
             }
         }
     }
