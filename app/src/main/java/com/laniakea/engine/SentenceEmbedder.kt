@@ -39,11 +39,9 @@ class SentenceEmbedder(
     private val hiddenDim = 768
     private val mutex = Mutex()
     private val _ready = MutableSharedFlow<Boolean>(replay = 1)
-    val ready: SharedFlow<Boolean> get() = _ready
-
-    // Privacy setting
-    private val LAPLACIAN_NOISE_SCALE = 0.01f
     private var cachedPermutation: IntArray? = null
+
+    val ready: SharedFlow<Boolean> get() = _ready
 
     fun initialize() {
         CoroutineScope(Dispatchers.IO).launch {
@@ -137,30 +135,40 @@ class SentenceEmbedder(
     }
 
     /**
-     * Applies the Privacy Shield to an embedding.
-     * 
-     * NOTE ON SHUFFLING: The shuffle step (Step 4) uses a fixed permutation map for the user.
-     * This protects against outsiders comparing your vectors to standard models, while 
-     * preserving the Dot Product results used in VibeEngine because both the input 
-     * and the reference anchors are shuffled identically.
+     * Applies the Privacy Shield to a text embedding to prevent model inversion attacks.
+     * * ALIGNMENT WITH VIBE ENGINE:
+     * 1. Safety Check: Prevents division by zero for empty or null embeddings.
+     * 2. Subtle Noise: Uses a 0.002f scale to provide privacy without washing out the Vibe signal.
+     * 3. Re-Normalization: Forces the vector back to a length of 1.0, ensuring the Dot Product
+     * remains a valid Similarity measure.
+     * 4. Precision Clipping: Rounds to 4 decimals to block "fingerprinting" via float artifacts.
+     * 5. Consistent Shuffling: Uses a fixed user-map so entries and anchors remain aligned.
      */
     private fun applyPrivacyShield(vector: FloatArray, doShuffle: Boolean = true): FloatArray {
-        // 1. Initial normalization
-        val norm = sqrt(vector.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
-        val unitVector = FloatArray(vector.size) { vector[it] / (norm + 1e-9f) }
+        // 1. Initial Mean Pooling check (Ensure we don't have a zero vector)
+        val magnitude = sqrt(vector.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
+        if (magnitude < 1e-9f) return vector
 
-        // 2. Add Laplace noise (Differential Privacy)
-        val noisy = FloatArray(unitVector.size) { i ->
+        // 2. Add SUBTLE Noise (Reduced scale to 0.002f)
+        // At 0.002, we protect against exact-match recovery but keep the 0.27 Vibe.
+        val NOISE_SCALE = 0.002f
+        val noisy = FloatArray(vector.size) { i ->
             val u = Random.nextFloat() - 0.5f
-            val noise = -LAPLACIAN_NOISE_SCALE * sign(u) *
-                    ln(1.0 - 2.0 * abs(u).toDouble()).toFloat()
-            unitVector[i] + noise
+            val noise = -NOISE_SCALE * sign(u) * ln(1.0 - 2.0 * abs(u).toDouble()).toFloat()
+            vector[i] + noise
         }
 
-        // 3. Precision clipping (limits info leakage)
-        val clipped = FloatArray(noisy.size) { i -> (noisy[i] * 1000).toInt() / 1000f }
+        // 3. RE-NORMALIZE (The most important step for Vibe accuracy)
+        // This ensures the Dot Product = Cosine Similarity.
+        val noisyNorm = sqrt(noisy.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
+        val unitVector = FloatArray(noisy.size) { noisy[it] / (noisyNorm + 1e-9f) }
 
-        // 4. Shuffle (Obfuscation)
+        // 4. Precision Clipping (4 decimals provides better "Vibe" resolution)
+        val clipped = FloatArray(unitVector.size) { i ->
+            (unitVector[i] * 10000).toInt() / 10000f
+        }
+
+        // 5. Shuffle (Consistent Obfuscation)
         val perm = cachedPermutation
         return if (doShuffle && perm != null) {
             FloatArray(clipped.size) { clipped[perm[it]] }

@@ -29,19 +29,23 @@ object VibeEngine {
         val joy = joyAnchor ?: return 0f
         val sad = distressAnchor ?: return 0f
 
-        // 1. Calculate the 'Vibe Axis' (Joy - Distress)
+        // 1. Calculate the 'Vibe Axis' and its magnitude in one pass
         val axis = FloatArray(embedding.size) { i -> joy[i] - sad[i] }
 
-        // 2. Normalize the axis
-        val magnitude = kotlin.math.sqrt(axis.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
-        if (magnitude == 0f) return 0f
-        val unitAxis = axis.map { it / magnitude }
+        var sumSq = 0f
+        for (v in axis) { sumSq += v * v }
+        val magnitude = kotlin.math.sqrt(sumSq.toDouble()).toFloat()
 
-        // 3. Dot Product (Project current embedding onto the axis)
+        if (magnitude < 1e-9f) return 0f
+
+        // 2. Dot Product against the Normalized Axis
         var dotProduct = 0f
         for (i in embedding.indices) {
-            dotProduct += embedding[i] * unitAxis[i]
+            // We divide by magnitude here to avoid creating a second 'unitAxis' array
+            val unitDimension = axis[i] / magnitude
+            dotProduct += embedding[i] * unitDimension
         }
+
         return dotProduct
     }
 }

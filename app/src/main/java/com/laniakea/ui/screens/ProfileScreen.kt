@@ -6,7 +6,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -18,7 +17,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -29,6 +27,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.laniakea.BuildConfig
+import com.laniakea.ui.components.profile.ThemeOption
+import com.laniakea.ui.components.shared.BulletPoint
 import com.laniakea.viewmodel.LaniakeaViewModel
 
 @Composable
@@ -38,6 +39,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     
     var showExportDialog by remember { mutableStateOf(false) }
     var showImportDialog by remember { mutableStateOf(false) }
+    var showXlsxValidationDialog by remember { mutableStateOf(false) }
     var showConfirmOverwriteDialog by remember { mutableStateOf(false) }
     var showCompletionDialog by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     
@@ -70,6 +72,20 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 showConfirmOverwriteDialog = true
             } else {
                 showImportDialog = true
+            }
+        }
+    }
+
+    val xlsxPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            vm.importXlsxStream(it) { success ->
+                showCompletionDialog = if (success) {
+                    true to "The spreadsheet data has been successfully integrated into your vault."
+                } else {
+                    false to "Spreadsheet import failed. Please verify the file format and data integrity."
+                }
             }
         }
     }
@@ -233,6 +249,18 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                             Text("Import")
                         }
                     }
+                    
+                    OutlinedButton(
+                        onClick = { showXlsxValidationDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.TableChart, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Import from Spreadsheet (.xlsx)")
+                    }
 
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
@@ -249,7 +277,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                                     enabled = !vm.isEngineLoading,
                                     shape = RoundedCornerShape(12.dp)
                                 ) {
-                                    Text(if (vm.isEngineLoading) "Wait..." else "Init Core")
+                                    Text(if (vm.isEngineLoading) "Wait..." else "Initialize")
                                 }
                             } else {
                                 Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -267,7 +295,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 modifier = Modifier.padding(bottom = 16.dp)
             ) {
                 Text(
-                    text = "Laniakea Engine v1.0.4",
+                    text = "Laniakea Engine v${BuildConfig.VERSION_NAME}",
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -360,12 +388,51 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 }
             }
         }
+        
+        // XLSX Import Overlay
+        if (vm.isXlsxImporting) {
+            Dialog(
+                onDismissRequest = { },
+                properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.TableChart,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Processing Spreadsheet", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Validating and importing memory entries...", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.height(24.dp))
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "Row ${vm.vaultProgress.first} of ${vm.vaultProgress.second}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        }
     }
 
     // Completion Dialog
     if (showCompletionDialog != null) {
         AlertDialog(
-            onDismissRequest = { },
+            onDismissRequest = { showCompletionDialog = null },
             icon = { 
                 Icon(
                     if (showCompletionDialog!!.first) Icons.Default.CheckCircle else Icons.Default.Error,
@@ -373,10 +440,10 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     tint = if (showCompletionDialog!!.first) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
                 )
             },
-            title = { Text(if (showCompletionDialog!!.first) "Success" else "Failed") },
+            title = { Text(if (showCompletionDialog!!.first) "Done Process" else "Failed") },
             text = { Text(showCompletionDialog!!.second) },
             confirmButton = {
-                Button(onClick = { }) {
+                Button(onClick = { showCompletionDialog = null }) {
                     Text("OK")
                 }
             }
@@ -386,9 +453,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     // Overwrite Confirmation Dialog
     if (showConfirmOverwriteDialog) {
         AlertDialog(
-            onDismissRequest = { 
-                selectedUri = null
-            },
+            onDismissRequest = { selectedUri = null },
             icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Overwrite Existing Vault?") },
             text = {
@@ -400,6 +465,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
+                        showConfirmOverwriteDialog = false
                         showImportDialog = true
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
@@ -410,6 +476,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             dismissButton = {
                 TextButton(onClick = { 
                     selectedUri = null
+                    showConfirmOverwriteDialog = false
                 }) {
                     Text("Cancel")
                 }
@@ -420,9 +487,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     // Export Dialog
     if (showExportDialog) {
         AlertDialog(
-            onDismissRequest = { 
-                password = ""
-            },
+            onDismissRequest = { showExportDialog = false; password = "" },
             title = { Text("Secure Export") },
             text = {
                 Column {
@@ -441,6 +506,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 Button(
                     onClick = {
                         if (password.length >= 4) {
+                            showExportDialog = false
                             createDocumentLauncher.launch("laniakea_backup.bin")
                         } else {
                             Toast.makeText(context, "Password too short", Toast.LENGTH_SHORT).show()
@@ -452,6 +518,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { 
+                    showExportDialog = false
                     password = ""
                 }) {
                     Text("Cancel")
@@ -463,9 +530,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     // Import Dialog
     if (showImportDialog) {
         AlertDialog(
-            onDismissRequest = { 
-                password = ""
-            },
+            onDismissRequest = { showImportDialog = false; password = "" },
             title = { Text("Secure Import") },
             text = {
                 Column {
@@ -484,6 +549,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 Button(
                     onClick = {
                         selectedUri?.let { uri ->
+                            showImportDialog = false
                             vm.importDataStream(uri, password) { success ->
                                 showCompletionDialog = if (success) {
                                     true to "Your memory vault has been successfully restored."
@@ -501,6 +567,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { 
+                    showImportDialog = false
                     password = ""
                 }) {
                     Text("Cancel")
@@ -508,34 +575,39 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             }
         )
     }
-}
 
-@Composable
-fun ThemeOption(
-    color: Color,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .size(48.dp)
-            .clip(CircleShape)
-            .background(color)
-            .clickable(onClick = onClick)
-            .border(
-                width = if (selected) 3.dp else 0.dp,
-                color = if (selected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
-                shape = CircleShape
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        if (selected) {
-            Icon(
-                imageVector = Icons.Default.AutoAwesome,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(24.dp)
-            )
-        }
+    // XLSX Validation Dialog
+    if (showXlsxValidationDialog) {
+        AlertDialog(
+            onDismissRequest = { showXlsxValidationDialog = false },
+            title = { Text("Spreadsheet Import Guide") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text("Ensure your .xlsx file follows this exact column order:", fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("1. Date (yyyy-MM-dd)\n2. Time (HH:mm:ss)\n3. Mood\n4. Category\n5. Weather\n6. Activity\n7. Content")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Validation Rules:", fontWeight = FontWeight.Bold)
+                    BulletPoint("Rows with missing Date, Time, or Mood will be skipped.")
+                    BulletPoint("Content must contain at least 5 words.")
+                    BulletPoint("Invalid Date/Time formats will be ignored.")
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showXlsxValidationDialog = false
+                        xlsxPickerLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                    }
+                ) {
+                    Text("Select File")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showXlsxValidationDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
