@@ -33,12 +33,17 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.apache.poi.ss.usermodel.Cell
+import org.apache.poi.ss.usermodel.CellType
+import org.apache.poi.ss.usermodel.WorkbookFactory
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import java.util.Calendar
+import java.util.Locale
 
 class LaniakeaViewModel(application: Application) : AndroidViewModel(application) {
     private val db = DiaryDatabase.getDatabase(application)
@@ -54,6 +59,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     // Vault states
     var isVaultRestoring by mutableStateOf(false)
     var isVaultBackingUp by mutableStateOf(false)
+    var isXlsxImporting by mutableStateOf(false)
     var vaultProgress by mutableStateOf(0 to 0)
 
     var isEngineActive by mutableStateOf(false)
@@ -225,6 +231,13 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                         latentVibe = aiVibe.toDouble(),
                         isVectorized = true
                     )
+
+                    Log.d("LaniakeaViewModel", "----------------------------")
+                    Log.d("LaniakeaViewModel", "Joy Anchor: ${VibeEngine.joyAnchor?.contentToString()}")
+                    Log.d("LaniakeaViewModel", "Distress Anchor: ${VibeEngine.distressAnchor?.contentToString()}")
+                    Log.d("LaniakeaViewModel", "Adding entry with vector - Mood: ${entry.numericMood}, Vibe: ${entry.latentVibe}, Context: $content")
+                    Log.d("LaniakeaViewModel", "----------------------------")
+
                     db.diaryDao().insertEntryWithVector(entry, vector)
                     refreshData()
                     return@launch
@@ -301,10 +314,38 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             } else LocalDate.now().year.toString()
 
             withContext(Dispatchers.Main) {
-                val manual = calculateMomentum(manualDaily, 14)
-                val ai = calculateMomentum(aiDaily, 14)
+                val span = 7
+                val statusMap = mapOf(
+                    -10f to "SHARP DECLINE",
+                    -5f to "DECLINING",
+                    5f to "STABLE",
+                    10f to "IMPROVING",
+                    Float.MAX_VALUE to "STRONG UPTURN"
+                )
 
-                // Update ViewModel state
+                /**
+                 * Rationale: Human emotions are "loud" and reactive.
+                 * multiplier (3f): We trust human "spikes" more. A sudden burst of joy is
+                 * a valid data point, so we have a wider outlier gate.
+                 */
+                val manual = calculateMomentum(manualDaily, false, span, 3f, statusMap)
+
+                /**
+                 * Rationale: AI "Vibes" are "quiet" and noisy.
+                 * multiplier (2f): AI embeddings can be "tricked" by long entries, song lyrics,
+                 * or specific keywords. A tighter multiplier (2f) filters out this linguistic noise,
+                 * requiring consistent word patterns to move the trend.
+                 */
+                val ai = calculateMomentum(aiDaily, true, span, 2f, statusMap)
+
+                Log.d("LaniakeaViewModel", "----------------------------")
+                Log.d("LaniakeaViewModel", "Span $span")
+                Log.d("LaniakeaViewModel", "Moods $manualDaily")
+                Log.d("LaniakeaViewModel", "Moods Momentum ${manual.first}, Status ${manual.second}")
+                Log.d("LaniakeaViewModel", "Vibes $aiDaily")
+                Log.d("LaniakeaViewModel", "Vibes Momentum ${ai.first}, Status ${ai.second}")
+                Log.d("LaniakeaViewModel", "----------------------------")
+
                 manualMomentum = Triple(
                     manual.first,
                     manual.second,
@@ -342,15 +383,10 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
     fun calculateMomentum(
         values: List<Float>,
-        span: Int = 7,
-        outlierMultiplier: Float = 3f,
-        statusMap: Map<Float, String> = mapOf(
-            -20f to "SHARP DECLINE",
-            -5f to "DECLINING",
-            5f to "STABLE",
-            20f to "IMPROVING",
-            Float.MAX_VALUE to "STRONG UPTURN"
-        )
+        isAi: Boolean,
+        span: Int,
+        outlierMultiplier: Float,
+        statusMap: Map<Float, String>
     ): Triple<Float, String, List<Float>> {
 
         if (values.size < 2) return Triple(0f, "STABLE", emptyList())
@@ -372,10 +408,24 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             } else delta
         }
 
-        // Ensure we don't blow up tiny changes into massive scores
-        val sensitivityFloor = 5f // If the real volatility is smaller than 5, pretend it’s 5
-        val rawVolatility = filteredDeltas.maxOrNull()!! - filteredDeltas.minOrNull()!!
-        val volatility = if (rawVolatility < 0.001f) 1f else rawVolatility.coerceAtLeast(sensitivityFloor)
+        /**
+         * 4. Volatility normalization with Type-Specific Sensitivity
+         * Rationale for 'isAi' Boolean:
+         * Manual Moods use an integer-like scale (-2 to 2), making its changes "loud."
+         * AI Vibes use small floating-point decimals (-0.2 to 0.4), making its changes "quiet."
+         * If we don't use a 'sensitivityFloor', tiny mathematical noise in the AI
+         * would be stretched to look like massive emotional swings (100% volatility).
+         *
+         * Manual scale has a total range of ~4.0; AI scale has a total range of ~0.6.
+         * We set the floor at ~25% of the total expected range for each type.
+         */
+        val sensitivityFloor = if (isAi) 0.15f else 1.0f
+
+        val rawVolatility = filteredDeltas.maxOrNull()?.let { max ->
+            max - (filteredDeltas.minOrNull() ?: 0f)
+        } ?: 0f
+
+        val volatility = rawVolatility.coerceAtLeast(sensitivityFloor)
         val normalizedDeltas = filteredDeltas.map { it / volatility }
 
         // 5. EMA smoothing
@@ -612,6 +662,104 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 withContext(Dispatchers.Main) { onComplete(false) }
             } finally {
                 withContext(Dispatchers.Main) { isVaultRestoring = false }
+            }
+        }
+    }
+
+    private fun getCellStringValue(cell: Cell?): String {
+        return when (cell?.cellType) {
+            CellType.STRING -> cell.stringCellValue
+            CellType.NUMERIC -> {
+                val value = cell.numericCellValue
+                if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()
+            }
+            CellType.BOOLEAN -> cell.booleanCellValue.toString()
+            CellType.FORMULA -> cell.cellFormula
+            else -> cell?.toString() ?: ""
+        }
+    }
+
+    fun importXlsxStream(uri: Uri, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.Main) {
+                isXlsxImporting = true
+                vaultProgress = 0 to 0
+            }
+            try {
+                val context = getApplication<Application>()
+                val inputStream = context.contentResolver.openInputStream(uri) ?: throw Exception("Failed to open URI")
+                
+                val workbook = WorkbookFactory.create(inputStream)
+                val sheet = workbook.getSheetAt(0)
+                val totalRows = sheet.lastRowNum
+                
+                val dao = db.diaryDao()
+                val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                
+                for (i in 1..totalRows) { // Skip header
+                    val row = sheet.getRow(i) ?: continue
+                    
+                    try {
+                        val dateStr = getCellStringValue(row.getCell(0)).substringBefore(".")
+                        val timeStr = getCellStringValue(row.getCell(1)).substringBefore(".")
+                        val mood = getCellStringValue(row.getCell(2))
+                        val category = getCellStringValue(row.getCell(3))
+                        val weather = getCellStringValue(row.getCell(4))
+                        val activity = getCellStringValue(row.getCell(5))
+                        val content = getCellStringValue(row.getCell(6))
+                        
+                        // Validation: date, time, mood must not be empty
+                        if (dateStr.isBlank() || timeStr.isBlank() || mood.isBlank()) continue
+                        
+                        val dateTime = try {
+                            dateFormat.parse("$dateStr $timeStr")?.time ?: continue
+                        } catch (_: Exception) { continue }
+                        
+                        // Validation: content must have at least 5 words
+                        val words = content.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+                        if (words.size < 5) continue
+                        
+                        // Numeric mood mapping
+                        val numericMood = when(mood.lowercase()) {
+                            "joy", "happy", "great", "excellent" -> 2.0
+                            "good", "pleasant" -> 1.0
+                            "neutral", "ok" -> 0.0
+                            "sad", "bad", "unhappy" -> -1.0
+                            "miserable", "terrible", "awful" -> -2.0
+                            else -> 0.0
+                        }
+
+                        val entry = DiaryEntry(
+                            dateTime = dateTime,
+                            content = securityManager.encrypt(content),
+                            mood = securityManager.encrypt(mood),
+                            category = securityManager.encrypt(category),
+                            weather = securityManager.encrypt(weather),
+                            activities = securityManager.encrypt(activity),
+                            numericMood = numericMood,
+                            latentVibe = 0.0,
+                            isVectorized = false
+                        )
+                        dao.insertEntry(entry)
+                    } catch (e: Exception) {
+                        Log.e("LaniakeaViewModel", "Error importing row $i", e)
+                    }
+                    
+                    withContext(Dispatchers.Main) { vaultProgress = i to totalRows }
+                }
+                
+                workbook.close()
+                inputStream.close()
+                
+                withContext(Dispatchers.Main) {
+                    refreshData()
+                    onComplete(true)
+                }
+            } catch (e: Exception) {
+                Log.e("LaniakeaViewModel", "XLSX Import failed", e)
+                withContext(Dispatchers.Main) { onComplete(false) }
+            } finally {
+                withContext(Dispatchers.Main) { isXlsxImporting = false }
             }
         }
     }

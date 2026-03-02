@@ -3,6 +3,7 @@ package com.laniakea.data
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
+import androidx.room.Index
 
 @Entity(tableName = "app_settings")
 data class AppSettings(
@@ -34,9 +35,9 @@ data class DiaryEntry(
         parentColumns = ["id"],
         childColumns = ["entryId"],
         onDelete = ForeignKey.CASCADE
-    )]
+    )],
+    indices = [Index(value = ["entryId"])]
 )
-
 data class SentenceVector(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val entryId: Long,

@@ -1,8 +1,14 @@
 package com.laniakea.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -10,8 +16,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.laniakea.ui.components.journal.CalendarView
-import com.laniakea.ui.components.journal.JournalEntryCard
+import com.laniakea.ui.components.journal.DailyJournalCard
 import com.laniakea.viewmodel.LaniakeaViewModel
+import java.time.Instant
+import java.time.ZoneId
 import java.time.format.TextStyle
 import java.util.*
 
@@ -22,6 +30,16 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val selectedRange by vm.selectedDateRange.collectAsState()
     val currentMonth by vm.viewingMonth.collectAsState()
 
+    var isCalendarExpanded by remember { mutableStateOf(true) }
+
+    val groupedEntries = remember(filteredEntries) {
+        filteredEntries.groupBy {
+            Instant.ofEpochMilli(it.dateTime)
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate()
+        }.toList().sortedByDescending { it.first }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -30,26 +48,47 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     ) {
         Spacer(modifier = Modifier.height(16.dp))
         
-        Text(
-            text = "Journal History",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
-        )
-        
-        Spacer(modifier = Modifier.height(16.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Journal History",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
 
-        CalendarView(
-            currentMonth = currentMonth,
-            onMonthChange = { vm.setViewingMonth(it) },
-            entries = allEntries,
-            selectedRange = selectedRange,
-            onRangeSelected = { start, end ->
-                vm.setSelectedDateRange(start, end)
+            IconButton(onClick = { isCalendarExpanded = !isCalendarExpanded }) {
+                Icon(
+                    imageVector = if (isCalendarExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isCalendarExpanded) "Collapse Calendar" else "Expand Calendar",
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
-        )
+        }
+        
+        Spacer(modifier = Modifier.height(8.dp))
 
-        Spacer(modifier = Modifier.height(24.dp))
+        AnimatedVisibility(
+            visible = isCalendarExpanded,
+            enter = expandVertically(),
+            exit = shrinkVertically()
+        ) {
+            Column {
+                CalendarView(
+                    currentMonth = currentMonth,
+                    onMonthChange = { vm.setViewingMonth(it) },
+                    entries = allEntries,
+                    selectedRange = selectedRange,
+                    onRangeSelected = { start, end ->
+                        vm.setSelectedDateRange(start, end)
+                    }
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+            }
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -84,8 +123,8 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
-            items(filteredEntries) { entry ->
-                JournalEntryCard(entry)
+            items(groupedEntries, key = { it.first.toString() }) { (_, entries) ->
+                DailyJournalCard(entries)
             }
             
             if (filteredEntries.isEmpty()) {

@@ -21,7 +21,7 @@ android {
         minSdk = 28
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -41,6 +41,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     sourceSets {
         getByName("release") {
@@ -48,6 +49,10 @@ android {
             java.srcDirs("build/generated/ksp/release/kotlin", "build/generated/ksp/release/java")
         }
     }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -72,6 +77,7 @@ dependencies {
     }
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.poi.ooxml)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

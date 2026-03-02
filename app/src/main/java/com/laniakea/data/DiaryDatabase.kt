@@ -9,7 +9,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-@Database(entities = [DiaryEntry::class, SentenceVector::class, AppSettings::class], version = 1)
+@Database(
+    entities = [DiaryEntry::class, SentenceVector::class, AppSettings::class],
+    version = 1,
+    exportSchema = true
+)
 abstract class DiaryDatabase : RoomDatabase() {
     abstract fun diaryDao(): DiaryDao
 
