@@ -61,6 +61,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material3.adaptive.navigation.suite)
     implementation(libs.androidx.ui)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
@@ -70,6 +71,7 @@ dependencies {
         exclude(group = "com.intellij", module = "annotations")
     }
     implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.androidx.security.crypto)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
