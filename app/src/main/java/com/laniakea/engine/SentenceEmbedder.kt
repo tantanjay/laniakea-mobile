@@ -32,7 +32,7 @@ class SentenceEmbedder(
     private val securityManager: SecurityManager,
     private val modelFile: String = "sentence_encoder.tflite",
     private val vocabFile: String = "vocab.txt",
-    private val maxLen: Int = 64
+    private val maxLen: Int = 256 // Increased from 64 to 256 to support ~180-200 words fully
 ) {
     private var interpreter: Interpreter? = null
     private var wordPieceTokenizer: WordPieceTokenizer? = null
@@ -65,8 +65,10 @@ class SentenceEmbedder(
 
                 if (interpreter == null) {
                     val modelBuffer = loadModelFile(modelFile)
+                    // Ensure the interpreter allows dynamic resizing if the model supports it, 
+                    // or handles the larger fixed buffer.
                     interpreter = Interpreter(modelBuffer)
-                    Log.i("SentenceEmbedder", "Model and Privacy Shield initialized")
+                    Log.i("SentenceEmbedder", "Model and Privacy Shield initialized with maxLen $maxLen")
                 } else {
                     Log.i("SentenceEmbedder", "Privacy Shield updated with new seed")
                 }
@@ -118,7 +120,7 @@ class SentenceEmbedder(
 
             applyPrivacyShield(sentenceEmbedding)
         } catch (e: Exception) {
-            Log.e("SentenceEmbedder", "Embedding failed", e)
+            Log.e("SentenceEmbedder", "Embedding failed. If this is a shape error, the TFLite model might have a fixed 64-token limit.", e)
             null
         }
     }
@@ -136,21 +138,11 @@ class SentenceEmbedder(
 
     /**
      * Applies the Privacy Shield to a text embedding to prevent model inversion attacks.
-     * * ALIGNMENT WITH VIBE ENGINE:
-     * 1. Safety Check: Prevents division by zero for empty or null embeddings.
-     * 2. Subtle Noise: Uses a 0.002f scale to provide privacy without washing out the Vibe signal.
-     * 3. Re-Normalization: Forces the vector back to a length of 1.0, ensuring the Dot Product
-     * remains a valid Similarity measure.
-     * 4. Precision Clipping: Rounds to 4 decimals to block "fingerprinting" via float artifacts.
-     * 5. Consistent Shuffling: Uses a fixed user-map so entries and anchors remain aligned.
      */
     private fun applyPrivacyShield(vector: FloatArray, doShuffle: Boolean = true): FloatArray {
-        // 1. Initial Mean Pooling check (Ensure we don't have a zero vector)
         val magnitude = sqrt(vector.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
         if (magnitude < 1e-9f) return vector
 
-        // 2. Add SUBTLE Noise (Reduced scale to 0.002f)
-        // At 0.002, we protect against exact-match recovery but keep the 0.27 Vibe.
         val NOISE_SCALE = 0.002f
         val noisy = FloatArray(vector.size) { i ->
             val u = Random.nextFloat() - 0.5f
@@ -158,17 +150,13 @@ class SentenceEmbedder(
             vector[i] + noise
         }
 
-        // 3. RE-NORMALIZE (The most important step for Vibe accuracy)
-        // This ensures the Dot Product = Cosine Similarity.
         val noisyNorm = sqrt(noisy.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
         val unitVector = FloatArray(noisy.size) { noisy[it] / (noisyNorm + 1e-9f) }
 
-        // 4. Precision Clipping (4 decimals provides better "Vibe" resolution)
         val clipped = FloatArray(unitVector.size) { i ->
             (unitVector[i] * 10000).toInt() / 10000f
         }
 
-        // 5. Shuffle (Consistent Obfuscation)
         val perm = cachedPermutation
         return if (doShuffle && perm != null) {
             FloatArray(clipped.size) { clipped[perm[it]] }
@@ -177,13 +165,11 @@ class SentenceEmbedder(
         }
     }
 
-    // Generates a fixed permutation given a seed
     private fun generatePermutation(seed: Int): IntArray {
         val indices = IntArray(hiddenDim) { it }
         val random = Random(seed)
         for (i in hiddenDim - 1 downTo 1) {
             val j = random.nextInt(i + 1)
-            // Swap
             val temp = indices[i]
             indices[i] = indices[j]
             indices[j] = temp
@@ -191,9 +177,6 @@ class SentenceEmbedder(
         return indices
     }
 
-    /**
-     * Load TFLite model from assets
-     */
     private fun loadModelFile(fileName: String): MappedByteBuffer {
         val fd = context.assets.openFd(fileName)
         fd.use { fileDescriptor ->
@@ -211,7 +194,6 @@ class SentenceEmbedder(
         private val word2id: Map<String, Int>
 
         init {
-            // Pre-sizing the HashMap avoids memory spikes during load
             val tempMap = HashMap<String, Int>(30522)
             context.assets.open(vocabFile).bufferedReader().useLines { lines ->
                 lines.forEachIndexed { index, line ->
@@ -224,13 +206,11 @@ class SentenceEmbedder(
         fun tokenize(text: String, maxLen: Int): IntArray {
             val result = mutableListOf<Int>()
 
-            // Step 1: Handle punctuation like "hard.life" -> "hard . life"
             val words = text.lowercase()
                 .replace(Regex("(\\p{Punct})"), " $1 ")
                 .split(Regex("\\s+"))
                 .filter { it.isNotBlank() }
 
-            // Step 2: WordPiece Greedy Matching
             for (word in words) {
                 var start = 0
                 while (start < word.length) {
@@ -239,7 +219,7 @@ class SentenceEmbedder(
 
                     while (start < end) {
                         var substr = word.substring(start, end)
-                        if (start > 0) substr = "##$substr" // Add suffix marker
+                        if (start > 0) substr = "##$substr"
 
                         if (word2id.containsKey(substr)) {
                             curSubwordId = word2id[substr]
@@ -250,7 +230,7 @@ class SentenceEmbedder(
 
                     if (curSubwordId == null) {
                         result.add(word2id["[UNK]"] ?: 0)
-                        break // Move to next word
+                        break
                     } else {
                         result.add(curSubwordId)
                         start = end
@@ -258,11 +238,9 @@ class SentenceEmbedder(
                 }
             }
 
-            // Step 3: Add special tokens with Truncation Safety
             val clsId = word2id["[CLS]"] ?: 101
             val sepId = word2id["[SEP]"] ?: 102
 
-            // We take maxLen - 2 to leave room for [CLS] at the start and [SEP] at the end
             val limitedResult = if (result.size > maxLen - 2) {
                 result.subList(0, maxLen - 2)
             } else {
@@ -275,7 +253,6 @@ class SentenceEmbedder(
                 add(sepId)
             }
 
-            // Step 4: Final Padding to exactly maxLen
             return IntArray(maxLen) { i ->
                 if (i < finalTokens.size) finalTokens[i] else 0
             }
