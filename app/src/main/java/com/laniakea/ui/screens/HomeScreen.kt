@@ -1,5 +1,16 @@
 package com.laniakea.ui.screens
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
@@ -9,6 +20,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -21,11 +33,16 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.laniakea.viewmodel.LaniakeaViewModel
 import com.laniakea.ui.theme.*
+import java.util.Locale
 
 @Composable
 fun HomeScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
@@ -184,6 +201,87 @@ fun MainInputCard(
     onSave: () -> Unit
 ) {
     var showMoreDetails by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var isListening by remember { mutableStateOf(false) }
+    
+    // Track the text that was there BEFORE we started listening
+    var textBeforeListening by remember { mutableStateOf("") }
+
+    val speechRecognizer = remember { SpeechRecognizer.createSpeechRecognizer(context) }
+    val speechIntent = remember {
+        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+        }
+    }
+
+    val recognitionListener = remember {
+        object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) { isListening = true }
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onEndOfSpeech() { isListening = false }
+            override fun onError(error: Int) { 
+                isListening = false
+                val message = when (error) {
+                    SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Insufficient permissions"
+                    SpeechRecognizer.ERROR_NETWORK -> "Network error"
+                    SpeechRecognizer.ERROR_NO_MATCH -> "No match found"
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech input"
+                    else -> "Speech recognition error"
+                }
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
+            override fun onResults(results: Bundle?) {
+                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if (!matches.isNullOrEmpty()) {
+                    val recognized = matches[0]
+                    // Append to the specific buffer we saved when the button was clicked
+                    val newText = if (textBeforeListening.isBlank()) {
+                        recognized
+                    } else {
+                        // Ensure we don't accidentally double-space if the user left a space at the end
+                        val base = textBeforeListening.trimEnd()
+                        "$base $recognized"
+                    }
+                    onTextChange(newText)
+                }
+                isListening = false
+            }
+            override fun onPartialResults(partialResults: Bundle?) {
+                // Real-time feedback for the user
+                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if (!matches.isNullOrEmpty()) {
+                    val partial = matches[0]
+                    val previewText = if (textBeforeListening.isBlank()) partial else "${textBeforeListening.trimEnd()} $partial"
+                    onTextChange(previewText)
+                }
+            }
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+        }
+    }
+
+    DisposableEffect(Unit) {
+        speechRecognizer.setRecognitionListener(recognitionListener)
+        onDispose {
+            speechRecognizer.destroy()
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            textBeforeListening = journalText
+            speechRecognizer.startListening(speechIntent)
+        } else {
+            Toast.makeText(context, "Microphone permission required for voice-to-text", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Card(
         modifier = Modifier
@@ -196,19 +294,53 @@ fun MainInputCard(
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.Edit,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "Current Thought",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Current Thought",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                IconButton(
+                    onClick = {
+                        if (isListening) {
+                            speechRecognizer.stopListening()
+                            isListening = false
+                        } else {
+                            when (PackageManager.PERMISSION_GRANTED) {
+                                ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) -> {
+                                    textBeforeListening = journalText // CAPTURE CURRENT TEXT
+                                    speechRecognizer.startListening(speechIntent)
+                                }
+                                else -> {
+                                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                }
+                            }
+                        }
+                    },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        contentColor = if (isListening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Icon(
+                        imageVector = if (isListening) Icons.Default.MicNone else Icons.Default.Mic,
+                        contentDescription = if (isListening) "Stop Listening" else "Start Voice Input",
+                        modifier = Modifier.graphicsLayer(scaleX = if (isListening) 1.2f else 1f, scaleY = if (isListening) 1.2f else 1f)
+                    )
+                }
             }
 
             OutlinedTextField(
@@ -217,8 +349,13 @@ fun MainInputCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 120.dp),
-                placeholder = { Text("What's on your mind? Safe to write.", color = MaterialTheme.colorScheme.outline) },
+                placeholder = { Text(if (isListening) "Listening..." else "What's on your mind? Safe to write.", color = MaterialTheme.colorScheme.outline) },
                 shape = RoundedCornerShape(16.dp),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    autoCorrectEnabled = true,
+                    keyboardType = KeyboardType.Text
+                ),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
