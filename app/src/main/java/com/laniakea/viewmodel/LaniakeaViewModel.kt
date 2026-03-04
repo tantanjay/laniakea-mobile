@@ -22,6 +22,8 @@ import com.laniakea.engine.VibeEngine
 import com.laniakea.security.SecurityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -55,7 +57,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var theme by mutableStateOf("PURPLE")
     var manualMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
     var aiMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
-    
+
     // Vault states
     var isVaultRestoring by mutableStateOf(false)
     var isVaultBackingUp by mutableStateOf(false)
@@ -72,6 +74,12 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var totalEntries by mutableIntStateOf(0)
     var unprocessedCount by mutableIntStateOf(0)
     var isProcessing by mutableStateOf(false)
+
+    // Token Quality State
+    var tokenQuality by mutableStateOf(0f)
+    var tokenCount by mutableIntStateOf(0)
+    var isEntryValid by mutableStateOf(false)
+    private var qualityCheckJob: Job? = null
 
     // Journal Screen State
     private val _selectedDateRange = MutableStateFlow<Pair<Long, Long>?>(null)
@@ -215,6 +223,25 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun checkTextQuality(text: String) {
+        qualityCheckJob?.cancel()
+        qualityCheckJob = viewModelScope.launch(Dispatchers.Default) {
+            delay(300) // Debounce
+            val quality = embedder.calculateTokenQuality(text)
+            val count = embedder.getUsedTokenCount(text)
+            
+            // Context Validation: 
+            // Must have variety (handled in SentenceEmbedder) and enough words
+            val words = text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+            
+            withContext(Dispatchers.Main) {
+                tokenQuality = quality
+                tokenCount = count
+                isEntryValid = count in 5..256 && quality > 0.4 && words.size >= 5
+            }
+        }
+    }
+
     fun addDiaryEntry(
         content: String,
         mood: String,
@@ -223,6 +250,16 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         weather: String = "Sunny",
         activities: String = ""
     ) {
+        // FAIL-SAFE RE-VALIDATION
+        val words = content.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        val quality = embedder.calculateTokenQuality(content)
+        val count = embedder.getUsedTokenCount(content)
+        
+        if (count !in 5..256 || words.size < 5 || quality <= 0.4) {
+            Log.e("LaniakeaViewModel", "Aborted save: Context validation failed at runtime check.")
+            return
+        }
+
         viewModelScope.launch(Dispatchers.IO) {
             val encryptedContent = securityManager.encrypt(content)
             val encryptedMood = securityManager.encrypt(mood)
@@ -465,21 +502,21 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
     fun exportDataStream(uri: Uri, password: String, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            withContext(Dispatchers.Main) { 
+            withContext(Dispatchers.Main) {
                 isVaultBackingUp = true
-                vaultProgress = 0 to 0 
+                vaultProgress = 0 to 0
             }
             try {
                 val context = getApplication<Application>()
                 val outputStream = context.contentResolver.openOutputStream(uri) ?: throw Exception("Failed to open URI")
-                
+
                 val encryptedStream = securityManager.getEncryptingStream(outputStream, password.toCharArray())
                 val writer = JsonWriter(OutputStreamWriter(encryptedStream, "UTF-8"))
-                
+
                 writer.beginObject()
-                
+
                 val dao = db.diaryDao()
-                
+
                 // Settings
                 val settings = dao.getSettings()
                 if (settings != null) {
@@ -492,7 +529,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     }
                     writer.endObject()
                 }
-                
+
                 // Entries
                 writer.name("entries")
                 writer.beginArray()
@@ -514,7 +551,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     withContext(Dispatchers.Main) { vaultProgress = (index + 1) to totalCount }
                 }
                 writer.endArray()
-                
+
                 // Vectors
                 writer.name("vectors")
                 writer.beginArray()
@@ -526,10 +563,10 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     writer.endObject()
                 }
                 writer.endArray()
-                
+
                 writer.endObject()
                 writer.close()
-                
+
                 withContext(Dispatchers.Main) { onComplete(true) }
             } catch (e: Exception) {
                 e.message?.let { Log.e("LaniakeaViewModel", it) }
@@ -543,22 +580,22 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
     fun importDataStream(uri: Uri, password: String, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            withContext(Dispatchers.Main) { 
+            withContext(Dispatchers.Main) {
                 isVaultRestoring = true
-                vaultProgress = 0 to 0 
+                vaultProgress = 0 to 0
             }
             try {
                 val context = getApplication<Application>()
                 val inputStream = context.contentResolver.openInputStream(uri) ?: throw Exception("Failed to open URI")
-                
+
                 val decryptedStream = securityManager.getDecryptingStream(inputStream, password.toCharArray())
                 val reader = JsonReader(InputStreamReader(decryptedStream, "UTF-8"))
-                
+
                 val dao = db.diaryDao()
                 dao.clearDatabase()
-                
+
                 val oldToNewIdMap = mutableMapOf<Long, Long>()
-                
+
                 reader.beginObject()
                 while (reader.hasNext()) {
                     when (reader.nextName()) {
@@ -568,7 +605,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                             var userName = currentSettings.userName
                             var theme = currentSettings.theme
                             var privacySeed = currentSettings.privacySeed
-                            
+
                             while (reader.hasNext()) {
                                 when (reader.nextName()) {
                                     "userName" -> userName = reader.nextString()
@@ -599,7 +636,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                                 var numericMood = 0.0
                                 var latentVibe = 0.0
                                 var isVectorized = false
-                                
+
                                 while (reader.hasNext()) {
                                     when (reader.nextName()) {
                                         "id" -> oldId = reader.nextLong()
@@ -615,7 +652,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                                         else -> reader.skipValue()
                                     }
                                 }
-                                
+
                                 val entry = DiaryEntry(
                                     dateTime = dateTime,
                                     content = securityManager.encrypt(content),
@@ -629,7 +666,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                                 )
                                 val newId = dao.insertEntry(entry)
                                 if (oldId != -1L) oldToNewIdMap[oldId] = newId
-                                
+
                                 count++
                                 withContext(Dispatchers.Main) { vaultProgress = count to 0 }
                                 reader.endObject()
@@ -665,7 +702,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 }
                 reader.endObject()
                 reader.close()
-                
+
                 withContext(Dispatchers.Main) {
                     if (isEngineActive) embedder.initialize()
                     refreshData()
@@ -702,17 +739,17 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             try {
                 val context = getApplication<Application>()
                 val inputStream = context.contentResolver.openInputStream(uri) ?: throw Exception("Failed to open URI")
-                
+
                 val workbook = WorkbookFactory.create(inputStream)
                 val sheet = workbook.getSheetAt(0)
                 val totalRows = sheet.lastRowNum
-                
+
                 val dao = db.diaryDao()
                 val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-                
+
                 for (i in 1..totalRows) { // Skip header
                     val row = sheet.getRow(i) ?: continue
-                    
+
                     try {
                         val dateStr = getCellStringValue(row.getCell(0)).substringBefore(".")
                         val timeStr = getCellStringValue(row.getCell(1)).substringBefore(".")
@@ -721,18 +758,18 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                         val weather = getCellStringValue(row.getCell(4))
                         val activity = getCellStringValue(row.getCell(5))
                         val content = getCellStringValue(row.getCell(6))
-                        
+
                         // Validation: date, time, mood must not be empty
                         if (dateStr.isBlank() || timeStr.isBlank() || mood.isBlank()) continue
-                        
+
                         val dateTime = try {
                             dateFormat.parse("$dateStr $timeStr")?.time ?: continue
                         } catch (_: Exception) { continue }
-                        
+
                         // Validation: content must have at least 5 words
                         val words = content.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
                         if (words.size < 5) continue
-                        
+
                         // Numeric mood mapping
                         val numericMood = when(mood.lowercase()) {
                             "joy", "happy", "great", "excellent" -> 2.0
@@ -758,13 +795,13 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     } catch (e: Exception) {
                         Log.e("LaniakeaViewModel", "Error importing row $i", e)
                     }
-                    
+
                     withContext(Dispatchers.Main) { vaultProgress = i to totalRows }
                 }
-                
+
                 workbook.close()
                 inputStream.close()
-                
+
                 withContext(Dispatchers.Main) {
                     refreshData()
                     onComplete(true)
