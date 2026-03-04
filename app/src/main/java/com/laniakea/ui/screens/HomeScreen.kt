@@ -1,7 +1,6 @@
 package com.laniakea.ui.screens
 
 import android.Manifest
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -99,13 +98,19 @@ fun HomeScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         Spacer(modifier = Modifier.height(12.dp))
-        
+
         HeaderSection(vm.userName)
 
         // Journal Input Card with AI Vibe
         MainInputCard(
             journalText = journalText,
-            onTextChange = { journalText = it },
+            onTextChange = { 
+                journalText = it
+                vm.checkTextQuality(it)
+            },
+            tokenQuality = vm.tokenQuality,
+            tokenCount = vm.tokenCount,
+            isEntryValid = vm.isEntryValid,
             moods = moods,
             selectedMood = selectedMood,
             onMoodSelect = { selectedMood = it },
@@ -147,6 +152,7 @@ fun HomeScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     selectedActivities = emptySet()
                     selectedCategory = null
                     selectedWeather = null
+                    vm.isEntryValid = false // Reset validation
                 }
             }
         )
@@ -156,7 +162,7 @@ fun HomeScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 
         // Analysis Progress
         AnalysisStatusCard(vm)
-        
+
         Spacer(modifier = Modifier.height(32.dp))
     }
 }
@@ -183,6 +189,9 @@ fun HeaderSection(userName: String) {
 fun MainInputCard(
     journalText: String,
     onTextChange: (String) -> Unit,
+    tokenQuality: Float,
+    tokenCount: Int,
+    isEntryValid: Boolean,
     moods: List<MoodOption>,
     selectedMood: MoodOption?,
     onMoodSelect: (MoodOption) -> Unit,
@@ -203,7 +212,7 @@ fun MainInputCard(
     var showMoreDetails by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var isListening by remember { mutableStateOf(false) }
-    
+
     // Track the text that was there BEFORE we started listening
     var textBeforeListening by remember { mutableStateOf("") }
 
@@ -224,7 +233,7 @@ fun MainInputCard(
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() { isListening = false }
-            override fun onError(error: Int) { 
+            override fun onError(error: Int) {
                 isListening = false
                 val message = when (error) {
                     SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
@@ -343,27 +352,57 @@ fun MainInputCard(
                 }
             }
 
-            OutlinedTextField(
-                value = journalText,
-                onValueChange = onTextChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 120.dp),
-                placeholder = { Text(if (isListening) "Listening..." else "What's on your mind? Safe to write.", color = MaterialTheme.colorScheme.outline) },
-                shape = RoundedCornerShape(16.dp),
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Sentences,
-                    autoCorrectEnabled = true,
-                    keyboardType = KeyboardType.Text
-                ),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = journalText,
+                    onValueChange = onTextChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 120.dp),
+                    placeholder = { Text(if (isListening) "Listening..." else "What's on your mind? Safe to write.", color = MaterialTheme.colorScheme.outline) },
+                    shape = RoundedCornerShape(16.dp),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        autoCorrectEnabled = true,
+                        keyboardType = KeyboardType.Text
+                    ),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                    )
                 )
-            )
+
+                // Token Quality and Validation Info
+                AnimatedVisibility(visible = journalText.isNotBlank()) {
+                    val words = journalText.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+                    val goodWordCount = (tokenQuality * words.size).toInt()
+                    
+                    val (icon, tint, message) = when {
+                        tokenCount > 256 -> Triple(Icons.Default.Warning, MaterialTheme.colorScheme.error, "Journal too long ($tokenCount/256 tokens)")
+                        goodWordCount < 5 -> Triple(Icons.Default.Info, MaterialTheme.colorScheme.outline, "Please write at least 5 meaningful words ($goodWordCount/5)")
+                        tokenQuality >= 0.9f -> Triple(Icons.Default.CheckCircle, Color(0xFF00E676), "Your journal is tokenized well")
+                        tokenQuality >= 0.6f -> Triple(Icons.Default.Warning, Color(0xFFFFB74D), "Your journal has a bit of unknown words")
+                        else -> Triple(Icons.Default.Error, MaterialTheme.colorScheme.error, "Your journal might not be processed by the Core")
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    ) {
+                        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = tint,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
 
             // Mood Selection
-            SelectionSection("How does it feel?", moods.map { it.toSelectOption() }, selectedMood?.name) { 
+            SelectionSection("How does it feel?", moods.map { it.toSelectOption() }, selectedMood?.name) {
                 val mood = moods.find { m -> m.name == it }
                 if (mood != null) onMoodSelect(mood)
             }
@@ -401,7 +440,7 @@ fun MainInputCard(
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                         )
-                        
+
                         FlowRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -414,7 +453,7 @@ fun MainInputCard(
                                     onSelect = { onActivityToggle(activity.name) }
                                 )
                             }
-                            
+
                             // Display selected custom activities as chips
                             selectedActivities.filter { name -> activityOptions.none { it.name == name } }.forEach { custom ->
                                 AssistChip(
@@ -459,7 +498,7 @@ fun MainInputCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
-                enabled = journalText.isNotBlank() && selectedMood != null,
+                enabled = journalText.isNotBlank() && selectedMood != null && isEntryValid,
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -517,7 +556,7 @@ fun SelectableEmoji(
             .clip(RoundedCornerShape(16.dp))
             .clickable { onSelect() }
             .background(
-                if (isSelected) option.color.copy(alpha = 0.15f) 
+                if (isSelected) option.color.copy(alpha = 0.15f)
                 else Color.Transparent
             )
             .border(
@@ -641,7 +680,7 @@ fun AnalysisStatusCard(vm: LaniakeaViewModel) {
                     val progress = if (vm.totalEntries > 0) {
                         (vm.totalEntries - vm.unprocessedCount).toFloat() / vm.totalEntries.toFloat()
                     } else 1f
-                    
+
                     LinearProgressIndicator(
                         progress = { progress },
                         modifier = Modifier
@@ -660,7 +699,7 @@ fun AnalysisStatusCard(vm: LaniakeaViewModel) {
                             "${vm.unprocessedCount} fragments pending sync",
                             style = MaterialTheme.typography.labelMedium
                         )
-                        
+
                         Button(
                             onClick = { vm.processMissingEntries() },
                             enabled = vm.isEngineActive && !vm.isProcessing,

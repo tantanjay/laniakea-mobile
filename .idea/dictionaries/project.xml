@@ -4,8 +4,10 @@
       <w>officedocument</w>
       <w>openxmlformats</w>
       <w>spreadsheetml</w>
+      <w>stopwords</w>
       <w>substr</w>
       <w>tflite</w>
+      <w>wordpiece</w>
     </words>
   </dictionary>
 </component>
