@@ -358,59 +358,5 @@ class SentenceEmbedder(
             return finalScore.coerceIn(0f, 1f)
         }
 
-        /**
-         * Enhanced quality calculation for WordPiece tokenization.
-         * Detects garbage text by measuring fragmentation density and repetitive patterns.
-         */
-        fun calculateQuality1(text: String): Float {
-            if (text.isBlank()) return 0f
-            val words = normalize(text)
-                .replace(Regex("[^a-z0-9\\s]"), " ")
-                .split(Regex("\\s+"))
-                .filter { it.isNotBlank() }
-
-            if (words.isEmpty()) return 0f
-
-            // Context stop-words to calculate density
-            val stopwords = setOf("i", "me", "my", "you", "your", "it", "is", "the", "a", "an", "and", "or", "to", "of", "in", "on", "at", "for", "with", "do", "does", "did", "can", "will", "be", "was", "were", "this", "that")
-            val meaningfulWords = words.filter { it !in stopwords }
-            val contextDensity = if (words.isNotEmpty()) meaningfulWords.size.toFloat() / words.size.toFloat() else 0f
-
-            // 1. Heavy Repetition Check
-            val uniqueWords = words.distinct().size
-            val varietyRatio = uniqueWords.toFloat() / words.size.toFloat()
-
-            // If the user types "i i i i i", variety is 0.2.
-            // We penalize this heavily if unique words are extremely few.
-            val varietyPenalty = if (uniqueWords <= 1 && words.size > 1) 0f else varietyRatio
-
-            var totalScore = 0f
-            for (word in words) {
-                if (word2id.containsKey(word)) {
-                    totalScore += 1.0f
-                } else {
-                    val tokens = wordpiece(word)
-                    totalScore += if (tokens.contains(unkId) || tokens.isEmpty()) {
-                        0.0f
-                    } else {
-                        val fragRatio = word.length.toFloat() / tokens.size.toFloat()
-                        when {
-                            fragRatio >= 3.5f -> 0.9f
-                            fragRatio >= 2.5f -> 0.6f
-                            fragRatio >= 1.5f -> 0.2f
-                            else -> 0.0f
-                        }
-                    }
-                }
-            }
-
-            val dictionaryScore = totalScore / words.size.toFloat()
-
-            // Final score combines dictionary validity, variety, and meaningful context density
-            val finalScore = (dictionaryScore * varietyPenalty * (0.5f + 0.5f * contextDensity))
-
-            Log.d("Tokenizer", "Quality for '$text': Dict=$dictionaryScore, Variety=$varietyPenalty, Density=$contextDensity, Final=$finalScore")
-            return finalScore.coerceIn(0f, 1f)
-        }
     }
 }
