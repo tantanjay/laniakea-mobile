@@ -5,6 +5,14 @@
 
 Its standout feature is the **Vibe Engine**, which uses fully on-device **Artificial Intelligence (AI)** to analyze the emotional tone (“vibe”) of journal entries. Unlike typical apps that rely on cloud-based inference, Laniakea performs all analysis **entirely on the device** and applies mathematically grounded, privacy-preserving transformations (referred to as **Privacy Shields**) to ensure that reflections remain truly private.
 
+## User Privacy & Ethical Use
+
+Laniakea is designed as a **personal reflection tool**, not a diagnostic or judgmental app.
+- All analysis is **performed locally** on your device.
+- The Vibe Engine only shows **trends or projections**; it does **not label, judge, or interpret** your emotions.
+- You remain in **full control** of your data and the meaning of your journal entries.
+- The AI’s readings are **informational**, helping you track patterns in your writing, not in your mind.
+
 ---
 
 ## Technical Specifications
@@ -52,6 +60,8 @@ To reduce the risk of embedding inversion attacks—where original text is recon
 Laniakea supports **multiple entries per day**. Each entry generates its own embedding, and the Vibe Engine updates the personalized baseline dynamically, reflecting changes in mood even within a single day.
 
 The **Vibe Score** measures whether a journal entry lies closer to a *Joy* or *Distress* reference point within semantic embedding space.
+
+For an important note on interpretation and ethics, see [Emotion, Language, and Numbers](./INTERPRETATION_BOUNDARY.md).
 
 ### Emotional Baseline
 The system initializes an emotional axis using two fixed anchor sentences:
