@@ -3,50 +3,63 @@
 ## App Description
 **Laniakea** is a security-focused, privacy-first personal journaling application. It is designed to be a **digital sanctuary** where users can record their thoughts while maintaining total control over their data.
 
-Its standout feature is the **Vibe Engine**, which uses on-device **Artificial Intelligence (AI)** to analyze the emotional tone (vibe) of entries. Unlike typical apps that rely on cloud-based AI processing, Laniakea performs all analysis **entirely on-device** and applies mathematical **Privacy Shields** to ensure your reflections remain truly private.
+Its standout feature is the **Vibe Engine**, which uses fully on-device **Artificial Intelligence (AI)** to analyze the emotional tone (“vibe”) of journal entries. Unlike typical apps that rely on cloud-based inference, Laniakea performs all analysis **entirely on the device** and applies mathematically grounded, privacy-preserving transformations (referred to as **Privacy Shields**) to ensure that reflections remain truly private.
 
 ---
 
 ## Technical Specifications
 
-### 1. Core Architecture & UI
-* **Framework:** Built entirely with **Jetpack Compose**, utilizing modern Android standards such as `ComponentActivity` and Edge-to-Edge display.
-* **Pattern:** Follows the **MVVM (Model-View-ViewModel)** architecture for a clean separation of concerns between UI and business logic.
-* **Theming:** Implements a custom Material 3 theme (`LaniakeaTheme`) that adapts dynamically based on the current "vibe" or user preferences.
+## 1. Core Architecture & UI
+- **UI Framework:** The user interface is built entirely with **Jetpack Compose**, following modern Android standards such as `ComponentActivity` and Edge-to-Edge display.
+- **Architecture Pattern:** Implements **MVVM (Model–View–ViewModel)** to enforce a clean separation between UI, state, and business logic.
+- **Theming:** Uses a custom Material 3 theme (`LaniakeaTheme`) that adapts dynamically based on the current Vibe or explicit user preferences.
 
-### 2. Local Data Persistence
-* **Database:** Uses the **Room Persistence Library** to manage journal entries (`Diary`) and application settings.
-* **Storage Model:** All data is stored locally on the device. No cloud syncing is implemented by default, and the app functions fully offline, ensuring complete data sovereignty.
+---
 
-### 3. Security & Encryption
-* **Key Management:** Utilizes **Jetpack Security** (`EncryptedSharedPreferences`) to securely store master encryption keys.
-* **Data Encryption:** Journal content is encrypted using **AES-GCM-256** (Galois/Counter Mode), providing both confidentiality and integrity.
-* **Memory Safety:** Journal content is only decrypted in memory at runtime and is never written to disk in plaintext.
-* **Backup Security:** Exported backups support password-based encryption using **PBKDF2 with HmacSHA256** to derive cryptographic keys from user-provided passwords.
+## 2. Local Data Persistence
+- **Database:** Journal entries (`Diary`) and application settings are stored using the **Room Persistence Library**.
+- **Storage Model:** All data remains local to the device. The app functions fully offline and includes no cloud syncing or analytics SDKs by default, ensuring complete data sovereignty.
+
+---
+
+## 3. Security & Encryption
+- **Key Management:** Master encryption keys are stored using **Jetpack Security** (`EncryptedSharedPreferences`).
+- **Data Encryption:** Journal content is protected using **AES-256 in GCM mode**, providing both confidentiality and authenticated integrity.
+- **Memory Safety:** Journal content is decrypted only in memory at runtime and is never intentionally written to disk in plaintext.
+- **Backup Security:** Exported backups support password-based encryption. Cryptographic keys are derived from user-provided passwords using **PBKDF2 with HmacSHA256**.
 
 ---
 
 ## 4. On-Device AI (NLP Engine)
 
-Laniakea uses **TensorFlow Lite (TFLite)** to run an on-device **TensorFlow 2 `cmlm-en-base`** language model (`sentence_encoder.tflite`), which is based on the **Google Universal Sentence Encoder (USE)** architecture.
+Laniakea uses **TensorFlow Lite (TFLite)** to run an on-device sentence encoder (`sentence_encoder.tflite`), based on a **TensorFlow 2–compatible `cmlm-en-base` model** derived from the **Universal Sentence Encoder (USE)** architecture.
 
-The model generates **768-dimensional semantic embeddings** from journal text, enabling local NLP features such as semantic understanding and similarity analysis **without sending data off-device**.
+The model produces **768-dimensional semantic embeddings** and supports sequences of up to **256 tokens** (approximately 180–200 words), enabling meaningful analysis of long-form journal entries **without transmitting data off-device**.
 
-To prevent *inversion attacks*—where original text is reconstructed from embeddings—a multi-layered **Privacy Shield** is applied to every vector:
+### Privacy Shields
+To reduce the risk of embedding inversion attacks—where original text is reconstructed from vectors—a multi-layered Privacy Shield is applied to every embedding:
 
 | Feature | Method | Purpose |
 |------|------|------|
-| **Laplace Noise** | Differential Privacy | Adds calibrated statistical noise to prevent exact phrasing reconstruction. |
-| **Precision Clipping** | Decimal Rounding | Limits information leakage by rounding values to 3 decimal places. |
-| **Vector Shuffling** | Encrypted User Seed | Randomizes vector indices so stolen vectors are mathematically meaningless. |
+| **Laplace Noise** | Differential privacy | Adds calibrated statistical noise to prevent exact phrasing reconstruction |
+| **Precision Clipping** | Decimal rounding | Limits information leakage by rounding values to 4 decimal places (0.0001) |
+| **Vector Shuffling** | Fixed user-specific permutation | Scrambles vector indices so extracted embeddings are meaningless outside the user’s device |
 
 ---
 
 ## 5. The Vibe System & Privacy Math
 
-Conceptually, the **Vibe Score** measures whether a journal entry lies closer to a *Joy* reference or a *Distress* reference in semantic embedding space.
+Laniakea supports **multiple entries per day**. Each entry generates its own embedding, and the Vibe Engine updates the personalized baseline dynamically, reflecting changes in mood even within a single day.
 
-The **VibeEngine** computes this score by projecting an entry embedding \(E\) onto an axis defined by two reference anchors—Joy (\(A_{joy}\)) and Distress (\(A_{distress}\)):
+The **Vibe Score** measures whether a journal entry lies closer to a *Joy* or *Distress* reference point within semantic embedding space.
+
+### Emotional Baseline
+The system initializes an emotional axis using two fixed anchor sentences:
+
+- **Joy Anchor:** *“I feel incredibly happy, fulfilled, and optimistic.”*
+- **Distress Anchor:** *“I feel miserable, exhausted, and hopeless.”*
+
+Given an entry embedding \(E\), the Vibe Score is computed by projecting it onto the Joy–Distress axis:
 
 \[
 \text{Vibe Score} =
@@ -54,35 +67,49 @@ The **VibeEngine** computes this score by projecting an entry embedding \(E\) on
 {\|A_{joy} - A_{distress}\|}
 \]
 
-### The Accuracy Paradox: Shuffling & Noise
+---
 
-A common question is how the Vibe Score remains accurate when vectors are intentionally corrupted for privacy.
+## 6. Dynamic Calibration (20-Sentiment Model)
 
-#### Why Shuffling Does Not Break Accuracy
-1. **Symmetry:** Vector shuffling uses a fixed permutation map derived from a unique `privacySeed` stored in encrypted user settings.
-2. **Consistent Scrambling:** Reference anchors (Joy/Distress) are generated using the same embedding pipeline and shuffled using the exact same permutation.
-3. **Permutation Invariance:** The dot product is permutation invariant. If vectors \(A\) and \(B\) are reordered using the same mapping, \(A \cdot B\) remains unchanged.
+While Laniakea starts with generic emotional anchors, the system adapts over time using **Dynamic Calibration**.
 
-#### Why Noise Does Not Break Accuracy
-Laplace noise is applied with a small calibrated scale (`scale = 0.01`), preserving the local neighborhood structure of vectors in high-dimensional space. While this prevents exact reconstruction of text, it does not significantly affect the vector’s relative position along the Joy–Distress axis.
+1. **Personalized Learning:** After at least five entries are explicitly marked as extreme moods (Joy or Miserable), the engine begins averaging embeddings from the **most recent 20 sentiments** in each category.
+2. **Adaptive Baseline:** These rolling averages replace the initial anchors, aligning the emotional axis with the user’s unique language and expression patterns.
+3. **Why 20 Is the Sweet Spot:**
+    - **Responsiveness:** The baseline adapts to changes in life circumstances within weeks.
+    - **Recency Bias:** Users experience feedback that reflects their current emotional state.
+    - **Performance:** Averaging 20 vectors of 768 dimensions is computationally trivial on modern devices.
+4. **Why It Matters:** Emotional expression is subjective. By calibrating against personal history rather than a generic lexicon, Laniakea creates a **personalized emotional compass** unique to each user.
+
+---
+
+## 7. The Accuracy Paradox: Shuffling & Noise
+
+### Why Vector Shuffling Preserves Accuracy
+- **Fixed Permutation:** Vector shuffling uses a deterministic permutation derived from a user-specific `privacySeed`, stored in encrypted settings.
+- **Consistent Pipeline:** Journal entries and reference anchors are processed using the same embedding, noise, and permutation steps.
+- **Permutation Invariance:** The dot product is invariant under identical reordering of dimensions. If vectors \(A\) and \(B\) are permuted using the same mapping, \(A \cdot B\) remains unchanged.
+
+### Why Noise Does Not Break Accuracy
+Laplace noise is applied using a small calibrated scale (`scale = 0.002`). In high-dimensional spaces, this level of noise preserves local neighborhood structure and does not materially affect a vector’s relative position along the Joy–Distress axis, while still preventing exact reconstruction.
 
 ### Result
-Laniakea creates a **Personal Vector Space** unique to each user. To an external observer, the data appears as scrambled, noisy numerical vectors that cannot be matched to any public AI model. Internally, however, the semantic relationships between a user’s thoughts remain stable, measurable, and meaningful—without ever exposing the original text.
+Each user operates within a **personal vector space**. To an external observer, stored data appears as noisy, permuted numerical vectors that cannot be matched to public AI models. Internally, semantic relationships remain stable, measurable, and meaningful—without exposing original text.
 
 ---
 
 ## Non-Goals
-* No cloud-based analytics or inference
-* No server-side storage of journal data
-* No social or shared journaling features
+- No cloud-based analytics or inference
+- No server-side storage of journal data
+- No social or shared journaling features
 
 ---
 
 ## Threat Model (High-Level)
-* **Protected Against:** Data exfiltration, cloud leaks, vector inversion attacks, unauthorized local access.
-* **Not Protected Against:** Compromised or rooted devices, malicious OS-level attackers, physical access with device unlock credentials.
+- **Protected Against:** Data exfiltration, cloud leaks, embedding inversion attacks, unauthorized local access
+- **Not Protected Against:** Compromised or rooted devices, malicious OS-level attackers, or physical access with valid device unlock credentials
 
 ---
 
 ## Summary
-Laniakea is built around a single principle: **your thoughts should belong to you alone**. By combining modern Android architecture, strong encryption, on-device AI, and mathematically grounded privacy techniques, the app delivers meaningful insights without sacrificing trust or control.
+Laniakea is built around a single principle: **your thoughts should belong to you alone**. By combining modern Android architecture, strong cryptography, on-device machine learning, and mathematically sound privacy techniques, the app delivers meaningful emotional insight without sacrificing user trust or control.

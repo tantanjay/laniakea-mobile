@@ -159,26 +159,40 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         val sadVectors = dao.getRecentVectorsByNumericMood(-2.0, 20)
 
         if (joyVectors.size >= 5 && sadVectors.size >= 5) {
-            val avgJoy = calculateAverageVector(joyVectors.map { dao.byteArrayToFloatArray(it) })
-            val avgSad = calculateAverageVector(sadVectors.map { dao.byteArrayToFloatArray(it) })
-            VibeEngine.joyAnchor = avgJoy
-            VibeEngine.distressAnchor = avgSad
+            val joyFloatVectors = joyVectors.map { dao.byteArrayToFloatArray(it) }
+            val sadFloatVectors = sadVectors.map { dao.byteArrayToFloatArray(it) }
+
+            // Ensure all vectors have the same size
+            if (joyFloatVectors.all { it.size == 768 } && sadFloatVectors.all { it.size == 768 }) {
+                VibeEngine.joyAnchor = calculateAverageVector(joyFloatVectors)
+                VibeEngine.distressAnchor = calculateAverageVector(sadFloatVectors)
+                Log.i("VibeCalibration", "Anchors updated with ${joyFloatVectors.size} Joy and ${sadFloatVectors.size} Sad vectors.")
+            }
+        } else {
+            Log.i("VibeCalibration", "Not enough entries to calibrate anchors yet.")
         }
     }
 
     private fun calculateAverageVector(vectors: List<FloatArray>): FloatArray {
-        if (vectors.isEmpty()) return FloatArray(0)
-        val size = vectors[0].size
-        val avg = FloatArray(size)
+        if (vectors.isEmpty()) return FloatArray(768)
+
+        val size = 768
+        val result = FloatArray(size)
+        val count = vectors.size.toFloat()
+
         for (vector in vectors) {
+            require(vector.size == size) { "All vectors must have the same dimension" }
+
             for (i in 0 until size) {
-                avg[i] += vector[i]
+                result[i] += vector[i]
             }
         }
+
         for (i in 0 until size) {
-            avg[i] /= vectors.size.toFloat()
+            result[i] /= count
         }
-        return avg
+
+        return result
     }
 
     fun initializeEngine() {
