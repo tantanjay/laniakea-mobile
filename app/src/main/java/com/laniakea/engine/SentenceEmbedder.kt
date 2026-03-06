@@ -16,7 +16,6 @@ import org.tensorflow.lite.Interpreter
 import java.io.FileInputStream
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
-import java.text.Normalizer
 import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.sign
@@ -41,7 +40,8 @@ class SentenceEmbedder(
     private val mutex = Mutex()
     private val _ready = MutableSharedFlow<Boolean>(replay = 1)
     private var cachedPermutation: IntArray? = null
-
+    private var rotationMatrix: Array<FloatArray>? = null
+    private var signMask: FloatArray? = null
     val ready: SharedFlow<Boolean> get() = _ready
 
     init {
@@ -67,8 +67,9 @@ class SentenceEmbedder(
                 } catch (_: Exception) {
                     generateNewSeed(settings)
                 }
+                signMask = generateSignMask(seed)
 
-                cachedPermutation = generatePermutation(seed)
+                rotationMatrix = generateRotation(seed)
 
                 if (interpreter == null) {
                     val modelBuffer = loadModelFile(modelFile)
@@ -104,19 +105,22 @@ class SentenceEmbedder(
             activeInterpreter.runForMultipleInputsOutputs(arrayOf(inputIds, attentionMask), mapOf(0 to output))
 
             val sentenceEmbedding = FloatArray(hiddenDim)
+
             for (i in 0 until hiddenDim) {
                 var sum = 0f
                 var count = 0
+
                 for (j in 0 until maxLen) {
                     if (attentionMask[0][j] == 1) {
                         sum += output[0][j][i]
                         count++
                     }
                 }
+
                 sentenceEmbedding[i] = if (count > 0) sum / count else 0f
             }
 
-            applyPrivacyShield(sentenceEmbedding)
+            return applyPrivacyShield(sentenceEmbedding)
         } catch (e: Exception) {
             Log.e("SentenceEmbedder", "Embedding failed", e)
             null
@@ -142,42 +146,31 @@ class SentenceEmbedder(
         return newSeed
     }
 
-    private fun applyPrivacyShield(vector: FloatArray, doShuffle: Boolean = true): FloatArray {
-        val magnitude = sqrt(vector.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
-        if (magnitude < 1e-9f) return vector
+    private fun applyPrivacyShield(vector: FloatArray): FloatArray {
 
         val NOISE_SCALE = 0.002f
+
         val noisy = FloatArray(vector.size) { i ->
+
             val u = Random.nextFloat() - 0.5f
-            val noise = -NOISE_SCALE * sign(u) * ln(1.0 - 2.0 * abs(u).toDouble()).toFloat()
+            val noise = -NOISE_SCALE *
+                    sign(u) *
+                    ln(1.0 - 2.0 * abs(u).toDouble()).toFloat()
+
             vector[i] + noise
         }
 
-        val noisyNorm = sqrt(noisy.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
-        val unitVector = FloatArray(noisy.size) { noisy[it] / (noisyNorm + 1e-9f) }
+        val normalized = normalize(noisy)
 
-        val clipped = FloatArray(unitVector.size) { i ->
-            (unitVector[i] * 10000).toInt() / 10000f
+        val mask = signMask ?: return normalized
+
+        val rotated = FloatArray(normalized.size)
+
+        for (i in normalized.indices) {
+            rotated[i] = normalized[i] * mask[i]
         }
 
-        val perm = cachedPermutation
-        return if (doShuffle && perm != null) {
-            FloatArray(clipped.size) { clipped[perm[it]] }
-        } else {
-            clipped
-        }
-    }
-
-    private fun generatePermutation(seed: Int): IntArray {
-        val indices = IntArray(hiddenDim) { it }
-        val random = Random(seed)
-        for (i in hiddenDim - 1 downTo 1) {
-            val j = random.nextInt(i + 1)
-            val temp = indices[i]
-            indices[i] = indices[j]
-            indices[j] = temp
-        }
-        return indices
+        return rotated
     }
 
     private fun loadModelFile(fileName: String): MappedByteBuffer {
@@ -193,170 +186,83 @@ class SentenceEmbedder(
         }
     }
 
-    class WordPieceTokenizer(context: Context, vocabFile: String) {
-        private val word2id: Map<String, Int>
-        private val unkId: Int
-
-        init {
-            val tempMap = HashMap<String, Int>(30522)
-            context.assets.open(vocabFile).bufferedReader().useLines { lines ->
-                lines.forEachIndexed { index, line ->
-                    tempMap[line.trim()] = index
-                }
-            }
-            word2id = tempMap
-            unkId = word2id["[UNK]"] ?: 0
+    private fun normalize(vec: FloatArray): FloatArray {
+        var sum = 0f
+        for (v in vec) {
+            sum += v * v
         }
 
-        private fun normalize(text: String): String {
-            val temp = Normalizer.normalize(text.lowercase(), Normalizer.Form.NFD)
-            return temp.replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+        val norm = sqrt(sum.toDouble()).toFloat()
+        if (norm < 1e-9f) return vec
+
+        val out = FloatArray(vec.size)
+        for (i in vec.indices) {
+            out[i] = vec[i] / norm
+        }
+        return out
+    }
+
+    private fun generateRotation(seed: Int): Array<FloatArray> {
+        val random = Random(seed)
+        val matrix = Array(hiddenDim) { FloatArray(hiddenDim) }
+
+        // random gaussian matrix
+        for (i in 0 until hiddenDim) {
+            for (j in 0 until hiddenDim) {
+                matrix[i][j] = random.nextFloat() - 0.5f
+            }
         }
 
-        fun tokenize(text: String, maxLen: Int): IntArray {
-            val result = mutableListOf<Int>()
-            val normalized = normalize(text)
+        // Gram-Schmidt orthogonalization
+        for (i in 0 until hiddenDim) {
 
-            val words = normalized
-                .replace(Regex("(\\p{Punct})"), " $1 ")
-                .split(Regex("\\s+"))
-                .filter { it.isNotBlank() }
-
-            for (word in words) {
-                result.addAll(wordpiece(word))
-            }
-
-            val clsId = word2id["[CLS]"] ?: 101
-            val sepId = word2id["[SEP]"] ?: 102
-
-            val limitedResult = if (result.size > maxLen - 2) result.subList(0, maxLen - 2) else result
-            val finalTokens = mutableListOf<Int>().apply {
-                add(clsId)
-                addAll(limitedResult)
-                add(sepId)
-            }
-
-            return IntArray(maxLen) { i -> if (i < finalTokens.size) finalTokens[i] else 0 }
-        }
-
-        fun countTokens(text: String): Int {
-            val result = mutableListOf<Int>()
-            val normalized = normalize(text)
-            val words = normalized
-                .replace(Regex("(\\p{Punct})"), " $1 ")
-                .split(Regex("\\s+"))
-                .filter { it.isNotBlank() }
-
-            for (word in words) {
-                result.addAll(wordpiece(word))
-            }
-            return result.size
-        }
-
-        private fun wordpiece(word: String): List<Int> {
-            val result = mutableListOf<Int>()
-            var start = 0
-            while (start < word.length) {
-                var end = word.length
-                var curSubwordId: Int? = null
-
-                while (start < end) {
-                    var substr = word.substring(start, end)
-                    if (start > 0) substr = "##$substr"
-
-                    if (word2id.containsKey(substr)) {
-                        curSubwordId = word2id[substr]
-                        break
-                    }
-                    end--
+            for (j in 0 until i) {
+                var dot = 0f
+                for (k in 0 until hiddenDim) {
+                    dot += matrix[i][k] * matrix[j][k]
                 }
 
-                if (curSubwordId == null) {
-                    result.add(unkId)
-                    break
-                } else {
-                    result.add(curSubwordId)
-                    start = end
-                }
-            }
-            return result
-        }
-
-        /**
-         * Enhanced quality calculation for WordPiece tokenization.
-         * Detects garbage text by measuring fragmentation density, spam repetition, and lack of context.
-         */
-        fun calculateQuality(text: String): Float {
-            if (text.isBlank()) return 0f
-            val words = normalize(text)
-                .replace(Regex("[^a-z0-9\\s]"), " ")
-                .split(Regex("\\s+"))
-                .filter { it.isNotBlank() }
-
-            if (words.isEmpty()) return 0f
-
-            // 1. Context Density Check
-            val stopwords = setOf("i", "me", "my", "you", "your", "it", "is", "the", "a", "an", "and", "or", "to", "of", "in", "on", "at", "for", "with", "do", "does", "did", "can", "will", "be", "was", "were", "this", "that")
-            val meaningfulWords = words.filter { it !in stopwords }
-            val contextDensity = meaningfulWords.size.toFloat() / words.size.toFloat()
-
-            // Normal English is 40-60% stopwords. Only penalize if it's extremely low (e.g., "it is what it is")
-            val densityMultiplier = if (words.size > 4 && contextDensity < 0.15f) {
-                0.5f // Apply a 50% penalty for lacking substance
-            } else {
-                1.0f // Normal text, no penalty
-            }
-
-            // 2. Heavy Repetition Check & Spam Detection
-            val uniqueWords = words.distinct().size
-            val varietyRatio = uniqueWords.toFloat() / words.size.toFloat()
-
-            // Count the most frequent word to catch "sad i i i i"
-            val wordCounts = words.groupingBy { it }.eachCount()
-            val maxWordCount = wordCounts.values.maxOrNull() ?: 0
-            val maxWordRatio = maxWordCount.toFloat() / words.size.toFloat()
-
-            val varietyMultiplier = when {
-                // If one single word makes up more than 50% of the entry (e.g. "sad i i i i" -> "i" is 80%)
-                words.size > 3 && maxWordRatio > 0.5f -> {
-                    1.0f - maxWordRatio // Penalty: 80% spam becomes a 0.2 multiplier
-                }
-                // If they are just mashing a few keys over and over (e.g. "asdf asdf asdf asdf")
-                words.size > 5 && varietyRatio < 0.3f -> {
-                    varietyRatio
-                }
-                else -> 1.0f // Normal text
-            }
-
-            // 3. Dictionary / Fragmentation Score
-            var totalScore = 0f
-            for (word in words) {
-                if (word2id.containsKey(word)) {
-                    totalScore += 1.0f
-                } else {
-                    val tokens = wordpiece(word)
-                    totalScore += if (tokens.contains(unkId) || tokens.isEmpty()) {
-                        0.0f
-                    } else {
-                        val fragRatio = word.length.toFloat() / tokens.size.toFloat()
-                        when {
-                            fragRatio >= 3.5f -> 0.9f
-                            fragRatio >= 2.5f -> 0.6f
-                            fragRatio >= 1.5f -> 0.2f
-                            else -> 0.0f
-                        }
-                    }
+                for (k in 0 until hiddenDim) {
+                    matrix[i][k] -= dot * matrix[j][k]
                 }
             }
 
-            val dictionaryScore = totalScore / words.size.toFloat()
+            var norm = 0f
+            for (k in 0 until hiddenDim) {
+                norm += matrix[i][k] * matrix[i][k]
+            }
 
-            // Final score combinations
-            val finalScore = (dictionaryScore * varietyMultiplier * densityMultiplier)
+            norm = sqrt(norm.toDouble()).toFloat()
 
-            Log.d("Tokenizer", "Quality for text: Dict=$dictionaryScore, Variety=$varietyMultiplier, Density=$densityMultiplier, Final=$finalScore")
-            return finalScore.coerceIn(0f, 1f)
+            for (k in 0 until hiddenDim) {
+                matrix[i][k] /= (norm + 1e-9f)
+            }
         }
 
+        return matrix
+    }
+
+    private fun rotate(vec: FloatArray): FloatArray {
+        val rot = rotationMatrix ?: return vec
+        val out = FloatArray(vec.size)
+
+        for (i in vec.indices) {
+            var sum = 0f
+            for (j in vec.indices) {
+                sum += rot[i][j] * vec[j]
+            }
+            out[i] = sum
+        }
+
+        return out
+    }
+
+    private fun generateSignMask(seed: Int): FloatArray {
+
+        val random = Random(seed)
+
+        return FloatArray(hiddenDim) {
+            if (random.nextBoolean()) 1f else -1f
+        }
     }
 }
