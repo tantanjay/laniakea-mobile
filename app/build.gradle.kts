@@ -42,6 +42,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        mlModelBinding = true
     }
     sourceSets {
         getByName("release") {
