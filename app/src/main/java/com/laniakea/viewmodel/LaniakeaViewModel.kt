@@ -47,7 +47,6 @@ import java.time.YearMonth
 import java.time.ZoneId
 import java.util.Calendar
 import java.util.Locale
-import kotlin.math.tanh
 
 class LaniakeaViewModel(application: Application) : AndroidViewModel(application) {
     private val db = DiaryDatabase.getDatabase(application)
@@ -404,7 +403,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
                 val manual = calculateMomentum(manualDaily, span, 3f, statusMap)
                 val ai = calculateMomentum(aiDaily, span, 3f, statusMap)
-                val anchors = VibeEngine.getAnchors();
+                val anchors = VibeEngine.getAnchors()
 
                 Log.d("LaniakeaViewModel", "----------------------------")
                 Log.d("LaniakeaViewModel", "Span: $span")
