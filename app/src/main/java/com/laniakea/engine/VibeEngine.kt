@@ -88,7 +88,7 @@ object VibeEngine {
         return (tanh(normalized.toDouble()) * 2.0).toFloat()
     }
 
-    fun scaleVibeDamped(raw: Float, maxExpected: Float = 0.1f, damp: Float = 0.5f): Float {
+    fun    scaleVibeDamped(raw: Float, maxExpected: Float = 0.1f, damp: Float = 0.5f): Float {
         val attenuated = raw * (1 - exp( - abs(raw) /damp))
         val normalized = attenuated / maxExpected
         return (tanh(normalized.toDouble()) * 2.0).toFloat()
