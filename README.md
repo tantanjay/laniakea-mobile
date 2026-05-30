@@ -1,5 +1,17 @@
 # Laniakea — Private Journal Entry
 
+## Project Status
+
+Laniakea is currently an experimental prototype and research project.
+
+The Vibe Engine analyzes linguistic patterns in journal entries and is intended for personal reflection only.
+
+It is not a mental health tool, diagnostic system, or clinical assessment instrument.
+
+No claims of psychological validity are made.
+
+---
+
 ## App Description
 **Laniakea** is a security-focused, privacy-first personal journaling application. It is designed to be a **digital sanctuary** where users can record their thoughts while maintaining total control over their data.
 
