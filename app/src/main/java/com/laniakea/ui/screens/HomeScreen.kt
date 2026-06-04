@@ -378,11 +378,11 @@ fun MainInputCard(
                     val goodWordCount = (tokenQuality * words.size).toInt()
                     
                     val (icon, tint, message) = when {
-                        tokenCount > 256 -> Triple(Icons.Default.Warning, MaterialTheme.colorScheme.error, "Journal too long ($tokenCount/256 tokens)")
-                        goodWordCount < 5 -> Triple(Icons.Default.Info, MaterialTheme.colorScheme.outline, "Please write at least 5 meaningful words ($goodWordCount/5)")
-                        tokenQuality >= 0.9f -> Triple(Icons.Default.CheckCircle, Color(0xFF00E676), "Your journal is tokenized well")
-                        tokenQuality >= 0.6f -> Triple(Icons.Default.Warning, Color(0xFFFFB74D), "Your journal has a bit of unknown words")
-                        else -> Triple(Icons.Default.Error, MaterialTheme.colorScheme.error, "Your journal might not be processed by the Core")
+                        tokenCount > 256 -> Triple(Icons.Default.Warning, MaterialTheme.colorScheme.error, "Thought is too long to be analyzed (limit exceeded)")
+                        goodWordCount < 5 -> Triple(Icons.Default.Info, MaterialTheme.colorScheme.outline, "Please write at least 5 meaningful words")
+                        tokenQuality >= 0.9f -> Triple(Icons.Default.CheckCircle, Color(0xFF00E676), "Your journal is high quality")
+                        tokenQuality >= 0.6f -> Triple(Icons.Default.Warning, Color(0xFFFFB74D), "Your journal has low variety or unknown words")
+                        else -> Triple(Icons.Default.Error, MaterialTheme.colorScheme.error, "Your journal quality is too low for the Core")
                     }
 
                     Row(
