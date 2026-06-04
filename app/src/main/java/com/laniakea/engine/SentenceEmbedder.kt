@@ -146,10 +146,10 @@ class SentenceEmbedder(
         val magnitude = sqrt(vector.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
         if (magnitude < 1e-9f) return vector
 
-        val NOISE_SCALE = 0.002f
+        val noiseScale = 0.002f
         val noisy = FloatArray(vector.size) { i ->
             val u = Random.nextFloat() - 0.5f
-            val noise = -NOISE_SCALE * sign(u) * ln(1.0 - 2.0 * abs(u).toDouble()).toFloat()
+            val noise = -noiseScale * sign(u) * ln(1.0 - 2.0 * abs(u).toDouble()).toFloat()
             vector[i] + noise
         }
 

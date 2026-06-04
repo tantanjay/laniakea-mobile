@@ -1,5 +1,9 @@
 package com.laniakea.engine
 
+import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.tanh
+
 /**
  * The VibeEngine processes high-dimensional embeddings to derive a human-readable "vibe score".
  * 
@@ -18,34 +22,84 @@ package com.laniakea.engine
  * but perfectly consistent for internal analysis.
  */
 object VibeEngine {
-    var joyAnchor: FloatArray? = null
-    var distressAnchor: FloatArray? = null
 
-    /**
-     * Projects the given embedding onto the axis between joy and distress.
-     * @return a score where positive is 'joyful' and negative is 'distressed'.
-     */
-    fun calculateVibeScore(embedding: FloatArray): Float {
-        val joy = joyAnchor ?: return 0f
-        val sad = distressAnchor ?: return 0f
+    private var joyAnchor: FloatArray? = null
+    private var distressAnchor: FloatArray? = null
 
-        // 1. Calculate the 'Vibe Axis' and its magnitude in one pass
-        val axis = FloatArray(embedding.size) { i -> joy[i] - sad[i] }
+    private var axis: FloatArray? = null
+    private var center: FloatArray? = null
 
-        var sumSq = 0f
-        for (v in axis) { sumSq += v * v }
-        val magnitude = kotlin.math.sqrt(sumSq.toDouble()).toFloat()
+    fun setAnchors(
+        joy: FloatArray,
+        distress: FloatArray,
+        rotate: (FloatArray) -> FloatArray,
+        normalize: (FloatArray) -> FloatArray
+    ) {
+        joyAnchor = rotate(normalize(joy))
+        distressAnchor = rotate(normalize(distress))
 
-        if (magnitude < 1e-9f) return 0f
+        buildAxis()
+    }
 
-        // 2. Dot Product against the Normalized Axis
-        var dotProduct = 0f
-        for (i in embedding.indices) {
-            // We divide by magnitude here to avoid creating a second 'unitAxis' array
-            val unitDimension = axis[i] / magnitude
-            dotProduct += embedding[i] * unitDimension
+    fun getAnchors(): Pair<FloatArray?, FloatArray?> {
+        return joyAnchor to distressAnchor
+    }
+
+    private fun buildAxis() {
+
+        val joy = joyAnchor ?: return
+        val sad = distressAnchor ?: return
+
+        val size = joy.size
+        axis = FloatArray(size)
+        center = FloatArray(size)
+
+        for (i in 0 until size) {
+            axis!![i] = joy[i] - sad[i]
+            center!![i] = (joy[i] + sad[i]) * 0.5f
         }
 
-        return dotProduct
+        // normalize axis
+        var norm = 0f
+        for (v in axis!!) norm += v * v
+        norm = kotlin.math.sqrt(norm)
+
+        for (i in axis!!.indices) {
+            axis!![i] /= (norm + 1e-9f)
+        }
+    }
+
+    fun calculateVibeScore(embedding: FloatArray): Float {
+
+        val axisVec = axis ?: return 0f
+        val centerVec = center ?: return 0f
+
+        var score = 0f
+
+        for (i in embedding.indices) {
+            score += (embedding[i] - centerVec[i]) * axisVec[i]
+        }
+
+        return scaleVibeSmooth(score)
+    }
+
+    fun scaleVibe(raw: Float, maxExpected: Float = 0.1f): Float {
+        val normalized = (raw / maxExpected).coerceIn(-1f, 1f)
+        return (tanh(normalized.toDouble()) * 2.0).toFloat()
+    }
+
+    fun    scaleVibeDamped(raw: Float, maxExpected: Float = 0.1f, damp: Float = 0.5f): Float {
+        val attenuated = raw * (1 - exp( - abs(raw) /damp))
+        val normalized = attenuated / maxExpected
+        return (tanh(normalized.toDouble()) * 2.0).toFloat()
+    }
+
+    fun scaleVibeSmooth(raw: Float, maxExpected: Float = 0.1f): Float {
+        // normalized relative to expected max
+        val normalized = raw / maxExpected
+        // tanh naturally clamps between -1 and 1, but large values saturate smoothly
+        val scaled = tanh(normalized.toDouble())
+        // optional multiplier for desired range (e.g., -2..2)
+        return (scaled * 2.0).toFloat()
     }
 }
