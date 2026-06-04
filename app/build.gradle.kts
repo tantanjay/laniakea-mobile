@@ -36,12 +36,13 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures {
         compose = true
         buildConfig = true
+        mlModelBinding = true
     }
     sourceSets {
         getByName("release") {
@@ -49,6 +50,10 @@ android {
             java.srcDirs("build/generated/ksp/release/kotlin", "build/generated/ksp/release/java")
         }
     }
+}
+
+kotlin {
+    jvmToolchain(17)
 }
 
 ksp {

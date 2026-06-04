@@ -7,6 +7,7 @@ import android.util.JsonReader
 import android.util.JsonWriter
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -76,7 +77,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var isProcessing by mutableStateOf(false)
 
     // Token Quality State
-    var tokenQuality by mutableStateOf(0f)
+    var tokenQuality by mutableFloatStateOf(0f)
     var tokenCount by mutableIntStateOf(0)
     var isEntryValid by mutableStateOf(false)
     private var qualityCheckJob: Job? = null
@@ -152,8 +153,18 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 isEngineActive = isReady
                 isEngineLoading = false
                 if (isReady) {
-                    VibeEngine.joyAnchor = embedder.embed("I feel incredibly happy, fulfilled, and optimistic.")
-                    VibeEngine.distressAnchor = embedder.embed("I feel miserable, exhausted, and hopeless.")
+                    val joy = embedder.embed("I feel happy, calm, and satisfied with life.")
+                    val distress = embedder.embed("I feel stressed, tired, and discouraged.")
+
+                    if (joy != null && distress != null) {
+                        VibeEngine.setAnchors(
+                            joy,
+                            distress,
+                            rotate = { it }, // already rotated by shield
+                            normalize = { it } // already normalized
+                        )
+                    }
+
                     withContext(Dispatchers.IO) { calibrateAnchors() }
                     refreshData()
                 }
@@ -167,15 +178,29 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         val sadVectors = dao.getRecentVectorsByNumericMood(-2.0, 20)
 
         if (joyVectors.size >= 5 && sadVectors.size >= 5) {
+
             val joyFloatVectors = joyVectors.map { dao.byteArrayToFloatArray(it) }
             val sadFloatVectors = sadVectors.map { dao.byteArrayToFloatArray(it) }
 
-            // Ensure all vectors have the same size
-            if (joyFloatVectors.all { it.size == 768 } && sadFloatVectors.all { it.size == 768 }) {
-                VibeEngine.joyAnchor = calculateAverageVector(joyFloatVectors)
-                VibeEngine.distressAnchor = calculateAverageVector(sadFloatVectors)
-                Log.i("VibeCalibration", "Anchors updated with ${joyFloatVectors.size} Joy and ${sadFloatVectors.size} Sad vectors.")
+            if (joyFloatVectors.all { it.size == 768 } &&
+                sadFloatVectors.all { it.size == 768 }) {
+
+                val joyAvg = calculateAverageVector(joyFloatVectors)
+                val sadAvg = calculateAverageVector(sadFloatVectors)
+
+                VibeEngine.setAnchors(
+                    joy = joyAvg,
+                    distress = sadAvg,
+                    rotate = { it },      // already rotated by embedder
+                    normalize = { it }    // already normalized
+                )
+
+                Log.i(
+                    "VibeCalibration",
+                    "Anchors updated with ${joyFloatVectors.size} Joy and ${sadFloatVectors.size} Sad vectors."
+                )
             }
+
         } else {
             Log.i("VibeCalibration", "Not enough entries to calibrate anchors yet.")
         }
@@ -283,9 +308,11 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                         isVectorized = true
                     )
 
+                    val anchors = VibeEngine.getAnchors()
+
                     Log.d("LaniakeaViewModel", "----------------------------")
-                    Log.d("LaniakeaViewModel", "Joy Anchor: ${VibeEngine.joyAnchor?.contentToString()}")
-                    Log.d("LaniakeaViewModel", "Distress Anchor: ${VibeEngine.distressAnchor?.contentToString()}")
+                    Log.d("LaniakeaViewModel", "Joy Anchor: ${anchors.first?.contentToString()}")
+                    Log.d("LaniakeaViewModel", "Distress Anchor: ${anchors.second?.contentToString()}")
                     Log.d("LaniakeaViewModel", "Adding entry with vector - Mood: ${entry.numericMood}, Vibe: ${entry.latentVibe}, Context: $content")
                     Log.d("LaniakeaViewModel", "----------------------------")
 
@@ -374,28 +401,28 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     Float.MAX_VALUE to "STRONG UPTURN"
                 )
 
-                /**
-                 * Rationale: Human emotions are "loud" and reactive.
-                 * multiplier (3f): We trust human "spikes" more. A sudden burst of joy is
-                 * a valid data point, so we have a wider outlier gate.
-                 */
-                val manual = calculateMomentum(manualDaily, false, span, 3f, statusMap)
-
-                /**
-                 * Rationale: AI "Vibes" are "quiet" and noisy.
-                 * multiplier (2f): AI embeddings can be "tricked" by long entries, song lyrics,
-                 * or specific keywords. A tighter multiplier (2f) filters out this linguistic noise,
-                 * requiring consistent word patterns to move the trend.
-                 */
-                val ai = calculateMomentum(aiDaily, true, span, 2f, statusMap)
+                val manual = calculateMomentum(manualDaily, span, 3f, statusMap)
+                val ai = calculateMomentum(aiDaily, span, 3f, statusMap)
+                val anchors = VibeEngine.getAnchors()
 
                 Log.d("LaniakeaViewModel", "----------------------------")
-                Log.d("LaniakeaViewModel", "Span $span")
-                Log.d("LaniakeaViewModel", "Moods $manualDaily")
-                Log.d("LaniakeaViewModel", "Moods Momentum ${manual.first}, Status ${manual.second}")
-                Log.d("LaniakeaViewModel", "Vibes $aiDaily")
-                Log.d("LaniakeaViewModel", "Vibes Momentum ${ai.first}, Status ${ai.second}")
+                Log.d("LaniakeaViewModel", "Span: $span")
+                Log.d("LaniakeaViewModel", "Joy Anchor: ${anchors.first.contentToString()}")
+                Log.d("LaniakeaViewModel", "Distress Anchor: ${anchors.second.contentToString()}")
+                Log.d("LaniakeaViewModel", "Moods Momentum: ${manual.first}, Status ${manual.second}")
+                Log.d("LaniakeaViewModel", "Vibes: $aiDaily")
+                Log.d("LaniakeaViewModel", "Vibes Momentum: ${ai.first}, Status ${ai.second}")
                 Log.d("LaniakeaViewModel", "----------------------------")
+
+                val entries = dao.getAllEntries().map { securityManager.decrypt(it.content) }
+                for ((index, decryptedContent) in entries.withIndex()) {
+                    if (index >= manualDaily.size) break
+
+                    Log.d("LaniakeaViewModel", "Content: $decryptedContent")
+                    Log.d("LaniakeaViewModel","Manual: ${manualDaily[index]}")
+                    Log.d("LaniakeaViewModel","AI Vibe: ${aiDaily[index]}")
+                    Log.d("LaniakeaViewModel", "----------------------------")
+                }
 
                 manualMomentum = Triple(
                     manual.first,
@@ -434,7 +461,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
     fun calculateMomentum(
         values: List<Float>,
-        isAi: Boolean,
         span: Int,
         outlierMultiplier: Float,
         statusMap: Map<Float, String>
@@ -442,16 +468,18 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
         if (values.size < 2) return Triple(0f, "STABLE", emptyList())
 
-        // 1. Compute deltas
+        // 1️⃣ Compute deltas
         val deltas = mutableListOf(0f)
         for (i in 1 until values.size) deltas.add(values[i] - values[i - 1])
 
-        // 2. Compute median and MAD for outlier detection
+        // 2️⃣ Median and MAD for outlier detection
         val sortedDeltas = deltas.sorted()
         val median = sortedDeltas[sortedDeltas.size / 2]
-        val mad = sortedDeltas.map { kotlin.math.abs(it - median) }.sorted()[sortedDeltas.size / 2].coerceAtLeast(0.001f)
+        val mad = sortedDeltas.map { kotlin.math.abs(it - median) }
+            .sorted()[sortedDeltas.size / 2]
+            .coerceAtLeast(0.001f)
 
-        // 3. Outlier suppression: reduce influence of extreme deltas
+        // 3️⃣ Outlier suppression
         val filteredDeltas = deltas.map { delta ->
             val deviation = delta - median
             if (kotlin.math.abs(deviation) > outlierMultiplier * mad) {
@@ -459,27 +487,13 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             } else delta
         }
 
-        /**
-         * 4. Volatility normalization with Type-Specific Sensitivity
-         * Rationale for 'isAi' Boolean:
-         * Manual Moods use an integer-like scale (-2 to 2), making its changes "loud."
-         * AI Vibes use small floating-point decimals (-0.2 to 0.4), making its changes "quiet."
-         * If we don't use a 'sensitivityFloor', tiny mathematical noise in the AI
-         * would be stretched to look like massive emotional swings (100% volatility).
-         *
-         * Manual scale has a total range of ~4.0; AI scale has a total range of ~0.6.
-         * We set the floor at ~25% of the total expected range for each type.
-         */
-        val sensitivityFloor = if (isAi) 0.15f else 1.0f
-
-        val rawVolatility = filteredDeltas.maxOrNull()?.let { max ->
-            max - (filteredDeltas.minOrNull() ?: 0f)
-        } ?: 0f
-
+        // 4️⃣ Volatility normalization
+        val sensitivityFloor = 1.0f // Unified for manual and AI (-2..2 scale)
+        val rawVolatility = (filteredDeltas.maxOrNull() ?: 0f) - (filteredDeltas.minOrNull() ?: 0f)
         val volatility = rawVolatility.coerceAtLeast(sensitivityFloor)
         val normalizedDeltas = filteredDeltas.map { it / volatility }
 
-        // 5. EMA smoothing
+        // 5️⃣ EMA smoothing
         val alpha = 2f / (span + 1f)
         val trend = mutableListOf<Float>()
         var ema = normalizedDeltas[0]
@@ -489,13 +503,12 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             trend.add(ema)
         }
 
-        // 6. Map EMA to -100..100 score
+        // 6️⃣ Map EMA to -100..100
         val score = (ema * 100f).coerceIn(-100f, 100f)
 
-        // 7. Status mapping
-        val status = statusMap.entries
-            .sortedBy { it.key }
-            .firstOrNull { score < it.key }?.value ?: "UNKNOWN"
+        // 7️⃣ Status mapping (pre-sorted for efficiency)
+        val sortedStatusMap = statusMap.entries.sortedBy { it.key }
+        val status = sortedStatusMap.firstOrNull { score < it.key }?.value ?: "UNKNOWN"
 
         return Triple(score, status, trend)
     }
