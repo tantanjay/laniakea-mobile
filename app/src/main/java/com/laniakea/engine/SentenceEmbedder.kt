@@ -317,12 +317,12 @@ class SentenceEmbedder(
             val maxWordRatio = maxWordCount.toFloat() / words.size.toFloat()
 
             val varietyMultiplier = when {
-                // If one single word makes up more than 50% of the entry (e.g. "sad i i i i" -> "i" is 80%)
-                words.size > 3 && maxWordRatio > 0.5f -> {
-                    1.0f - maxWordRatio // Penalty: 80% spam becomes a 0.2 multiplier
+                // If one single word makes up half or more of the entry (e.g. "this this this sad sad sad")
+                words.size > 3 && maxWordRatio >= 0.5f -> {
+                    (1.0f - maxWordRatio).coerceAtMost(varietyRatio)
                 }
                 // If they are just mashing a few keys over and over (e.g. "asdf asdf asdf asdf")
-                words.size > 5 && varietyRatio < 0.3f -> {
+                words.size > 5 && varietyRatio < 0.5f -> {
                     varietyRatio
                 }
                 else -> 1.0f // Normal text
