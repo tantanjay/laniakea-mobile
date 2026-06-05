@@ -1,9 +1,7 @@
     package com.laniakea.manager
 
 import com.laniakea.data.DiaryDatabase
-import com.laniakea.data.DiaryEntry
 import com.laniakea.data.TaglineTemplates
-import com.laniakea.security.SecurityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Calendar
@@ -25,7 +23,7 @@ class AnalyticsManager(
         return withContext(Dispatchers.IO) {
             val rawEntries = db.diaryDao().getRecentEntries(limit)
             // Reverse to chronological order (oldest first) for sparkline
-            val entries = rawEntries.reversed().map { decryptEntry(it) }
+            val entries = rawEntries.reversed().map { securityManager.decryptEntry(it) }
 
             val firstPersonWords = setOf("i", "me", "my", "myself", "mine", "i'm", "i've", "i'll", "i'd")
             val futureWords = setOf("will", "going", "plan", "tomorrow", "soon", "next", "hope", "want", "intend", "goal", "ahead", "forward", "future")
@@ -150,13 +148,4 @@ class AnalyticsManager(
         return TaglineTemplates.ALL.random()(year)
     }
 
-    private fun decryptEntry(entry: DiaryEntry): DiaryEntry {
-        return entry.copy(
-            content = try { securityManager.decrypt(entry.content) } catch (e: Exception) { "[Encrypted]" },
-            mood = try { securityManager.decrypt(entry.mood) } catch (e: Exception) { "" },
-            category = try { securityManager.decrypt(entry.category) } catch (e: Exception) { "" },
-            weather = try { securityManager.decrypt(entry.weather) } catch (e: Exception) { "" },
-            activities = try { securityManager.decrypt(entry.activities) } catch (e: Exception) { "" }
-        )
-    }
 }

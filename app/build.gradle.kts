@@ -84,7 +84,7 @@ dependencies {
         exclude(group = "com.intellij", module = "annotations")
     }
     implementation(libs.androidx.compose.material.icons.extended)
-    implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.datastore.preferences)
     implementation(libs.poi.ooxml)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

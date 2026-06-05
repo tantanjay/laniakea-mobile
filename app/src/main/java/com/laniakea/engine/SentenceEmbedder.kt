@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.laniakea.data.AppSettings
 import com.laniakea.data.DiaryDatabase
-import com.laniakea.security.SecurityManager
+import com.laniakea.manager.SecurityManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow

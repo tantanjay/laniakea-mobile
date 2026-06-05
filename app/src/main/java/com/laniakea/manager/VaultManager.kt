@@ -11,7 +11,6 @@ import com.laniakea.data.DiaryDatabase
 import com.laniakea.data.DiaryEntry
 import com.laniakea.data.ObjectBoxManager
 import com.laniakea.data.ObjectBoxSentenceVector
-import com.laniakea.security.SecurityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.poi.ss.usermodel.Cell
@@ -38,7 +37,9 @@ class VaultManager(
         try {
             val outputStream = application.contentResolver.openOutputStream(uri) ?: throw Exception("Failed to open URI")
             val encryptedStream = securityManager.getEncryptingStream(outputStream, password.toCharArray())
-            val writer = JsonWriter(OutputStreamWriter(encryptedStream, "UTF-8"))
+            val writer = JsonWriter(withContext(Dispatchers.IO) {
+                OutputStreamWriter(encryptedStream, "UTF-8")
+            })
 
             writer.beginObject()
 
@@ -66,11 +67,12 @@ class VaultManager(
                 writer.beginObject()
                 writer.name("id").value(entry.id)
                 writer.name("dateTime").value(entry.dateTime)
-                writer.name("content").value(securityManager.decrypt(entry.content))
-                writer.name("mood").value(securityManager.decrypt(entry.mood))
-                writer.name("category").value(securityManager.decrypt(entry.category))
-                writer.name("weather").value(securityManager.decrypt(entry.weather))
-                writer.name("activities").value(securityManager.decrypt(entry.activities))
+                val decryptedEntry = securityManager.decryptEntry(entry)
+                writer.name("content").value(decryptedEntry.content)
+                writer.name("mood").value(decryptedEntry.mood)
+                writer.name("category").value(decryptedEntry.category)
+                writer.name("weather").value(decryptedEntry.weather)
+                writer.name("activities").value(decryptedEntry.activities)
                 writer.name("numericMood").value(entry.numericMood)
                 writer.name("latentVibe").value(entry.latentVibe)
                 writer.name("isVectorized").value(entry.isVectorized)
@@ -98,7 +100,6 @@ class VaultManager(
                 }
             }
             writer.endArray()
-
             writer.endObject()
             writer.close()
 
@@ -120,7 +121,9 @@ class VaultManager(
         try {
             val inputStream = application.contentResolver.openInputStream(uri) ?: throw Exception("Failed to open URI")
             val decryptedStream = securityManager.getDecryptingStream(inputStream, password.toCharArray())
-            val reader = JsonReader(InputStreamReader(decryptedStream, "UTF-8"))
+            val reader = JsonReader(withContext(Dispatchers.IO) {
+                InputStreamReader(decryptedStream, "UTF-8")
+            })
 
             val dao = db.diaryDao()
             dao.clearDatabase()
@@ -185,18 +188,19 @@ class VaultManager(
                                 }
                             }
 
-                            val entry = DiaryEntry(
+                            val rawEntry = DiaryEntry(
                                 dateTime = dateTime,
-                                content = securityManager.encrypt(content),
-                                mood = securityManager.encrypt(mood),
-                                category = securityManager.encrypt(category),
-                                weather = securityManager.encrypt(weather),
-                                activities = securityManager.encrypt(activities),
+                                content = content,
+                                mood = mood,
+                                category = category,
+                                weather = weather,
+                                activities = activities,
                                 numericMood = numericMood,
                                 latentVibe = latentVibe,
                                 isVectorized = isVectorized
                             )
-                            val newId = dao.insertEntry(entry)
+                            val entryToSave = securityManager.encryptEntry(rawEntry)
+                            val newId = dao.insertEntry(entryToSave)
                             if (oldId != -1L) oldToNewIdMap[oldId] = newId
 
                             count++
@@ -295,18 +299,18 @@ class VaultManager(
                         else -> 0.0
                     }
 
-                    val entry = DiaryEntry(
+                    val rawEntry = DiaryEntry(
                         dateTime = dateTime,
-                        content = securityManager.encrypt(content),
-                        mood = securityManager.encrypt(mood),
-                        category = securityManager.encrypt(category),
-                        weather = securityManager.encrypt(weather),
-                        activities = securityManager.encrypt(activity),
+                        content = content,
+                        mood = mood,
+                        category = category,
+                        weather = weather,
+                        activities = activity,
                         numericMood = numericMood,
                         latentVibe = 0.0,
                         isVectorized = false
                     )
-                    dao.insertEntry(entry)
+                    dao.insertEntry(securityManager.encryptEntry(rawEntry))
                 } catch (e: Exception) {
                     Log.e("VaultManager", "Error importing row $i", e)
                 }
@@ -315,7 +319,9 @@ class VaultManager(
             }
 
             workbook.close()
-            inputStream.close()
+            withContext(Dispatchers.IO) {
+                inputStream.close()
+            }
 
             withContext(Dispatchers.Main) {
                 onComplete(true)

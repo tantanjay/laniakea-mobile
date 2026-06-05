@@ -5,7 +5,6 @@ import com.laniakea.data.DiaryEntry
 import com.laniakea.data.ObjectBoxManager
 import com.laniakea.data.ObjectBoxSentenceVector_
 import com.laniakea.engine.SentenceEmbedder
-import com.laniakea.security.SecurityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -28,7 +27,7 @@ class SemanticManager(
                     if (similarIds.isNotEmpty()) {
                         val entries = db.diaryDao().getEntriesByIds(similarIds)
                         val entryMap = entries.associateBy { it.id }
-                        return@withContext similarIds.mapNotNull { entryMap[it] }.map { decryptEntry(it) }
+                        return@withContext similarIds.mapNotNull { entryMap[it] }.map { securityManager.decryptEntry(it) }
                     }
                 }
             }
@@ -37,7 +36,7 @@ class SemanticManager(
             val allEntries = db.diaryDao().getAllEntries()
             val lowerQuery = query.lowercase()
             allEntries
-                .map { decryptEntry(it) }
+                .map { securityManager.decryptEntry(it) }
                 .filter { it.content.lowercase().contains(lowerQuery) }
                 .take(limit)
         }
@@ -55,7 +54,7 @@ class SemanticManager(
             
             val entries = db.diaryDao().getEntriesByIds(similarIds)
             val entryMap = entries.associateBy { it.id }
-            similarIds.mapNotNull { entryMap[it] }.map { decryptEntry(it) }
+            similarIds.mapNotNull { entryMap[it] }.map { securityManager.decryptEntry(it) }
         }
     }
 
@@ -80,7 +79,7 @@ class SemanticManager(
                 if (similarIds.isNotEmpty()) {
                     val entries = db.diaryDao().getEntriesByIds(similarIds)
                     val entryMap = entries.associateBy { it.id }
-                    val decryptedEntries = similarIds.mapNotNull { entryMap[it] }.map { decryptEntry(it) }
+                    val decryptedEntries = similarIds.mapNotNull { entryMap[it] }.map { securityManager.decryptEntry(it) }
                     
                     val shortTheme = theme.split(",").first()
                     themeClusters[shortTheme] = decryptedEntries
@@ -91,13 +90,4 @@ class SemanticManager(
         }
     }
 
-    private fun decryptEntry(entry: DiaryEntry): DiaryEntry {
-        return entry.copy(
-            content = try { securityManager.decrypt(entry.content) } catch (e: Exception) { "[Encrypted]" },
-            mood = try { securityManager.decrypt(entry.mood) } catch (e: Exception) { "" },
-            category = try { securityManager.decrypt(entry.category) } catch (e: Exception) { "" },
-            weather = try { securityManager.decrypt(entry.weather) } catch (e: Exception) { "" },
-            activities = try { securityManager.decrypt(entry.activities) } catch (e: Exception) { "" }
-        )
-    }
 }
