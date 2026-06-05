@@ -19,29 +19,22 @@ interface DiaryDao {
     @Insert
     suspend fun insertEntry(entry: DiaryEntry): Long
 
-    @Insert
-    suspend fun insertVector(vector: SentenceVector)
-
     @Update
     suspend fun updateEntry(entry: DiaryEntry)
 
-    @Transaction
-    suspend fun insertEntryWithVector(entry: DiaryEntry, vector: FloatArray) {
-        val entryId = insertEntry(entry)
-        insertVector(SentenceVector(entryId = entryId, vector = floatArrayToByteArray(vector)))
-    }
+
 
     @Query("SELECT * FROM entries ORDER BY dateTime ASC")
     suspend fun getAllEntries(): List<DiaryEntry>
+
+    @Query("SELECT * FROM entries WHERE id IN (:ids)")
+    suspend fun getEntriesByIds(ids: List<Long>): List<DiaryEntry>
 
     @Query("SELECT * FROM entries ORDER BY dateTime DESC")
     fun getAllEntriesFlow(): Flow<List<DiaryEntry>>
 
     @Query("SELECT * FROM entries WHERE dateTime >= :startDate AND dateTime <= :endDate ORDER BY dateTime DESC")
     fun getEntriesInRange(startDate: Long, endDate: Long): Flow<List<DiaryEntry>>
-
-    @Query("SELECT * FROM vectors")
-    suspend fun getAllVectors(): List<SentenceVector>
 
     @Query("SELECT dateTime, numericMood, latentVibe FROM entries WHERE isVectorized = 1 ORDER BY dateTime ASC")
     suspend fun getAllMoodScores(): List<MoodScores>
@@ -58,28 +51,20 @@ interface DiaryDao {
     @Query("SELECT MIN(dateTime) FROM entries")
     suspend fun getOldestTimestamp(): Long?
 
-    @Query("SELECT vector FROM vectors WHERE entryId = :entryId")
-    suspend fun getVectorForEntry(entryId: Long): List<ByteArray>
-
     @Query("""
-        SELECT v.vector 
-        FROM vectors v 
-        JOIN entries e ON v.entryId = e.id 
-        WHERE e.numericMood = :moodValue
-        ORDER BY e.dateTime DESC
+        SELECT id 
+        FROM entries 
+        WHERE numericMood = :moodValue
+        ORDER BY dateTime DESC
         LIMIT :limit
     """)
-    suspend fun getRecentVectorsByNumericMood(moodValue: Double, limit: Int): List<ByteArray>
+    suspend fun getRecentEntryIdsByNumericMood(moodValue: Double, limit: Int): List<Long>
 
     @Query("DELETE FROM entries")
     suspend fun clearAllEntries()
 
-    @Query("DELETE FROM vectors")
-    suspend fun clearAllVectors()
-
     @Transaction
     suspend fun clearDatabase() {
-        clearAllVectors()
         clearAllEntries()
     }
 
