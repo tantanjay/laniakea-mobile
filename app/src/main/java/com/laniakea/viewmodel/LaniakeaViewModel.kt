@@ -16,7 +16,9 @@ import androidx.lifecycle.viewModelScope
 import com.laniakea.data.AppSettings
 import com.laniakea.data.DiaryDatabase
 import com.laniakea.data.DiaryEntry
-import com.laniakea.data.SentenceVector
+import com.laniakea.data.ObjectBoxManager
+import com.laniakea.data.ObjectBoxSentenceVector
+import com.laniakea.data.ObjectBoxSentenceVector_
 import com.laniakea.data.TaglineTemplates
 import com.laniakea.engine.SentenceEmbedder
 import com.laniakea.engine.VibeEngine
@@ -112,6 +114,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
+        ObjectBoxManager.init(application)
         observeSettings()
         observeEngineStatus()
         refreshData()
@@ -174,15 +177,21 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
     private suspend fun calibrateAnchors() {
         val dao = db.diaryDao()
-        val joyVectors = dao.getRecentVectorsByNumericMood(2.0, 20)
-        val sadVectors = dao.getRecentVectorsByNumericMood(-2.0, 20)
+        val joyIds = dao.getRecentEntryIdsByNumericMood(2.0, 20)
+        val sadIds = dao.getRecentEntryIdsByNumericMood(-2.0, 20)
 
-        if (joyVectors.size >= 5 && sadVectors.size >= 5) {
+        if (joyIds.size >= 5 && sadIds.size >= 5) {
+            val vectorBox = ObjectBoxManager.vectorBox
+            
+            val joyFloatVectors = joyIds.mapNotNull { id -> 
+                vectorBox.query(ObjectBoxSentenceVector_.entryId.equal(id)).build().findFirst()?.vector 
+            }
+            val sadFloatVectors = sadIds.mapNotNull { id -> 
+                vectorBox.query(ObjectBoxSentenceVector_.entryId.equal(id)).build().findFirst()?.vector 
+            }
 
-            val joyFloatVectors = joyVectors.map { dao.byteArrayToFloatArray(it) }
-            val sadFloatVectors = sadVectors.map { dao.byteArrayToFloatArray(it) }
-
-            if (joyFloatVectors.all { it.size == 768 } &&
+            if (joyFloatVectors.size >= 5 && sadFloatVectors.size >= 5 &&
+                joyFloatVectors.all { it.size == 768 } &&
                 sadFloatVectors.all { it.size == 768 }) {
 
                 val joyAvg = calculateAverageVector(joyFloatVectors)
@@ -316,7 +325,8 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     Log.d("LaniakeaViewModel", "Adding entry with vector - Mood: ${entry.numericMood}, Vibe: ${entry.latentVibe}, Context: $content")
                     Log.d("LaniakeaViewModel", "----------------------------")
 
-                    db.diaryDao().insertEntryWithVector(entry, vector)
+                    val entryId = db.diaryDao().insertEntry(entry)
+                    ObjectBoxManager.vectorBox.put(ObjectBoxSentenceVector(entryId = entryId, vector = vector))
                     refreshData()
                     return@launch
                 }
@@ -352,7 +362,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                         val aiVibe = VibeEngine.calculateVibeScore(vector)
                         val updatedEntry = entry.copy(latentVibe = aiVibe.toDouble(), isVectorized = true)
                         dao.updateEntry(updatedEntry)
-                        dao.insertVector(SentenceVector(entryId = entry.id, vector = dao.floatArrayToByteArray(vector)))
+                        ObjectBoxManager.vectorBox.put(ObjectBoxSentenceVector(entryId = entry.id, vector = vector))
                     }
                 } catch (e: Exception) { e.printStackTrace() }
                 refreshProcessingStats()
@@ -568,12 +578,21 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 // Vectors
                 writer.name("vectors")
                 writer.beginArray()
-                val vectors = dao.getAllVectors()
+                val vectors = ObjectBoxManager.vectorBox.all
                 vectors.forEach { vector ->
-                    writer.beginObject()
-                    writer.name("entryId").value(vector.entryId)
-                    writer.name("vector").value(Base64.encodeToString(vector.vector, Base64.DEFAULT))
-                    writer.endObject()
+                    val floatArray = vector.vector
+                    if (floatArray != null) {
+                        writer.beginObject()
+                        writer.name("entryId").value(vector.entryId)
+                        
+                        // Convert FloatArray to ByteArray for Base64 encoding
+                        val byteBuffer = java.nio.ByteBuffer.allocate(floatArray.size * 4)
+                        floatArray.forEach { byteBuffer.putFloat(it) }
+                        val byteArray = byteBuffer.array()
+                        
+                        writer.name("vector").value(Base64.encodeToString(byteArray, Base64.DEFAULT))
+                        writer.endObject()
+                    }
                 }
                 writer.endArray()
 
@@ -606,6 +625,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
                 val dao = db.diaryDao()
                 dao.clearDatabase()
+                ObjectBoxManager.vectorBox.removeAll()
 
                 val oldToNewIdMap = mutableMapOf<Long, Long>()
 
@@ -701,9 +721,14 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                                 }
                                 val newEntryId = oldToNewIdMap[oldEntryId]
                                 if (newEntryId != null && vectorBase64.isNotEmpty()) {
-                                    dao.insertVector(SentenceVector(
+                                    val byteArray = Base64.decode(vectorBase64, Base64.DEFAULT)
+                                    val byteBuffer = java.nio.ByteBuffer.wrap(byteArray)
+                                    val floats = FloatArray(byteArray.size / 4)
+                                    for (i in floats.indices) floats[i] = byteBuffer.getFloat()
+                                    
+                                    ObjectBoxManager.vectorBox.put(ObjectBoxSentenceVector(
                                         entryId = newEntryId,
-                                        vector = Base64.decode(vectorBase64, Base64.DEFAULT)
+                                        vector = floats
                                     ))
                                 }
                                 reader.endObject()
@@ -826,5 +851,78 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 withContext(Dispatchers.Main) { isXlsxImporting = false }
             }
         }
+    }
+
+    suspend fun semanticSearch(query: String, limit: Int = 5): List<DiaryEntry> {
+        if (!isEngineActive) return emptyList()
+        return withContext(Dispatchers.IO) {
+            val vector = embedder.embed(query) ?: return@withContext emptyList()
+            val similarVectors = ObjectBoxManager.search(vector, limit)
+            val similarIds = similarVectors.map { it.entryId }
+            
+            if (similarIds.isEmpty()) return@withContext emptyList()
+            
+            val entries = db.diaryDao().getEntriesByIds(similarIds)
+            val entryMap = entries.associateBy { it.id }
+            similarIds.mapNotNull { entryMap[it] }.map { decryptEntry(it) }
+        }
+    }
+
+    suspend fun findSimilarEntries(entryId: Long, limit: Int = 5): List<DiaryEntry> {
+        return withContext(Dispatchers.IO) {
+            val vectorObj = ObjectBoxManager.vectorBox.query(ObjectBoxSentenceVector_.entryId.equal(entryId)).build().findFirst()
+            val vector = vectorObj?.vector ?: return@withContext emptyList()
+            
+            val similarVectors = ObjectBoxManager.search(vector, limit + 1)
+            val similarIds = similarVectors.map { it.entryId }.filter { it != entryId }.take(limit)
+            
+            if (similarIds.isEmpty()) return@withContext emptyList()
+            
+            val entries = db.diaryDao().getEntriesByIds(similarIds)
+            val entryMap = entries.associateBy { it.id }
+            similarIds.mapNotNull { entryMap[it] }.map { decryptEntry(it) }
+        }
+    }
+
+    suspend fun getThemeClusters(): Map<String, List<DiaryEntry>> {
+        if (!isEngineActive) return emptyMap()
+        return withContext(Dispatchers.IO) {
+            val themes = listOf(
+                "Relationships, Love, Friends",
+                "Career, Work, Goals, Success",
+                "Mental Health, Anxiety, Stress, Depression",
+                "Physical Health, Exercise, Body, Sleep",
+                "Personal Growth, Learning, Philosophy"
+            )
+            
+            val themeClusters = mutableMapOf<String, List<DiaryEntry>>()
+            
+            for (theme in themes) {
+                val themeVector = embedder.embed(theme) ?: continue
+                val similarVectors = ObjectBoxManager.search(themeVector, 3)
+                val similarIds = similarVectors.map { it.entryId }
+                
+                if (similarIds.isNotEmpty()) {
+                    val entries = db.diaryDao().getEntriesByIds(similarIds)
+                    val entryMap = entries.associateBy { it.id }
+                    val decryptedEntries = similarIds.mapNotNull { entryMap[it] }.map { decryptEntry(it) }
+                    
+                    val shortTheme = theme.split(",").first()
+                    themeClusters[shortTheme] = decryptedEntries
+                }
+            }
+            
+            themeClusters
+        }
+    }
+
+    private fun decryptEntry(entry: DiaryEntry): DiaryEntry {
+        return entry.copy(
+            content = try { securityManager.decrypt(entry.content) } catch (e: Exception) { "[Encrypted]" },
+            mood = try { securityManager.decrypt(entry.mood) } catch (e: Exception) { "" },
+            category = try { securityManager.decrypt(entry.category) } catch (e: Exception) { "" },
+            weather = try { securityManager.decrypt(entry.weather) } catch (e: Exception) { "" },
+            activities = try { securityManager.decrypt(entry.activities) } catch (e: Exception) { "" }
+        )
     }
 }

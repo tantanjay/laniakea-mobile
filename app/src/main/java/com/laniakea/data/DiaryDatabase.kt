@@ -10,7 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 @Database(
-    entities = [DiaryEntry::class, SentenceVector::class, AppSettings::class],
+    entities = [DiaryEntry::class, AppSettings::class],
     version = 1,
     exportSchema = true
 )

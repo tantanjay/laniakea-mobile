@@ -143,7 +143,69 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             )
         }
 
+        // Thematic Clusters
+        var themeClusters by remember { mutableStateOf<Map<String, List<com.laniakea.data.DiaryEntry>>>(emptyMap()) }
+        var isThemesLoading by remember { mutableStateOf(false) }
+
+        LaunchedEffect(vm.isEngineActive) {
+            if (vm.isEngineActive) {
+                isThemesLoading = true
+                themeClusters = vm.getThemeClusters()
+                isThemesLoading = false
+            }
+        }
+
+        if (vm.isEngineActive) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "Semantic Themes",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+
+                if (isThemesLoading) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else if (themeClusters.isNotEmpty()) {
+                    themeClusters.forEach { (theme, entries) ->
+                        ThemeClusterCard(theme = theme, entries = entries)
+                    }
+                } else {
+                    Text("Not enough data to form semantic themes.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+fun ThemeClusterCard(theme: String, entries: List<com.laniakea.data.DiaryEntry>) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = theme,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            entries.take(3).forEach { entry ->
+                Text(
+                    text = "• " + entry.content.take(60) + if(entry.content.length > 60) "..." else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+        }
     }
 }
 
