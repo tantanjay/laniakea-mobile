@@ -50,6 +50,14 @@ import java.time.ZoneId
 import java.util.Calendar
 import java.util.Locale
 
+data class WritingMetrics(
+    val entryLengths: List<Pair<Long, Float>>,
+    val vocabularyDiversity: List<Pair<Long, Float>>,
+    val questionFrequency: List<Pair<Long, Float>>,
+    val firstPersonUsage: List<Pair<Long, Float>>,
+    val futureVsPast: List<Pair<Long, Float>>
+)
+
 class LaniakeaViewModel(application: Application) : AndroidViewModel(application) {
     private val db = DiaryDatabase.getDatabase(application)
     private val securityManager = SecurityManager(application)
@@ -83,6 +91,10 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var tokenCount by mutableIntStateOf(0)
     var isEntryValid by mutableStateOf(false)
     private var qualityCheckJob: Job? = null
+
+    // Writing Trends State
+    var writingMetrics by mutableStateOf<WritingMetrics?>(null)
+    var isMetricsLoading by mutableStateOf(false)
 
     // Journal Screen State
     private val _selectedDateRange = MutableStateFlow<Pair<Long, Long>?>(null)
@@ -854,17 +866,29 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     }
 
     suspend fun semanticSearch(query: String, limit: Int = 5): List<DiaryEntry> {
-        if (!isEngineActive) return emptyList()
         return withContext(Dispatchers.IO) {
-            val vector = embedder.embed(query) ?: return@withContext emptyList()
-            val similarVectors = ObjectBoxManager.search(vector, limit)
-            val similarIds = similarVectors.map { it.entryId }
+            // Try semantic search if the engine is active
+            if (isEngineActive) {
+                val vector = embedder.embed(query)
+                if (vector != null) {
+                    val similarVectors = ObjectBoxManager.search(vector, limit)
+                    val similarIds = similarVectors.map { it.entryId }
+                    
+                    if (similarIds.isNotEmpty()) {
+                        val entries = db.diaryDao().getEntriesByIds(similarIds)
+                        val entryMap = entries.associateBy { it.id }
+                        return@withContext similarIds.mapNotNull { entryMap[it] }.map { decryptEntry(it) }
+                    }
+                }
+            }
             
-            if (similarIds.isEmpty()) return@withContext emptyList()
-            
-            val entries = db.diaryDao().getEntriesByIds(similarIds)
-            val entryMap = entries.associateBy { it.id }
-            similarIds.mapNotNull { entryMap[it] }.map { decryptEntry(it) }
+            // Fallback: plaintext search across all entries
+            val allEntries = db.diaryDao().getAllEntries()
+            val lowerQuery = query.lowercase()
+            allEntries
+                .map { decryptEntry(it) }
+                .filter { it.content.lowercase().contains(lowerQuery) }
+                .take(limit)
         }
     }
 
@@ -913,6 +937,67 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             }
             
             themeClusters
+        }
+    }
+
+    suspend fun analyzeWritingTrends(limit: Int = 30): WritingMetrics {
+        return withContext(Dispatchers.IO) {
+            val rawEntries = db.diaryDao().getRecentEntries(limit)
+            // Reverse to chronological order (oldest first) for sparkline
+            val entries = rawEntries.reversed().map { decryptEntry(it) }
+
+            val firstPersonWords = setOf("i", "me", "my", "myself", "mine", "i'm", "i've", "i'll", "i'd")
+            val futureWords = setOf("will", "going", "plan", "tomorrow", "soon", "next", "hope", "want", "intend", "goal", "ahead", "forward", "future")
+            val pastWords = setOf("was", "had", "yesterday", "ago", "used", "before", "past", "remember", "remembered", "forgot", "back", "earlier", "then")
+
+            val entryLengths = mutableListOf<Pair<Long, Float>>()
+            val vocabularyDiversity = mutableListOf<Pair<Long, Float>>()
+            val questionFrequency = mutableListOf<Pair<Long, Float>>()
+            val firstPersonUsage = mutableListOf<Pair<Long, Float>>()
+            val futureVsPast = mutableListOf<Pair<Long, Float>>()
+
+            for (entry in entries) {
+                val content = entry.content
+                if (content == "[Encrypted]" || content.isBlank()) continue
+
+                val words = content.lowercase().split(Regex("[\\s,.!?;:()\"]+")).filter { it.isNotBlank() }
+                val timestamp = entry.dateTime
+
+                if (words.isEmpty()) continue
+
+                // 1. Entry Length
+                entryLengths.add(timestamp to words.size.toFloat())
+
+                // 2. Vocabulary Diversity
+                val uniqueRatio = words.distinct().size.toFloat() / words.size.toFloat()
+                vocabularyDiversity.add(timestamp to uniqueRatio)
+
+                // 3. Question Frequency
+                val sentences = content.split(Regex("[.!?]+")).filter { it.isNotBlank() }
+                val questions = content.count { it == '?' }
+                val questionRatio = if (sentences.isNotEmpty()) questions.toFloat() / sentences.size.toFloat() else 0f
+                questionFrequency.add(timestamp to questionRatio)
+
+                // 4. First-Person Usage
+                val fpCount = words.count { it in firstPersonWords }
+                val fpRatio = fpCount.toFloat() / words.size.toFloat()
+                firstPersonUsage.add(timestamp to fpRatio)
+
+                // 5. Future vs Past Orientation (-1 = past-focused, +1 = future-focused)
+                val futureCount = words.count { it in futureWords }
+                val pastCount = words.count { it in pastWords }
+                val total = (futureCount + pastCount).toFloat()
+                val orientation = if (total > 0) (futureCount - pastCount) / total else 0f
+                futureVsPast.add(timestamp to orientation)
+            }
+
+            WritingMetrics(
+                entryLengths = entryLengths,
+                vocabularyDiversity = vocabularyDiversity,
+                questionFrequency = questionFrequency,
+                firstPersonUsage = firstPersonUsage,
+                futureVsPast = futureVsPast
+            )
         }
     }
 
