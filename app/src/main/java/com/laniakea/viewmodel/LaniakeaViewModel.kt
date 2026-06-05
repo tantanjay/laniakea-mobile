@@ -2,9 +2,6 @@ package com.laniakea.viewmodel
 
 import android.app.Application
 import android.net.Uri
-import android.util.Base64
-import android.util.JsonReader
-import android.util.JsonWriter
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -19,7 +16,6 @@ import com.laniakea.data.DiaryEntry
 import com.laniakea.data.ObjectBoxManager
 import com.laniakea.data.ObjectBoxSentenceVector
 import com.laniakea.data.ObjectBoxSentenceVector_
-import com.laniakea.data.TaglineTemplates
 import com.laniakea.engine.SentenceEmbedder
 import com.laniakea.engine.VibeEngine
 import com.laniakea.security.SecurityManager
@@ -38,30 +34,36 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.apache.poi.ss.usermodel.Cell
-import org.apache.poi.ss.usermodel.CellType
-import org.apache.poi.ss.usermodel.WorkbookFactory
-import java.io.InputStreamReader
-import java.io.OutputStreamWriter
-import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import java.util.Calendar
-import java.util.Locale
 
-data class WritingMetrics(
-    val entryLengths: List<Pair<Long, Float>>,
-    val vocabularyDiversity: List<Pair<Long, Float>>,
-    val questionFrequency: List<Pair<Long, Float>>,
-    val firstPersonUsage: List<Pair<Long, Float>>,
-    val futureVsPast: List<Pair<Long, Float>>
-)
+import com.laniakea.manager.AnalyticsManager
+import com.laniakea.manager.SemanticManager
+import com.laniakea.manager.VaultManager
+import com.laniakea.manager.WritingMetrics
 
 class LaniakeaViewModel(application: Application) : AndroidViewModel(application) {
     private val db = DiaryDatabase.getDatabase(application)
     private val securityManager = SecurityManager(application)
     private val embedder = SentenceEmbedder(application, db, securityManager)
+
+    private val vaultManager = VaultManager(
+        application = application,
+        db = db,
+        securityManager = securityManager,
+        onProgress = { current, total -> vaultProgress = current to total },
+        onStateChange = { isBackingUp, isRestoring, isImporting ->
+            isVaultBackingUp = isBackingUp
+            isVaultRestoring = isRestoring
+            isXlsxImporting = isImporting
+        }
+    )
+
+    private val analyticsManager = AnalyticsManager(db, securityManager)
+    
+    private val semanticManager = SemanticManager(db, embedder, securityManager) { isEngineActive }
 
     // UI State
     var userName by mutableStateOf("Traveller")
@@ -403,8 +405,8 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             val scores = dao.getAllMoodScores()
 
             // --- DAILY AGGREGATE for stable trend ---
-            val manualDaily = aggregateByDay(scores.map { it.dateTime to it.numericMood.toFloat() })
-            val aiDaily = aggregateByDay(scores.map { it.dateTime to it.latentVibe.toFloat() })
+            val manualDaily = analyticsManager.aggregateByDay(scores.map { it.dateTime to it.numericMood.toFloat() })
+            val aiDaily = analyticsManager.aggregateByDay(scores.map { it.dateTime to it.latentVibe.toFloat() })
 
             val oldest = dao.getOldestTimestamp()
             val year = if (oldest != null) {
@@ -423,8 +425,8 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     Float.MAX_VALUE to "STRONG UPTURN"
                 )
 
-                val manual = calculateMomentum(manualDaily, span, 3f, statusMap)
-                val ai = calculateMomentum(aiDaily, span, 3f, statusMap)
+                val manual = analyticsManager.calculateMomentum(manualDaily, span, 3f, statusMap)
+                val ai = analyticsManager.calculateMomentum(aiDaily, span, 3f, statusMap)
                 val anchors = VibeEngine.getAnchors()
 
                 Log.d("LaniakeaViewModel", "----------------------------")
@@ -460,554 +462,52 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
                 vibeYear = year
                 if (tagline == "Analyzing your cosmic vibes...") {
-                    generateTagline(year)
+                    tagline = analyticsManager.generateTagline(year)
                 }
             }
         }
-    }
-
-    /** Aggregate multiple entries per day to average value */
-    private fun aggregateByDay(values: List<Pair<Long, Float>>): List<Float> {
-        val cal = Calendar.getInstance()
-        return values.groupBy { (timestamp, _) ->
-            cal.timeInMillis = timestamp
-            "${cal.get(Calendar.YEAR)}-${cal.get(Calendar.MONTH)}-${cal.get(Calendar.DAY_OF_MONTH)}"
-        }.map { (_, dayValues) ->
-            dayValues.map { it.second }.average().toFloat()
-        }
-    }
-
-    private fun generateTagline(year: String) {
-        tagline = TaglineTemplates.ALL.random()(year)
-    }
-
-    fun calculateMomentum(
-        values: List<Float>,
-        span: Int,
-        outlierMultiplier: Float,
-        statusMap: Map<Float, String>
-    ): Triple<Float, String, List<Float>> {
-
-        if (values.size < 2) return Triple(0f, "STABLE", emptyList())
-
-        // 1️⃣ Compute deltas
-        val deltas = mutableListOf(0f)
-        for (i in 1 until values.size) deltas.add(values[i] - values[i - 1])
-
-        // 2️⃣ Median and MAD for outlier detection
-        val sortedDeltas = deltas.sorted()
-        val median = sortedDeltas[sortedDeltas.size / 2]
-        val mad = sortedDeltas.map { kotlin.math.abs(it - median) }
-            .sorted()[sortedDeltas.size / 2]
-            .coerceAtLeast(0.001f)
-
-        // 3️⃣ Outlier suppression
-        val filteredDeltas = deltas.map { delta ->
-            val deviation = delta - median
-            if (kotlin.math.abs(deviation) > outlierMultiplier * mad) {
-                median + deviation.coerceIn(-1.5f * mad, 1.5f * mad)
-            } else delta
-        }
-
-        // 4️⃣ Volatility normalization
-        val sensitivityFloor = 1.0f // Unified for manual and AI (-2..2 scale)
-        val rawVolatility = (filteredDeltas.maxOrNull() ?: 0f) - (filteredDeltas.minOrNull() ?: 0f)
-        val volatility = rawVolatility.coerceAtLeast(sensitivityFloor)
-        val normalizedDeltas = filteredDeltas.map { it / volatility }
-
-        // 5️⃣ EMA smoothing
-        val alpha = 2f / (span + 1f)
-        val trend = mutableListOf<Float>()
-        var ema = normalizedDeltas[0]
-        trend.add(ema)
-        for (i in 1 until normalizedDeltas.size) {
-            ema = normalizedDeltas[i] * alpha + ema * (1f - alpha)
-            trend.add(ema)
-        }
-
-        // 6️⃣ Map EMA to -100..100
-        val score = (ema * 100f).coerceIn(-100f, 100f)
-
-        // 7️⃣ Status mapping (pre-sorted for efficiency)
-        val sortedStatusMap = statusMap.entries.sortedBy { it.key }
-        val status = sortedStatusMap.firstOrNull { score < it.key }?.value ?: "UNKNOWN"
-
-        return Triple(score, status, trend)
     }
 
     fun exportDataStream(uri: Uri, password: String, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            withContext(Dispatchers.Main) {
-                isVaultBackingUp = true
-                vaultProgress = 0 to 0
-            }
-            try {
-                val context = getApplication<Application>()
-                val outputStream = context.contentResolver.openOutputStream(uri) ?: throw Exception("Failed to open URI")
-
-                val encryptedStream = securityManager.getEncryptingStream(outputStream, password.toCharArray())
-                val writer = JsonWriter(OutputStreamWriter(encryptedStream, "UTF-8"))
-
-                writer.beginObject()
-
-                val dao = db.diaryDao()
-
-                // Settings
-                val settings = dao.getSettings()
-                if (settings != null) {
-                    writer.name("settings")
-                    writer.beginObject()
-                    writer.name("userName").value(settings.userName)
-                    writer.name("theme").value(settings.theme)
-                    settings.privacySeed?.let {
-                        writer.name("privacySeed").value(securityManager.decrypt(it))
-                    }
-                    writer.endObject()
-                }
-
-                // Entries
-                writer.name("entries")
-                writer.beginArray()
-                val entries = dao.getAllEntries()
-                val totalCount = entries.size
-                entries.forEachIndexed { index, entry ->
-                    writer.beginObject()
-                    writer.name("id").value(entry.id)
-                    writer.name("dateTime").value(entry.dateTime)
-                    writer.name("content").value(securityManager.decrypt(entry.content))
-                    writer.name("mood").value(securityManager.decrypt(entry.mood))
-                    writer.name("category").value(securityManager.decrypt(entry.category))
-                    writer.name("weather").value(securityManager.decrypt(entry.weather))
-                    writer.name("activities").value(securityManager.decrypt(entry.activities))
-                    writer.name("numericMood").value(entry.numericMood)
-                    writer.name("latentVibe").value(entry.latentVibe)
-                    writer.name("isVectorized").value(entry.isVectorized)
-                    writer.endObject()
-                    withContext(Dispatchers.Main) { vaultProgress = (index + 1) to totalCount }
-                }
-                writer.endArray()
-
-                // Vectors
-                writer.name("vectors")
-                writer.beginArray()
-                val vectors = ObjectBoxManager.vectorBox.all
-                vectors.forEach { vector ->
-                    val floatArray = vector.vector
-                    if (floatArray != null) {
-                        writer.beginObject()
-                        writer.name("entryId").value(vector.entryId)
-                        
-                        // Convert FloatArray to ByteArray for Base64 encoding
-                        val byteBuffer = java.nio.ByteBuffer.allocate(floatArray.size * 4)
-                        floatArray.forEach { byteBuffer.putFloat(it) }
-                        val byteArray = byteBuffer.array()
-                        
-                        writer.name("vector").value(Base64.encodeToString(byteArray, Base64.DEFAULT))
-                        writer.endObject()
-                    }
-                }
-                writer.endArray()
-
-                writer.endObject()
-                writer.close()
-
-                withContext(Dispatchers.Main) { onComplete(true) }
-            } catch (e: Exception) {
-                e.message?.let { Log.e("LaniakeaViewModel", it) }
-                e.printStackTrace()
-                withContext(Dispatchers.Main) { onComplete(false) }
-            } finally {
-                withContext(Dispatchers.Main) { isVaultBackingUp = false }
-            }
+            vaultManager.exportDataStream(uri, password, onComplete)
         }
     }
 
     fun importDataStream(uri: Uri, password: String, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            withContext(Dispatchers.Main) {
-                isVaultRestoring = true
-                vaultProgress = 0 to 0
-            }
-            try {
-                val context = getApplication<Application>()
-                val inputStream = context.contentResolver.openInputStream(uri) ?: throw Exception("Failed to open URI")
-
-                val decryptedStream = securityManager.getDecryptingStream(inputStream, password.toCharArray())
-                val reader = JsonReader(InputStreamReader(decryptedStream, "UTF-8"))
-
-                val dao = db.diaryDao()
-                dao.clearDatabase()
-                ObjectBoxManager.vectorBox.removeAll()
-
-                val oldToNewIdMap = mutableMapOf<Long, Long>()
-
-                reader.beginObject()
-                while (reader.hasNext()) {
-                    when (reader.nextName()) {
-                        "settings" -> {
-                            reader.beginObject()
-                            val currentSettings = dao.getSettings() ?: AppSettings()
-                            var userName = currentSettings.userName
-                            var theme = currentSettings.theme
-                            var privacySeed = currentSettings.privacySeed
-
-                            while (reader.hasNext()) {
-                                when (reader.nextName()) {
-                                    "userName" -> userName = reader.nextString()
-                                    "theme" -> theme = reader.nextString()
-                                    "privacySeed" -> privacySeed = securityManager.encrypt(reader.nextString())
-                                    else -> reader.skipValue()
-                                }
-                            }
-                            dao.saveSettings(currentSettings.copy(
-                                userName = userName,
-                                theme = theme,
-                                privacySeed = privacySeed
-                            ))
-                            reader.endObject()
-                        }
-                        "entries" -> {
-                            reader.beginArray()
-                            var count = 0
-                            while (reader.hasNext()) {
-                                reader.beginObject()
-                                var oldId = -1L
-                                var dateTime = 0L
-                                var content = ""
-                                var mood = ""
-                                var category = ""
-                                var weather = ""
-                                var activities = ""
-                                var numericMood = 0.0
-                                var latentVibe = 0.0
-                                var isVectorized = false
-
-                                while (reader.hasNext()) {
-                                    when (reader.nextName()) {
-                                        "id" -> oldId = reader.nextLong()
-                                        "dateTime" -> dateTime = reader.nextLong()
-                                        "content" -> content = reader.nextString()
-                                        "mood" -> mood = reader.nextString()
-                                        "category" -> category = reader.nextString()
-                                        "weather" -> weather = reader.nextString()
-                                        "activities" -> activities = reader.nextString()
-                                        "numericMood" -> numericMood = reader.nextDouble()
-                                        "latentVibe" -> latentVibe = reader.nextDouble()
-                                        "isVectorized" -> isVectorized = reader.nextBoolean()
-                                        else -> reader.skipValue()
-                                    }
-                                }
-
-                                val entry = DiaryEntry(
-                                    dateTime = dateTime,
-                                    content = securityManager.encrypt(content),
-                                    mood = securityManager.encrypt(mood),
-                                    category = securityManager.encrypt(category),
-                                    weather = securityManager.encrypt(weather),
-                                    activities = securityManager.encrypt(activities),
-                                    numericMood = numericMood,
-                                    latentVibe = latentVibe,
-                                    isVectorized = isVectorized
-                                )
-                                val newId = dao.insertEntry(entry)
-                                if (oldId != -1L) oldToNewIdMap[oldId] = newId
-
-                                count++
-                                withContext(Dispatchers.Main) { vaultProgress = count to 0 }
-                                reader.endObject()
-                            }
-                            reader.endArray()
-                        }
-                        "vectors" -> {
-                            reader.beginArray()
-                            while (reader.hasNext()) {
-                                reader.beginObject()
-                                var oldEntryId = -1L
-                                var vectorBase64 = ""
-                                while (reader.hasNext()) {
-                                    when (reader.nextName()) {
-                                        "entryId" -> oldEntryId = reader.nextLong()
-                                        "vector" -> vectorBase64 = reader.nextString()
-                                        else -> reader.skipValue()
-                                    }
-                                }
-                                val newEntryId = oldToNewIdMap[oldEntryId]
-                                if (newEntryId != null && vectorBase64.isNotEmpty()) {
-                                    val byteArray = Base64.decode(vectorBase64, Base64.DEFAULT)
-                                    val byteBuffer = java.nio.ByteBuffer.wrap(byteArray)
-                                    val floats = FloatArray(byteArray.size / 4)
-                                    for (i in floats.indices) floats[i] = byteBuffer.getFloat()
-                                    
-                                    ObjectBoxManager.vectorBox.put(ObjectBoxSentenceVector(
-                                        entryId = newEntryId,
-                                        vector = floats
-                                    ))
-                                }
-                                reader.endObject()
-                            }
-                            reader.endArray()
-                        }
-                        else -> reader.skipValue()
-                    }
-                }
-                reader.endObject()
-                reader.close()
-
-                withContext(Dispatchers.Main) {
+            vaultManager.importDataStream(uri, password) { success ->
+                if (success) {
                     if (isEngineActive) embedder.initialize()
                     refreshData()
-                    onComplete(true)
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                withContext(Dispatchers.Main) { onComplete(false) }
-            } finally {
-                withContext(Dispatchers.Main) { isVaultRestoring = false }
+                onComplete(success)
             }
-        }
-    }
-
-    private fun getCellStringValue(cell: Cell?): String {
-        return when (cell?.cellType) {
-            CellType.STRING -> cell.stringCellValue
-            CellType.NUMERIC -> {
-                val value = cell.numericCellValue
-                if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()
-            }
-            CellType.BOOLEAN -> cell.booleanCellValue.toString()
-            CellType.FORMULA -> cell.cellFormula
-            else -> cell?.toString() ?: ""
         }
     }
 
     fun importXlsxStream(uri: Uri, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            withContext(Dispatchers.Main) {
-                isXlsxImporting = true
-                vaultProgress = 0 to 0
-            }
-            try {
-                val context = getApplication<Application>()
-                val inputStream = context.contentResolver.openInputStream(uri) ?: throw Exception("Failed to open URI")
-
-                val workbook = WorkbookFactory.create(inputStream)
-                val sheet = workbook.getSheetAt(0)
-                val totalRows = sheet.lastRowNum
-
-                val dao = db.diaryDao()
-                val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-
-                for (i in 1..totalRows) { // Skip header
-                    val row = sheet.getRow(i) ?: continue
-
-                    try {
-                        val dateStr = getCellStringValue(row.getCell(0)).substringBefore(".")
-                        val timeStr = getCellStringValue(row.getCell(1)).substringBefore(".")
-                        val mood = getCellStringValue(row.getCell(2))
-                        val category = getCellStringValue(row.getCell(3))
-                        val weather = getCellStringValue(row.getCell(4))
-                        val activity = getCellStringValue(row.getCell(5))
-                        val content = getCellStringValue(row.getCell(6))
-
-                        // Validation: date, time, mood must not be empty
-                        if (dateStr.isBlank() || timeStr.isBlank() || mood.isBlank()) continue
-
-                        val dateTime = try {
-                            dateFormat.parse("$dateStr $timeStr")?.time ?: continue
-                        } catch (_: Exception) { continue }
-
-                        // Validation: content must have at least 5 words
-                        val words = content.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
-                        if (words.size < 5) continue
-
-                        // Numeric mood mapping
-                        val numericMood = when(mood.lowercase()) {
-                            "joy", "happy", "great", "excellent" -> 2.0
-                            "good", "pleasant" -> 1.0
-                            "neutral", "ok" -> 0.0
-                            "sad", "bad", "unhappy" -> -1.0
-                            "miserable", "terrible", "awful" -> -2.0
-                            else -> 0.0
-                        }
-
-                        val entry = DiaryEntry(
-                            dateTime = dateTime,
-                            content = securityManager.encrypt(content),
-                            mood = securityManager.encrypt(mood),
-                            category = securityManager.encrypt(category),
-                            weather = securityManager.encrypt(weather),
-                            activities = securityManager.encrypt(activity),
-                            numericMood = numericMood,
-                            latentVibe = 0.0,
-                            isVectorized = false
-                        )
-                        dao.insertEntry(entry)
-                    } catch (e: Exception) {
-                        Log.e("LaniakeaViewModel", "Error importing row $i", e)
-                    }
-
-                    withContext(Dispatchers.Main) { vaultProgress = i to totalRows }
-                }
-
-                workbook.close()
-                inputStream.close()
-
-                withContext(Dispatchers.Main) {
-                    refreshData()
-                    onComplete(true)
-                }
-            } catch (e: Exception) {
-                Log.e("LaniakeaViewModel", "XLSX Import failed", e)
-                withContext(Dispatchers.Main) { onComplete(false) }
-            } finally {
-                withContext(Dispatchers.Main) { isXlsxImporting = false }
+            vaultManager.importXlsxStream(uri) { success ->
+                if (success) refreshData()
+                onComplete(success)
             }
         }
     }
 
     suspend fun semanticSearch(query: String, limit: Int = 5): List<DiaryEntry> {
-        return withContext(Dispatchers.IO) {
-            // Try semantic search if the engine is active
-            if (isEngineActive) {
-                val vector = embedder.embed(query)
-                if (vector != null) {
-                    val similarVectors = ObjectBoxManager.search(vector, limit)
-                    val similarIds = similarVectors.map { it.entryId }
-                    
-                    if (similarIds.isNotEmpty()) {
-                        val entries = db.diaryDao().getEntriesByIds(similarIds)
-                        val entryMap = entries.associateBy { it.id }
-                        return@withContext similarIds.mapNotNull { entryMap[it] }.map { decryptEntry(it) }
-                    }
-                }
-            }
-            
-            // Fallback: plaintext search across all entries
-            val allEntries = db.diaryDao().getAllEntries()
-            val lowerQuery = query.lowercase()
-            allEntries
-                .map { decryptEntry(it) }
-                .filter { it.content.lowercase().contains(lowerQuery) }
-                .take(limit)
-        }
+        return semanticManager.semanticSearch(query, limit)
     }
 
     suspend fun findSimilarEntries(entryId: Long, limit: Int = 5): List<DiaryEntry> {
-        return withContext(Dispatchers.IO) {
-            val vectorObj = ObjectBoxManager.vectorBox.query(ObjectBoxSentenceVector_.entryId.equal(entryId)).build().findFirst()
-            val vector = vectorObj?.vector ?: return@withContext emptyList()
-            
-            val similarVectors = ObjectBoxManager.search(vector, limit + 1)
-            val similarIds = similarVectors.map { it.entryId }.filter { it != entryId }.take(limit)
-            
-            if (similarIds.isEmpty()) return@withContext emptyList()
-            
-            val entries = db.diaryDao().getEntriesByIds(similarIds)
-            val entryMap = entries.associateBy { it.id }
-            similarIds.mapNotNull { entryMap[it] }.map { decryptEntry(it) }
-        }
+        return semanticManager.findSimilarEntries(entryId, limit)
     }
 
     suspend fun getThemeClusters(): Map<String, List<DiaryEntry>> {
-        if (!isEngineActive) return emptyMap()
-        return withContext(Dispatchers.IO) {
-            val themes = listOf(
-                "Relationships, Love, Friends",
-                "Career, Work, Goals, Success",
-                "Mental Health, Anxiety, Stress, Depression",
-                "Physical Health, Exercise, Body, Sleep",
-                "Personal Growth, Learning, Philosophy"
-            )
-            
-            val themeClusters = mutableMapOf<String, List<DiaryEntry>>()
-            
-            for (theme in themes) {
-                val themeVector = embedder.embed(theme) ?: continue
-                val similarVectors = ObjectBoxManager.search(themeVector, 3)
-                val similarIds = similarVectors.map { it.entryId }
-                
-                if (similarIds.isNotEmpty()) {
-                    val entries = db.diaryDao().getEntriesByIds(similarIds)
-                    val entryMap = entries.associateBy { it.id }
-                    val decryptedEntries = similarIds.mapNotNull { entryMap[it] }.map { decryptEntry(it) }
-                    
-                    val shortTheme = theme.split(",").first()
-                    themeClusters[shortTheme] = decryptedEntries
-                }
-            }
-            
-            themeClusters
-        }
+        return semanticManager.getThemeClusters()
     }
 
     suspend fun analyzeWritingTrends(limit: Int = 30): WritingMetrics {
-        return withContext(Dispatchers.IO) {
-            val rawEntries = db.diaryDao().getRecentEntries(limit)
-            // Reverse to chronological order (oldest first) for sparkline
-            val entries = rawEntries.reversed().map { decryptEntry(it) }
-
-            val firstPersonWords = setOf("i", "me", "my", "myself", "mine", "i'm", "i've", "i'll", "i'd")
-            val futureWords = setOf("will", "going", "plan", "tomorrow", "soon", "next", "hope", "want", "intend", "goal", "ahead", "forward", "future")
-            val pastWords = setOf("was", "had", "yesterday", "ago", "used", "before", "past", "remember", "remembered", "forgot", "back", "earlier", "then")
-
-            val entryLengths = mutableListOf<Pair<Long, Float>>()
-            val vocabularyDiversity = mutableListOf<Pair<Long, Float>>()
-            val questionFrequency = mutableListOf<Pair<Long, Float>>()
-            val firstPersonUsage = mutableListOf<Pair<Long, Float>>()
-            val futureVsPast = mutableListOf<Pair<Long, Float>>()
-
-            for (entry in entries) {
-                val content = entry.content
-                if (content == "[Encrypted]" || content.isBlank()) continue
-
-                val words = content.lowercase().split(Regex("[\\s,.!?;:()\"]+")).filter { it.isNotBlank() }
-                val timestamp = entry.dateTime
-
-                if (words.isEmpty()) continue
-
-                // 1. Entry Length
-                entryLengths.add(timestamp to words.size.toFloat())
-
-                // 2. Vocabulary Diversity
-                val uniqueRatio = words.distinct().size.toFloat() / words.size.toFloat()
-                vocabularyDiversity.add(timestamp to uniqueRatio)
-
-                // 3. Question Frequency
-                val sentences = content.split(Regex("[.!?]+")).filter { it.isNotBlank() }
-                val questions = content.count { it == '?' }
-                val questionRatio = if (sentences.isNotEmpty()) questions.toFloat() / sentences.size.toFloat() else 0f
-                questionFrequency.add(timestamp to questionRatio)
-
-                // 4. First-Person Usage
-                val fpCount = words.count { it in firstPersonWords }
-                val fpRatio = fpCount.toFloat() / words.size.toFloat()
-                firstPersonUsage.add(timestamp to fpRatio)
-
-                // 5. Future vs Past Orientation (-1 = past-focused, +1 = future-focused)
-                val futureCount = words.count { it in futureWords }
-                val pastCount = words.count { it in pastWords }
-                val total = (futureCount + pastCount).toFloat()
-                val orientation = if (total > 0) (futureCount - pastCount) / total else 0f
-                futureVsPast.add(timestamp to orientation)
-            }
-
-            WritingMetrics(
-                entryLengths = entryLengths,
-                vocabularyDiversity = vocabularyDiversity,
-                questionFrequency = questionFrequency,
-                firstPersonUsage = firstPersonUsage,
-                futureVsPast = futureVsPast
-            )
-        }
-    }
-
-    private fun decryptEntry(entry: DiaryEntry): DiaryEntry {
-        return entry.copy(
-            content = try { securityManager.decrypt(entry.content) } catch (e: Exception) { "[Encrypted]" },
-            mood = try { securityManager.decrypt(entry.mood) } catch (e: Exception) { "" },
-            category = try { securityManager.decrypt(entry.category) } catch (e: Exception) { "" },
-            weather = try { securityManager.decrypt(entry.weather) } catch (e: Exception) { "" },
-            activities = try { securityManager.decrypt(entry.activities) } catch (e: Exception) { "" }
-        )
+        return analyticsManager.analyzeWritingTrends(limit)
     }
 }
