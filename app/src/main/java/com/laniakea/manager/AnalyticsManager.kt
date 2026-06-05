@@ -1,4 +1,4 @@
-package com.laniakea.manager
+    package com.laniakea.manager
 
 import com.laniakea.data.DiaryDatabase
 import com.laniakea.data.DiaryEntry

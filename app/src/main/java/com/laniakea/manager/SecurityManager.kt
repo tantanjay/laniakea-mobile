@@ -1,4 +1,6 @@
-package com.laniakea.security
+@file:Suppress("DEPRECATION")
+
+package com.laniakea.manager
 
 import android.content.Context
 import android.util.Base64
