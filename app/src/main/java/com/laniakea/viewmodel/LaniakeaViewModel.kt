@@ -18,7 +18,6 @@ import com.laniakea.data.ObjectBoxSentenceVector
 import com.laniakea.data.ObjectBoxSentenceVector_
 import com.laniakea.engine.SentenceEmbedder
 import com.laniakea.engine.VibeEngine
-import com.laniakea.security.SecurityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -40,6 +39,7 @@ import java.time.ZoneId
 import java.util.Calendar
 
 import com.laniakea.manager.AnalyticsManager
+import com.laniakea.manager.SecurityManager
 import com.laniakea.manager.SemanticManager
 import com.laniakea.manager.VaultManager
 import com.laniakea.manager.WritingMetrics
@@ -118,13 +118,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     }.flatMapLatest { (start, end) ->
         db.diaryDao().getEntriesInRange(start, end)
     }.map { entries ->
-        entries.map { it.copy(
-            content = try { securityManager.decrypt(it.content) } catch (_: Exception) { "[Encrypted]" },
-            mood = try { securityManager.decrypt(it.mood) } catch (_: Exception) { "" },
-            category = try { securityManager.decrypt(it.category) } catch (_: Exception) { "" },
-            weather = try { securityManager.decrypt(it.weather) } catch (_: Exception) { "" },
-            activities = try { securityManager.decrypt(it.activities) } catch (_: Exception) { "" }
-        )}
+        entries.map { securityManager.decryptEntry(it) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
@@ -309,26 +303,24 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         }
 
         viewModelScope.launch(Dispatchers.IO) {
-            val encryptedContent = securityManager.encrypt(content)
-            val encryptedMood = securityManager.encrypt(mood)
-            val encryptedCategory = securityManager.encrypt(category)
-            val encryptedWeather = securityManager.encrypt(weather)
-            val encryptedActivities = securityManager.encrypt(activities)
+            val rawEntry = DiaryEntry(
+                dateTime = System.currentTimeMillis(),
+                content = content,
+                mood = mood,
+                category = category,
+                weather = weather,
+                activities = activities,
+                numericMood = numericMood,
+                latentVibe = 0.0,
+                isVectorized = false
+            )
 
             if (isEngineActive) {
                 val vector = embedder.embed(content)
                 if (vector != null) {
                     val aiVibe = VibeEngine.calculateVibeScore(vector)
-                    val entry = DiaryEntry(
-                        dateTime = System.currentTimeMillis(),
-                        content = encryptedContent,
-                        mood = encryptedMood,
-                        category = encryptedCategory,
-                        weather = encryptedWeather,
-                        activities = encryptedActivities,
-                        numericMood = numericMood,
-                        latentVibe = aiVibe.toDouble(),
-                        isVectorized = true
+                    val entryToSave = securityManager.encryptEntry(
+                        rawEntry.copy(latentVibe = aiVibe.toDouble(), isVectorized = true)
                     )
 
                     val anchors = VibeEngine.getAnchors()
@@ -336,28 +328,18 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     Log.d("LaniakeaViewModel", "----------------------------")
                     Log.d("LaniakeaViewModel", "Joy Anchor: ${anchors.first?.contentToString()}")
                     Log.d("LaniakeaViewModel", "Distress Anchor: ${anchors.second?.contentToString()}")
-                    Log.d("LaniakeaViewModel", "Adding entry with vector - Mood: ${entry.numericMood}, Vibe: ${entry.latentVibe}, Context: $content")
+                    Log.d("LaniakeaViewModel", "Adding entry with vector - Mood: ${entryToSave.numericMood}, Vibe: ${entryToSave.latentVibe}, Context: $content")
                     Log.d("LaniakeaViewModel", "----------------------------")
 
-                    val entryId = db.diaryDao().insertEntry(entry)
+                    val entryId = db.diaryDao().insertEntry(entryToSave)
                     ObjectBoxManager.vectorBox.put(ObjectBoxSentenceVector(entryId = entryId, vector = vector))
                     refreshData()
                     return@launch
                 }
             }
 
-            val entry = DiaryEntry(
-                dateTime = System.currentTimeMillis(),
-                content = encryptedContent,
-                mood = encryptedMood,
-                category = encryptedCategory,
-                weather = encryptedWeather,
-                activities = encryptedActivities,
-                numericMood = numericMood,
-                latentVibe = 0.0,
-                isVectorized = false
-            )
-            db.diaryDao().insertEntry(entry)
+            val entryToSave = securityManager.encryptEntry(rawEntry)
+            db.diaryDao().insertEntry(entryToSave)
             refreshData()
         }
     }
