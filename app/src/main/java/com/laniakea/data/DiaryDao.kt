@@ -22,13 +22,14 @@ interface DiaryDao {
     @Update
     suspend fun updateEntry(entry: DiaryEntry)
 
-
-
     @Query("SELECT * FROM entries ORDER BY dateTime ASC")
     suspend fun getAllEntries(): List<DiaryEntry>
 
     @Query("SELECT * FROM entries WHERE id IN (:ids)")
     suspend fun getEntriesByIds(ids: List<Long>): List<DiaryEntry>
+
+    @Query("SELECT * FROM entries ORDER BY dateTime DESC LIMIT :limit")
+    suspend fun getRecentEntries(limit: Int): List<DiaryEntry>
 
     @Query("SELECT * FROM entries ORDER BY dateTime DESC")
     fun getAllEntriesFlow(): Flow<List<DiaryEntry>>

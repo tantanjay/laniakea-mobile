@@ -45,9 +45,12 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     LaunchedEffect(searchQuery) {
         if (searchQuery.isNotBlank()) {
             isSearching = true
-            kotlinx.coroutines.delay(500)
-            searchResults = vm.semanticSearch(searchQuery)
-            isSearching = false
+            try {
+                kotlinx.coroutines.delay(500)
+                searchResults = vm.semanticSearch(searchQuery)
+            } finally {
+                isSearching = false
+            }
         } else {
             searchResults = emptyList()
         }
@@ -124,7 +127,10 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 }
             } else if (searchResults.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Text("No semantic matches found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        text = "No matches found.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             } else {
                 LazyColumn(
@@ -134,7 +140,7 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 ) {
                     item {
                         Text(
-                            "Semantic Matches",
+                            if (vm.isEngineActive) "Semantic Matches" else "Text Matches",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
@@ -265,8 +271,12 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             val entry = showSimilarDialogForEntry
             if (entry != null) {
                 isLoadingSimilar = true
-                similarEntriesList = vm.findSimilarEntries(entry.id)
-                isLoadingSimilar = false
+                similarEntriesList = emptyList()
+                try {
+                    similarEntriesList = vm.findSimilarEntries(entry.id)
+                } finally {
+                    isLoadingSimilar = false
+                }
             }
         }
     }

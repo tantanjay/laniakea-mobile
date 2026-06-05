@@ -13,24 +13,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.laniakea.viewmodel.LaniakeaViewModel
-import com.laniakea.ui.components.insight.MomentumGauge
-import com.laniakea.ui.components.shared.InsightBox
+import com.laniakea.ui.components.insight.WritingTrendCard
 
 @Composable
 fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
-    var showDisclaimer by remember { mutableStateOf(false) }
+    var showInfo by remember { mutableStateOf(false) }
 
-    if (showDisclaimer) {
+    if (showInfo) {
         AlertDialog(
-            onDismissRequest = { showDisclaimer = false },
+            onDismissRequest = { showInfo = false },
             confirmButton = {
-                TextButton(onClick = { showDisclaimer = false }) {
+                TextButton(onClick = { showInfo = false }) {
                     Text("Got it")
                 }
             },
             title = {
                 Text(
-                    text = "Vibe vs. Reality",
+                    text = "About Writing Reflections",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
@@ -40,24 +39,20 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    DisclaimerSection(
-                        title = "🧠 How your \"Latent Vibe\" works",
-                        content = "We use a private, on-device AI to look at the patterns in your writing—not just the words, but the emotional \"weight\" behind them."
+                    InfoSection(
+                        title = "📝 What This Measures",
+                        content = "These metrics observe the structure of your writing—length, variety, self-reference, and temporal orientation. They answer \"How has my writing changed?\" without judging how you feel."
                     )
-                    DisclaimerSection(
-                        title = "⚖️ The \"Mirror\" Effect",
-                        content = "Sometimes, your Manual Mood (how you feel) and your Latent Vibe (how you write) won't match. We call this the Emotional Gap."
+                    InfoSection(
+                        title = "📊 How Trends Work",
+                        content = "Each sparkline shows your last 30 entries in chronological order. The arrow (↑↓→) compares your recent average to your earlier average."
                     )
-                    DisclaimerSection(
-                        title = "The Benefit",
-                        content = "This gap can help you see subtext in your own life—like when you're feeling \"Fine\" but writing with high-stress patterns."
-                    )
-                    DisclaimerSection(
-                        title = "The Limitation",
-                        content = "AI is literal. If you use sarcasm—like writing \"Oh great, another wonderful day in paradise\" while having a terrible day—the AI might see the \"wonderful\" words and miss your irony."
+                    InfoSection(
+                        title = "🔒 Privacy",
+                        content = "All analysis runs on your device. Your entries are decrypted only in memory for analysis and never leave your phone."
                     )
                     Text(
-                        text = "Important Note: Math cannot compute the soul. This AI is a tool for reflection, not a diagnosis. You are always the final authority on how you feel. Your data stays on your device, protected by mathematical noise and encryption.",
+                        text = "Note: These are structural observations, not psychological assessments. Short entries aren't \"bad\" and long entries aren't \"good\" — they're simply patterns worth noticing.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 16.sp
@@ -65,6 +60,16 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 }
             }
         )
+    }
+
+    // Load writing metrics
+    LaunchedEffect(Unit) {
+        vm.isMetricsLoading = true
+        try {
+            vm.writingMetrics = vm.analyzeWritingTrends()
+        } finally {
+            vm.isMetricsLoading = false
+        }
     }
 
     Column(
@@ -78,14 +83,14 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Daily Insights",
+            text = "Writing Reflections",
             style = MaterialTheme.typography.headlineMedium.copy(
                 fontWeight = FontWeight.ExtraBold,
                 letterSpacing = (-0.5).sp
             )
         )
 
-        // Sentiment Trajectory Section
+        // Writing Trends Section
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -93,54 +98,96 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Momentum Analysis",
+                    text = "How Your Writing Has Changed",
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
                 )
-                IconButton(onClick = { showDisclaimer = true }) {
+                IconButton(onClick = { showInfo = true }) {
                     Icon(
                         imageVector = Icons.Default.Info,
-                        contentDescription = "Disclaimer Information",
+                        contentDescription = "About Writing Reflections",
                         tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
                     )
                 }
             }
 
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-                tonalElevation = 2.dp,
-                shadowElevation = 1.dp
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    MomentumGauge(
-                        manualScore = vm.manualMomentum.first,
-                        manualStatus = vm.manualMomentum.second,
-                        aiScore = vm.aiMomentum.first,
-                        aiStatus = vm.aiMomentum.second,
-                        manualTrend = vm.manualMomentum.third,
-                        aiTrend = vm.aiMomentum.third
+            if (vm.isMetricsLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else {
+                val metrics = vm.writingMetrics
+                if (metrics != null && metrics.entryLengths.isNotEmpty()) {
+                    WritingTrendCard(
+                        label = "Entry Length",
+                        emoji = "📏",
+                        dataPoints = metrics.entryLengths,
+                        formatValue = { "${it.toInt()} words" },
+                        sparklineColor = MaterialTheme.colorScheme.primary
                     )
+
+                    WritingTrendCard(
+                        label = "Vocabulary Diversity",
+                        emoji = "🔤",
+                        dataPoints = metrics.vocabularyDiversity,
+                        formatValue = { "${(it * 100).toInt()}% unique" },
+                        sparklineColor = MaterialTheme.colorScheme.tertiary
+                    )
+
+                    WritingTrendCard(
+                        label = "Question Frequency",
+                        emoji = "❓",
+                        dataPoints = metrics.questionFrequency,
+                        formatValue = { "${(it * 100).toInt()}% questions" },
+                        sparklineColor = MaterialTheme.colorScheme.secondary
+                    )
+
+                    WritingTrendCard(
+                        label = "First-Person Usage",
+                        emoji = "🪞",
+                        dataPoints = metrics.firstPersonUsage,
+                        formatValue = { "${(it * 100).toInt()}% self-ref" },
+                        sparklineColor = MaterialTheme.colorScheme.primary
+                    )
+
+                    WritingTrendCard(
+                        label = "Future vs Past",
+                        emoji = "⏳",
+                        dataPoints = metrics.futureVsPast,
+                        formatValue = { v ->
+                            when {
+                                v > 0.2f -> "Future-focused"
+                                v < -0.2f -> "Past-focused"
+                                else -> "Balanced"
+                            }
+                        },
+                        sparklineColor = MaterialTheme.colorScheme.tertiary
+                    )
+                } else {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "Write a few entries to see your writing patterns emerge.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
-        }
-
-        // Deep Dive Insight
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(
-                text = "The Narrative Gap",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold
-            )
-
-            InsightBox(
-                manualScore = vm.manualMomentum.first,
-                manualStatus = vm.manualMomentum.second,
-                aiScore = vm.aiMomentum.first,
-                aiStatus = vm.aiMomentum.second
-            )
         }
 
         // Thematic Clusters
@@ -150,8 +197,11 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         LaunchedEffect(vm.isEngineActive) {
             if (vm.isEngineActive) {
                 isThemesLoading = true
-                themeClusters = vm.getThemeClusters()
-                isThemesLoading = false
+                try {
+                    themeClusters = vm.getThemeClusters()
+                } finally {
+                    isThemesLoading = false
+                }
             }
         }
 
@@ -210,7 +260,7 @@ fun ThemeClusterCard(theme: String, entries: List<com.laniakea.data.DiaryEntry>)
 }
 
 @Composable
-private fun DisclaimerSection(title: String, content: String) {
+private fun InfoSection(title: String, content: String) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             text = title,
