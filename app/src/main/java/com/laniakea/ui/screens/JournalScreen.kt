@@ -169,7 +169,8 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         selectedRange = selectedRange,
                         onRangeSelected = { start, end ->
                             vm.setSelectedDateRange(start, end)
-                        }
+                        },
+                        onSwipeUp = { isCalendarExpanded = false }
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                 }
