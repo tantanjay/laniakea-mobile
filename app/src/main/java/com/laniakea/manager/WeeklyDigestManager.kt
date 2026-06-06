@@ -139,11 +139,13 @@ class WeeklyDigestManager(
             var bestTheme = ""
             var minDistance = Double.MAX_VALUE
 
-            for ((themeName, themeVector) in themeVectors) {
-                val distance = semanticManager.calculateL2Distance(vector, themeVector)
-                if (distance < minDistance) {
-                    minDistance = distance
-                    bestTheme = themeName
+            for ((themeName, anchors) in themeVectors) {
+                for (anchor in anchors) {
+                    val distance = semanticManager.calculateL2Distance(vector, anchor)
+                    if (distance < minDistance) {
+                        minDistance = distance
+                        bestTheme = themeName
+                    }
                 }
             }
 
