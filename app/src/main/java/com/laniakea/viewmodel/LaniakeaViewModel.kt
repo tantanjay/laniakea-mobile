@@ -42,7 +42,10 @@ import com.laniakea.manager.AnalyticsManager
 import com.laniakea.manager.SecurityManager
 import com.laniakea.manager.SemanticManager
 import com.laniakea.manager.VaultManager
+import com.laniakea.manager.WeeklyDigestManager
 import com.laniakea.manager.WritingMetrics
+import com.laniakea.data.WeeklyDigest
+import kotlin.time.Duration.Companion.milliseconds
 
 class LaniakeaViewModel(application: Application) : AndroidViewModel(application) {
     private val db = DiaryDatabase.getDatabase(application)
@@ -65,9 +68,13 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     
     private val semanticManager = SemanticManager(db, embedder, securityManager) { isEngineActive }
 
+    private val digestManager = WeeklyDigestManager(db, securityManager, semanticManager) { isEngineActive }
+
     // UI State
     var userName by mutableStateOf("Traveller")
     var theme by mutableStateOf("PURPLE")
+    var selectedThemes by mutableStateOf<List<String>>(emptyList())
+    
     var manualMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
     var aiMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
 
@@ -97,6 +104,16 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     // Writing Trends State
     var writingMetrics by mutableStateOf<WritingMetrics?>(null)
     var isMetricsLoading by mutableStateOf(false)
+
+    var weeklyDigest by mutableStateOf<WeeklyDigest?>(null)
+        private set
+    var isDigestLoading by mutableStateOf(false)
+        private set
+
+    var themeClusters by mutableStateOf<Map<String, List<DiaryEntry>>?>(null)
+        private set
+    var isThemesLoading by mutableStateOf(false)
+        private set
 
     // Journal Screen State
     private val _selectedDateRange = MutableStateFlow<Pair<Long, Long>?>(null)
@@ -149,6 +166,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     autoLoadEnabled = it.autoLoadEngine
                     userName = it.userName.takeIf { name -> name.isNotEmpty() } ?: "Traveller"
                     theme = it.theme
+                    selectedThemes = it.selectedThemes.split(",").filter { s -> s.isNotBlank() }
 
                     if (autoLoadEnabled && !isEngineActive && !isEngineLoading) {
                         initializeEngine()
@@ -176,8 +194,12 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                         )
                     }
 
-                    withContext(Dispatchers.IO) { calibrateAnchors() }
+                    withContext(Dispatchers.IO) { 
+                        calibrateAnchors() 
+                        semanticManager.initializeThemes(selectedThemes)
+                    }
                     refreshData()
+                    loadWeeklyDigest()
                 }
             }
         }
@@ -268,7 +290,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     fun checkTextQuality(text: String) {
         qualityCheckJob?.cancel()
         qualityCheckJob = viewModelScope.launch(Dispatchers.Default) {
-            delay(300) // Debounce
+            delay(300.milliseconds) // Debounce
             val quality = embedder.calculateTokenQuality(text)
             val count = embedder.getUsedTokenCount(text)
             
@@ -322,14 +344,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     val entryToSave = securityManager.encryptEntry(
                         rawEntry.copy(latentVibe = aiVibe.toDouble(), isVectorized = true)
                     )
-
-                    val anchors = VibeEngine.getAnchors()
-
-                    Log.d("LaniakeaViewModel", "----------------------------")
-                    Log.d("LaniakeaViewModel", "Joy Anchor: ${anchors.first?.contentToString()}")
-                    Log.d("LaniakeaViewModel", "Distress Anchor: ${anchors.second?.contentToString()}")
-                    Log.d("LaniakeaViewModel", "Adding entry with vector - Mood: ${entryToSave.numericMood}, Vibe: ${entryToSave.latentVibe}, Context: $content")
-                    Log.d("LaniakeaViewModel", "----------------------------")
 
                     val entryId = db.diaryDao().insertEntry(entryToSave)
                     ObjectBoxManager.vectorBox.put(ObjectBoxSentenceVector(entryId = entryId, vector = vector))
@@ -409,26 +423,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
                 val manual = analyticsManager.calculateMomentum(manualDaily, span, 3f, statusMap)
                 val ai = analyticsManager.calculateMomentum(aiDaily, span, 3f, statusMap)
-                val anchors = VibeEngine.getAnchors()
-
-                Log.d("LaniakeaViewModel", "----------------------------")
-                Log.d("LaniakeaViewModel", "Span: $span")
-                Log.d("LaniakeaViewModel", "Joy Anchor: ${anchors.first.contentToString()}")
-                Log.d("LaniakeaViewModel", "Distress Anchor: ${anchors.second.contentToString()}")
-                Log.d("LaniakeaViewModel", "Moods Momentum: ${manual.first}, Status ${manual.second}")
-                Log.d("LaniakeaViewModel", "Vibes: $aiDaily")
-                Log.d("LaniakeaViewModel", "Vibes Momentum: ${ai.first}, Status ${ai.second}")
-                Log.d("LaniakeaViewModel", "----------------------------")
-
-                val entries = dao.getAllEntries().map { securityManager.decrypt(it.content) }
-                for ((index, decryptedContent) in entries.withIndex()) {
-                    if (index >= manualDaily.size) break
-
-                    Log.d("LaniakeaViewModel", "Content: $decryptedContent")
-                    Log.d("LaniakeaViewModel","Manual: ${manualDaily[index]}")
-                    Log.d("LaniakeaViewModel","AI Vibe: ${aiDaily[index]}")
-                    Log.d("LaniakeaViewModel", "----------------------------")
-                }
 
                 manualMomentum = Triple(
                     manual.first,
@@ -485,11 +479,42 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         return semanticManager.findSimilarEntries(entryId, limit)
     }
 
-    suspend fun getThemeClusters(): Map<String, List<DiaryEntry>> {
-        return semanticManager.getThemeClusters()
+    suspend fun loadThemeClusters() {
+        isThemesLoading = true
+        try {
+            themeClusters = semanticManager.getThemeClusters(selectedThemes)
+        } finally {
+            isThemesLoading = false
+        }
+    }
+
+    fun updateSelectedThemes(themes: List<String>) {
+        viewModelScope.launch {
+            val dao = db.diaryDao()
+            val current = dao.getSettings() ?: com.laniakea.data.AppSettings()
+            dao.saveSettings(current.copy(selectedThemes = themes.joinToString(",")))
+            selectedThemes = themes
+            
+            if (isEngineActive) {
+                withContext(Dispatchers.IO) {
+                    semanticManager.reinitializeThemes(themes)
+                }
+                loadThemeClusters()
+                loadWeeklyDigest()
+            }
+        }
     }
 
     suspend fun analyzeWritingTrends(limit: Int = 30): WritingMetrics {
         return analyticsManager.analyzeWritingTrends(limit)
+    }
+
+    suspend fun loadWeeklyDigest() {
+        isDigestLoading = true
+        try {
+            weeklyDigest = digestManager.generateDigest()
+        } finally {
+            isDigestLoading = false
+        }
     }
 }

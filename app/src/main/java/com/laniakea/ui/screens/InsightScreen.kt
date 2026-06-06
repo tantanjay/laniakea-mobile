@@ -3,7 +3,9 @@ package com.laniakea.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.laniakea.viewmodel.LaniakeaViewModel
 import com.laniakea.ui.components.insight.WritingTrendCard
+import com.laniakea.ui.components.insight.WeeklyDigestCard
 
 @Composable
 fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
@@ -62,13 +65,19 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         )
     }
 
-    // Load writing metrics
+    // Load writing metrics and weekly digest (cached to avoid fetching on every tab visit)
     LaunchedEffect(Unit) {
-        vm.isMetricsLoading = true
-        try {
-            vm.writingMetrics = vm.analyzeWritingTrends()
-        } finally {
-            vm.isMetricsLoading = false
+        if (vm.writingMetrics == null) {
+            vm.isMetricsLoading = true
+            try {
+                vm.writingMetrics = vm.analyzeWritingTrends()
+            } finally {
+                vm.isMetricsLoading = false
+            }
+        }
+        
+        if (vm.weeklyDigest == null) {
+            vm.loadWeeklyDigest()
         }
     }
 
@@ -89,6 +98,22 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 letterSpacing = (-0.5).sp
             )
         )
+
+        // Weekly Digest Section
+        if (vm.isDigestLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else {
+            vm.weeklyDigest?.let { digest ->
+                WeeklyDigestCard(digest = digest)
+            }
+        }
 
         // Writing Trends Section
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -191,35 +216,49 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         }
 
         // Thematic Clusters
-        var themeClusters by remember { mutableStateOf<Map<String, List<com.laniakea.data.DiaryEntry>>>(emptyMap()) }
-        var isThemesLoading by remember { mutableStateOf(false) }
-
         LaunchedEffect(vm.isEngineActive) {
-            if (vm.isEngineActive) {
-                isThemesLoading = true
-                try {
-                    themeClusters = vm.getThemeClusters()
-                } finally {
-                    isThemesLoading = false
-                }
+            if (vm.isEngineActive && vm.themeClusters == null) {
+                vm.loadThemeClusters()
             }
+        }
+
+        var showThemeSelection by remember { mutableStateOf(false) }
+
+        if (showThemeSelection) {
+            ThemeSelectionDialog(
+                vm = vm,
+                onDismiss = { showThemeSelection = false }
+            )
         }
 
         if (vm.isEngineActive) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "Semantic Themes",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Semantic Themes",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(onClick = { showThemeSelection = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit Themes",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
 
-                if (isThemesLoading) {
+                if (vm.isThemesLoading) {
                     Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
-                } else if (themeClusters.isNotEmpty()) {
-                    themeClusters.forEach { (theme, entries) ->
+                } else if (vm.themeClusters?.isNotEmpty() == true) {
+                    vm.themeClusters!!.forEach { (theme, entries) ->
                         ThemeClusterCard(theme = theme, entries = entries)
                     }
                 } else {
@@ -230,6 +269,93 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 
         Spacer(modifier = Modifier.height(24.dp))
     }
+}
+
+@Composable
+fun ThemeSelectionDialog(vm: com.laniakea.viewmodel.LaniakeaViewModel, onDismiss: () -> Unit) {
+    val allThemes = listOf(
+        "Relationships & Connection",
+        "Career & Purpose",
+        "Goals & Ambition",
+        "Inner Reflection",
+        "Emotional Wellbeing",
+        "Physical Wellbeing",
+        "Stress & Anxiety",
+        "Learning & Curiosity",
+        "Creativity & Expression",
+        "Uncertainty & Waiting",
+        "Gratitude & Joy",
+        "Challenges & Resilience"
+    )
+
+    var selectedThemes by remember { mutableStateOf(vm.selectedThemes.toSet()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Customize Themes") },
+        text = {
+            Column {
+                Text(
+                    "Select the themes you want to track in your insights.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.heightIn(max = 300.dp)
+                ) {
+                    items(allThemes.size) { index ->
+                        val theme = allThemes[index]
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val newSet = selectedThemes.toMutableSet()
+                                    if (newSet.contains(theme)) {
+                                        newSet.remove(theme)
+                                    } else {
+                                        newSet.add(theme)
+                                    }
+                                    selectedThemes = newSet
+                                }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Checkbox(
+                                checked = selectedThemes.contains(theme),
+                                onCheckedChange = null
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(theme)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(
+                    "Note: Enabling more themes requires more device processing power. We recommend choosing 4-6 core themes.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    vm.updateSelectedThemes(selectedThemes.toList())
+                    onDismiss()
+                }
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable

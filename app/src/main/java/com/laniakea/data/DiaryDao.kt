@@ -37,6 +37,9 @@ interface DiaryDao {
     @Query("SELECT * FROM entries WHERE dateTime >= :startDate AND dateTime <= :endDate ORDER BY dateTime DESC")
     fun getEntriesInRange(startDate: Long, endDate: Long): Flow<List<DiaryEntry>>
 
+    @Query("SELECT * FROM entries WHERE dateTime >= :startDate AND dateTime <= :endDate ORDER BY dateTime DESC")
+    suspend fun getEntriesInRangeSnapshot(startDate: Long, endDate: Long): List<DiaryEntry>
+
     @Query("SELECT dateTime, numericMood, latentVibe FROM entries WHERE isVectorized = 1 ORDER BY dateTime ASC")
     suspend fun getAllMoodScores(): List<MoodScores>
 

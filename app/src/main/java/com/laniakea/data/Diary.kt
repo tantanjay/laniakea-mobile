@@ -11,7 +11,8 @@ data class AppSettings(
     val privacySeed: String? = null,
     val autoLoadEngine: Boolean = false,
     val userName: String = "",
-    val theme: String = "PURPLE"
+    val theme: String = "PURPLE",
+    val selectedThemes: String = "Relationships & Connection,Career & Purpose,Goals & Ambition,Inner Reflection,Emotional Wellbeing,Physical Wellbeing"
 )
 
 @Entity(tableName = "entries")

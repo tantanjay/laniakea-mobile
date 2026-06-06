@@ -26,8 +26,16 @@ class AnalyticsManager(
             val entries = rawEntries.reversed().map { securityManager.decryptEntry(it) }
 
             val firstPersonWords = setOf("i", "me", "my", "myself", "mine", "i'm", "i've", "i'll", "i'd")
-            val futureWords = setOf("will", "going", "plan", "tomorrow", "soon", "next", "hope", "want", "intend", "goal", "ahead", "forward", "future")
-            val pastWords = setOf("was", "had", "yesterday", "ago", "used", "before", "past", "remember", "remembered", "forgot", "back", "earlier", "then")
+            val futureWords = setOf(
+                "will", "going", "plan", "tomorrow", "soon", "next", "hope", "want", "intend",
+                "goal", "ahead", "forward", "future", "aspire", "dream", "envision", "eventually",
+                "someday", "upcoming", "later", "shall", "expect", "anticipate", "wish", "ambition"
+            )
+            val pastWords = setOf(
+                "was", "had", "yesterday", "ago", "used", "before", "past", "remember", "remembered",
+                "forgot", "back", "earlier", "then", "recall", "once", "former", "previously",
+                "nostalgia", "regret", "missed", "childhood", "history", "memoir", "longtime", "already"
+            )
 
             val entryLengths = mutableListOf<Pair<Long, Float>>()
             val vocabularyDiversity = mutableListOf<Pair<Long, Float>>()

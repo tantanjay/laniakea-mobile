@@ -17,13 +17,14 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.util.Locale
 
 @Composable
 fun WritingTrendCard(
     label: String,
     emoji: String,
     dataPoints: List<Pair<Long, Float>>,
-    formatValue: (Float) -> String = { String.format("%.0f", it) },
+    formatValue: (Float) -> String = { String.format(Locale.ROOT, "%.0f", it) },
     sparklineColor: Color = MaterialTheme.colorScheme.primary
 ) {
     val values = remember(dataPoints) { dataPoints.map { it.second } }
@@ -31,14 +32,17 @@ fun WritingTrendCard(
     val trendArrow = remember(values) {
         if (values.size < 2) "→"
         else {
-            // Compare average of last 5 vs previous 5
-            val recentWindow = values.takeLast(5).average().toFloat()
-            val previousWindow = values.dropLast(5).takeLast(5).average().toFloat()
-            val delta = recentWindow - previousWindow
-            when {
-                delta > 0.05f -> "↑"
-                delta < -0.05f -> "↓"
-                else -> "→"
+            val half = values.size / 2
+            val recentWindow = values.takeLast(half).average().toFloat()
+            val previousWindow = values.take(half).average().toFloat()
+            if (recentWindow.isNaN() || previousWindow.isNaN()) "→"
+            else {
+                val delta = recentWindow - previousWindow
+                when {
+                    delta > 0.05f -> "↑"
+                    delta < -0.05f -> "↓"
+                    else -> "→"
+                }
             }
         }
     }
