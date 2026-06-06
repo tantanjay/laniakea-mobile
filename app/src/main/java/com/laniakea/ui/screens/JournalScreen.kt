@@ -23,7 +23,8 @@ import com.laniakea.viewmodel.LaniakeaViewModel
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.TextStyle
-import java.util.*
+import kotlin.time.Duration.Companion.milliseconds
+import androidx.compose.ui.platform.LocalLocale
 
 @Composable
 fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
@@ -46,7 +47,7 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         if (searchQuery.isNotBlank()) {
             isSearching = true
             try {
-                kotlinx.coroutines.delay(500)
+                kotlinx.coroutines.delay(500.milliseconds)
                 searchResults = vm.semanticSearch(searchQuery)
             } finally {
                 isSearching = false
@@ -100,7 +101,7 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             value = searchQuery,
             onValueChange = { searchQuery = it },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Search your latent vibe...") },
+            placeholder = { Text("Search entries by meaning...") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
             trailingIcon = {
                 if (searchQuery.isNotEmpty()) {
@@ -149,6 +150,8 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     }
                     items(searchResults, key = { it.id }) { entry ->
                         DailyJournalCard(listOf(entry), onFindSimilar = { e ->
+                            similarEntriesList = emptyList()
+                            isLoadingSimilar = true
                             showSimilarDialogForEntry = e
                         })
                     }
@@ -183,7 +186,7 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             ) {
                 Text(
                     text = if (selectedRange == null) {
-                        "Entries in ${currentMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())}"
+                        "Entries in ${currentMonth.month.getDisplayName(TextStyle.FULL, LocalLocale.current.platformLocale)}"
                     } else {
                         "Filtered Selection"
                     },
@@ -211,6 +214,8 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             ) {
                 items(groupedEntries, key = { it.first.toString() }) { (_, entries) ->
                     DailyJournalCard(entries, onFindSimilar = { e ->
+                        similarEntriesList = emptyList()
+                        isLoadingSimilar = true
                         showSimilarDialogForEntry = e
                     })
                 }
@@ -245,11 +250,24 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 }
             },
             title = {
-                Text(
-                    text = "Similar Entries",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
+                Column {
+                    Text(
+                        text = "Similar Entries",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    showSimilarDialogForEntry?.let { sourceEntry ->
+                        val sourceDate = Instant.ofEpochMilli(sourceEntry.dateTime)
+                            .atZone(ZoneId.systemDefault()).toLocalDate()
+                        val preview = sourceEntry.content.take(50) + if (sourceEntry.content.length > 50) "..." else ""
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "${sourceDate.dayOfMonth} ${sourceDate.month.getDisplayName(TextStyle.SHORT, LocalLocale.current.platformLocale)} — $preview",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             },
             text = {
                 if (isLoadingSimilar) {
@@ -259,7 +277,10 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 } else if (similarEntriesList.isEmpty()) {
                     Text("No similar entries found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 400.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         items(similarEntriesList, key = { it.id }) { similarEntry ->
                             DailyJournalCard(listOf(similarEntry), onFindSimilar = null)
                         }
@@ -267,17 +288,17 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 }
             }
         )
+    }
 
-        LaunchedEffect(showSimilarDialogForEntry) {
-            val entry = showSimilarDialogForEntry
-            if (entry != null) {
-                isLoadingSimilar = true
-                similarEntriesList = emptyList()
-                try {
-                    similarEntriesList = vm.findSimilarEntries(entry.id)
-                } finally {
-                    isLoadingSimilar = false
-                }
+    LaunchedEffect(showSimilarDialogForEntry) {
+        val entry = showSimilarDialogForEntry
+        if (entry != null) {
+            isLoadingSimilar = true
+            similarEntriesList = emptyList()
+            try {
+                similarEntriesList = vm.findSimilarEntries(entry.id)
+            } finally {
+                isLoadingSimilar = false
             }
         }
     }
