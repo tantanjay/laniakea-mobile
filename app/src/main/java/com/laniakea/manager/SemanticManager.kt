@@ -15,7 +15,7 @@ class SemanticManager(
     private val isEngineActive: () -> Boolean
 ) {
 
-    private var cachedThemeVectors: Map<String, FloatArray>? = null
+    private var cachedThemeVectors: Map<String, List<FloatArray>>? = null
 
     private val richThemes = mapOf(
         "Relationships & Connection" to listOf(
@@ -91,7 +91,7 @@ class SemanticManager(
          * THEME_CLUSTER:  1.25 ≈ cosine similarity 0.22 — looser threshold for rich theme descriptions.
          */
         private const val MAX_DISTANCE_SEARCH = 1.2
-        const val MAX_DISTANCE_THEME = 1.25
+        const val MAX_DISTANCE_THEME = 1.10
     }
 
     suspend fun semanticSearch(query: String, limit: Int = 5): List<DiaryEntry> {
@@ -149,12 +149,12 @@ class SemanticManager(
         // Only initialize once
         if (cachedThemeVectors != null) return
 
-        val vectors = mutableMapOf<String, FloatArray>()
+        val vectors = mutableMapOf<String, List<FloatArray>>()
         for ((title, descriptions) in richThemes) {
             if (selectedThemes.contains(title)) {
                 val embeddedDesc = descriptions.mapNotNull { embedder.embed(it) }
                 if (embeddedDesc.isNotEmpty()) {
-                    vectors[title] = averageVectors(embeddedDesc)
+                    vectors[title] = embeddedDesc
                 }
             }
         }
@@ -166,7 +166,7 @@ class SemanticManager(
         initializeThemes(selectedThemes)
     }
 
-    fun getCachedThemes(): Map<String, FloatArray>? {
+    fun getCachedThemes(): Map<String, List<FloatArray>>? {
         return cachedThemeVectors
     }
 
@@ -210,23 +210,28 @@ class SemanticManager(
         if (cachedThemeVectors == null) {
             initializeThemes(selectedThemes)
         }
-        
-        val themeVectors = cachedThemeVectors ?: return emptyMap()
 
         return withContext(Dispatchers.IO) {
-            val allVectors = ObjectBoxManager.vectorBox.all
+            val themeVectors = cachedThemeVectors ?: return@withContext emptyMap()
+            // Forward mapping
             val clusterMap = mutableMapOf<String, MutableList<Pair<Long, Double>>>()
-            
-            // Forward Mapping: Bin each entry into strictly its closest theme
+
+            val vectorBox = ObjectBoxManager.vectorBox
+            val allVectors = vectorBox.query().build().find()
+
             for (vectorObj in allVectors) {
+                if (vectorObj.vector == null) continue
+
                 var bestTheme = ""
                 var minDistance = Double.MAX_VALUE
 
-                for ((themeName, themeVector) in themeVectors) {
-                    val distance = calculateL2Distance(vectorObj.vector, themeVector)
-                    if (distance < minDistance) {
-                        minDistance = distance
-                        bestTheme = themeName
+                for ((themeName, anchors) in themeVectors) {
+                    for (anchor in anchors) {
+                        val distance = calculateL2Distance(vectorObj.vector!!, anchor)
+                        if (distance < minDistance) {
+                            minDistance = distance
+                            bestTheme = themeName
+                        }
                     }
                 }
 
@@ -240,12 +245,18 @@ class SemanticManager(
             
             for ((theme, pairs) in clusterMap) {
                 // Take top 3 closest entries for this theme
-                val topIds = pairs.sortedBy { it.second }.take(3).map { it.first }
+                pairs.sortBy { it.second }
+                val potentialIds = pairs.take(10).map { it.first }
                 
-                if (topIds.isNotEmpty()) {
-                    val entries = db.diaryDao().getEntriesByIds(topIds)
+                if (potentialIds.isNotEmpty()) {
+                    val entries = db.diaryDao().getEntriesByIds(potentialIds)
                     val entryMap = entries.associateBy { it.id }
-                    val decryptedEntries = topIds.mapNotNull { entryMap[it] }.map { securityManager.decryptEntry(it) }
+                    
+                    val decryptedEntries = potentialIds
+                        .mapNotNull { entryMap[it] }
+                        .map { securityManager.decryptEntry(it) }
+                        .distinctBy { it.content.lowercase().trim() }
+                        .take(3)
                     
                     finalClusters[theme] = decryptedEntries
                 }
