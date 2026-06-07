@@ -1,6 +1,5 @@
 package com.laniakea.manager
 
-import android.util.Log
 import com.laniakea.data.DiaryDatabase
 import com.laniakea.data.DiaryEntry
 import com.laniakea.data.ObjectBoxManager
@@ -85,8 +84,6 @@ class SemanticManager(
         )
     )
     
-    val availableThemeNames = richThemes.keys.toList()
-
     companion object {
         const val THEME_TEMPLATE_VERSION = 3
         
@@ -226,10 +223,6 @@ class SemanticManager(
         }
 
         return if (minDistance < MAX_DISTANCE_THEME) bestTheme else null
-    }
-
-    fun getCachedThemes(): Map<String, FloatArray>? {
-        return cachedThemeCentroids
     }
 
     fun isThemesInitialized(): Boolean {
