@@ -382,8 +382,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     val vector = embedder.embed(decryptedContent)
                     
                     if (vector != null) {
-                        Log.d("SemanticManager", "--- Classifying new vector ---")
-                        Log.d("SemanticManager", "Content: $decryptedContent")
                         val aiVibe = VibeEngine.calculateVibeScore(vector)
                         val semanticTheme = semanticManager.classifyTheme(rawVector)
                         

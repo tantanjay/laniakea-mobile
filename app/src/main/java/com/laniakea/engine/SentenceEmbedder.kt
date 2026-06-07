@@ -125,7 +125,6 @@ class SentenceEmbedder(
                 val match = Regex("\\d+").find(name)
                 val nodeId = match?.value?.toInt() ?: i
                 tensorInfo.add(Pair(i, nodeId))
-                Log.d("SentenceEmbedder", "Mapped Tensor $i ($name) -> Node $nodeId")
             }
             
             // Sort by node ID to restore creation order
@@ -144,7 +143,6 @@ class SentenceEmbedder(
 
             try {
                 activeInterpreter.runForMultipleInputsOutputs(inputs, mapOf(0 to output))
-                Log.d("SentenceEmbedder", "Successfully ran model with dynamic mapping.")
             } catch (e: Exception) {
                 Log.e("SentenceEmbedder", "Dynamic tensor mapping crashed!", e)
                 // Fallback just in case
@@ -407,7 +405,6 @@ class SentenceEmbedder(
             // Final score combinations
             val finalScore = (dictionaryScore * varietyMultiplier * densityMultiplier)
 
-            Log.d("Tokenizer", "Quality for text: Dict=$dictionaryScore, Variety=$varietyMultiplier, Density=$densityMultiplier, Final=$finalScore")
             return finalScore.coerceIn(0f, 1f)
         }
 
