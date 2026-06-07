@@ -1,5 +1,6 @@
 package com.laniakea.manager
 
+import android.util.Log
 import com.laniakea.data.DiaryDatabase
 import com.laniakea.data.DiaryEntry
 import com.laniakea.data.ObjectBoxManager
@@ -87,16 +88,16 @@ class SemanticManager(
     val availableThemeNames = richThemes.keys.toList()
 
     companion object {
-        const val THEME_TEMPLATE_VERSION = 1
+        const val THEME_TEMPLATE_VERSION = 3
         
         /**
          * Distance thresholds for normalized 768-dim vectors (L2 distance).
          * 0.0 = identical, ~1.0 = weakly related, ~1.41 = unrelated, 2.0 = opposite.
          *
-         * SEARCH/SIMILAR: 1.2 ≈ cosine similarity 0.28 — filters clearly unrelated results.
+         * SEARCH/SIMILAR: 0.85 ≈ cosine similarity 0.64 — filters clearly unrelated results.
          * THEME_CLUSTER:  1.25 ≈ cosine similarity 0.22 — looser threshold for rich theme descriptions.
          */
-        private const val MAX_DISTANCE_SEARCH = 1.2
+        private const val MAX_DISTANCE_SEARCH = 0.85
         const val MAX_DISTANCE_THEME = 1.10
     }
 
@@ -135,17 +136,25 @@ class SemanticManager(
             val vectorObj = ObjectBoxManager.vectorBox.query(ObjectBoxSentenceVector_.entryId.equal(entryId)).build().findFirst()
             val vector = vectorObj?.vector ?: return@withContext emptyList()
             
-            val similarIds = ObjectBoxManager.search(vector, limit + 1)
+            // Fetch extra to account for potential exact match filtering
+            val similarIds = ObjectBoxManager.search(vector, limit + 10)
                 .filter { it.score < MAX_DISTANCE_SEARCH }
                 .map { it.vector.entryId }
                 .filter { it != entryId }
-                .take(limit)
             
             if (similarIds.isEmpty()) return@withContext emptyList()
             
-            val entries = db.diaryDao().getEntriesByIds(similarIds)
+            val entries = db.diaryDao().getEntriesByIds(similarIds + entryId)
             val entryMap = entries.associateBy { it.id }
-            similarIds.mapNotNull { entryMap[it] }.map { securityManager.decryptEntry(it) }
+            
+            val targetEntryRaw = entryMap[entryId] ?: return@withContext emptyList()
+            val targetEntry = securityManager.decryptEntry(targetEntryRaw)
+            val targetContent = targetEntry.content.trim().lowercase()
+
+            similarIds.mapNotNull { entryMap[it] }
+                .map { securityManager.decryptEntry(it) }
+                .filter { it.content.trim().lowercase() != targetContent }
+                .take(limit)
         }
     }
 
@@ -210,12 +219,14 @@ class SemanticManager(
 
         for ((themeName, centroid) in centroids) {
             val distance = calculateL2Distance(rawVector, centroid)
+            Log.d("SemanticManager", "Theme: $themeName -> dist: $distance")
             if (distance < minDistance) {
                 minDistance = distance
                 bestTheme = themeName
             }
         }
 
+        Log.d("SemanticManager", "Winner: $bestTheme (dist: $minDistance, threshold: $MAX_DISTANCE_THEME)")
         return if (minDistance < MAX_DISTANCE_THEME) bestTheme else null
     }
 
