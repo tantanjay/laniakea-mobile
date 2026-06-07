@@ -27,7 +27,8 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.TextStyle
-import java.util.Locale
+import androidx.compose.ui.platform.LocalLocale
+import kotlin.math.abs
 
 @Composable
 fun CalendarView(
@@ -38,10 +39,6 @@ fun CalendarView(
     onRangeSelected: (Long?, Long?) -> Unit,
     onSwipeUp: () -> Unit = {}
 ) {
-    val daysInMonth = currentMonth.lengthOfMonth()
-    val firstDayOffset = currentMonth.atDay(1).dayOfWeek.value % 7
-    val days = (1..daysInMonth).toList()
-
     val moodMap = remember(entries) {
         entries.groupBy {
             Instant.ofEpochMilli(it.dateTime).atZone(ZoneId.systemDefault()).toLocalDate()
@@ -67,7 +64,7 @@ fun CalendarView(
                         dragAmountY += dragAmount.y
                     },
                     onDragEnd = {
-                        if (Math.abs(dragAmountX) > Math.abs(dragAmountY)) {
+                        if (abs(dragAmountX) > abs(dragAmountY)) {
                             if (dragAmountX > 50) {
                                 onMonthChange(currentMonth.minusMonths(1))
                             } else if (dragAmountX < -50) {
@@ -98,7 +95,7 @@ fun CalendarView(
                 }
 
                 Text(
-                    text = "${currentMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${currentMonth.year}",
+                    text = "${currentMonth.month.getDisplayName(TextStyle.FULL, LocalLocale.current.platformLocale)} ${currentMonth.year}",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface
