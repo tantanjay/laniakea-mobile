@@ -79,8 +79,8 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             }
         }
         
-        if (vm.weeklyDigest == null) {
-            vm.loadWeeklyDigest()
+        if (vm.weeklyDigest == null || vm.themeClusters == null) {
+            vm.refreshInsights()
         }
     }
 
@@ -221,7 +221,7 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         // Thematic Clusters
         LaunchedEffect(vm.isEngineActive) {
             if (vm.isEngineActive && vm.themeClusters == null) {
-                vm.loadThemeClusters()
+                vm.refreshInsights()
             }
         }
 

@@ -115,33 +115,39 @@ class SentenceEmbedder(
             val tokenTypeIds = Array(1) { IntArray(maxLen) { 0 } }
             val output = Array(1) { Array(maxLen) { FloatArray(hiddenDim) } }
 
-            val permutations = if (activeInterpreter.inputTensorCount == 3) {
-                listOf(
-                    arrayOf(attentionMask, tokenTypeIds, inputIds), // TF Hub / Alphabetical
-                    arrayOf(attentionMask, inputIds, tokenTypeIds), // HuggingFace standard
-                    arrayOf(inputIds, attentionMask, tokenTypeIds)  // Fallback
-                )
-            } else {
-                listOf(
-                    arrayOf(attentionMask, inputIds),
-                    arrayOf(inputIds, tokenTypeIds),
-                    arrayOf(inputIds, attentionMask)
-                )
+            val inputs = Array<Any>(activeInterpreter.inputTensorCount) { arrayOf<IntArray>() }
+            
+            // Extract numerical IDs from opaque names like "serving_default_input_19:0"
+            // HuggingFace standard graph creation order is: input_ids, attention_mask, token_type_ids
+            val tensorInfo = mutableListOf<Pair<Int, Int>>() // Pair(tensorIndex, extractedNodeId)
+            for (i in 0 until activeInterpreter.inputTensorCount) {
+                val name = activeInterpreter.getInputTensor(i).name()
+                val match = Regex("\\d+").find(name)
+                val nodeId = match?.value?.toInt() ?: i
+                tensorInfo.add(Pair(i, nodeId))
+                Log.d("SentenceEmbedder", "Mapped Tensor $i ($name) -> Node $nodeId")
+            }
+            
+            // Sort by node ID to restore creation order
+            tensorInfo.sortBy { it.second }
+            
+            if (tensorInfo.size >= 3) {
+                inputs[tensorInfo[0].first] = inputIds
+                inputs[tensorInfo[1].first] = attentionMask
+                inputs[tensorInfo[2].first] = tokenTypeIds
+            } else if (tensorInfo.size == 2) {
+                inputs[tensorInfo[0].first] = inputIds
+                inputs[tensorInfo[1].first] = attentionMask
+            } else if (tensorInfo.size == 1) {
+                inputs[0] = inputIds
             }
 
-            var success = false
-            for ((index, inputs) in permutations.withIndex()) {
-                try {
-                    activeInterpreter.runForMultipleInputsOutputs(inputs, mapOf(0 to output))
-                    Log.d("SentenceEmbedder", "Successfully ran model with ${activeInterpreter.inputTensorCount} inputs. Permutation index: $index")
-                    success = true
-                    break
-                } catch (e: Exception) {
-                    // Wrong tensor order causes OutOfBounds (e.g. inputIds into token_type_ids)
-                }
-            }
-
-            if (!success) {
+            try {
+                activeInterpreter.runForMultipleInputsOutputs(inputs, mapOf(0 to output))
+                Log.d("SentenceEmbedder", "Successfully ran model with dynamic mapping.")
+            } catch (e: Exception) {
+                Log.e("SentenceEmbedder", "Dynamic tensor mapping crashed!", e)
+                // Fallback just in case
                 activeInterpreter.runForMultipleInputsOutputs(arrayOf(inputIds, attentionMask), mapOf(0 to output))
             }
 

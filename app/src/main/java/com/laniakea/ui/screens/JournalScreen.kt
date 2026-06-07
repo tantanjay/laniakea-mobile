@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,6 +26,8 @@ import java.time.ZoneId
 import java.time.format.TextStyle
 import kotlin.time.Duration.Companion.milliseconds
 import androidx.compose.ui.platform.LocalLocale
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.unit.sp
 
 @Composable
 fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
@@ -42,6 +45,7 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     var showSimilarDialogForEntry by remember { mutableStateOf<com.laniakea.data.DiaryEntry?>(null) }
     var similarEntriesList by remember { mutableStateOf<List<com.laniakea.data.DiaryEntry>>(emptyList()) }
     var isLoadingSimilar by remember { mutableStateOf(false) }
+    var showSimilarInfo by remember { mutableStateOf(false) }
 
     LaunchedEffect(searchQuery) {
         if (searchQuery.isNotBlank()) {
@@ -251,11 +255,24 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             },
             title = {
                 Column {
-                    Text(
-                        text = "Similar Entries",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Similar Entries",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        IconButton(onClick = { showSimilarInfo = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = "Information",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                     showSimilarDialogForEntry?.let { sourceEntry ->
                         val sourceDate = Instant.ofEpochMilli(sourceEntry.dateTime)
                             .atZone(ZoneId.systemDefault()).toLocalDate()
@@ -301,5 +318,74 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 isLoadingSimilar = false
             }
         }
+    }
+
+    if (showSimilarInfo) {
+        AlertDialog(
+            onDismissRequest = { showSimilarInfo = false },
+            confirmButton = {
+                TextButton(onClick = { showSimilarInfo = false }) {
+                    Text("Got it")
+                }
+            },
+            title = {
+                Text(
+                    text = "How Semantic Search Works",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(
+                        text = "Laniakea doesn't just match exact keywords. Instead, the AI analyzes the deep emotional context and meaning behind your thoughts.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    // Visual Example Block Container
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "If you look up an abstract entry like:",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "“Lingering a little too long in the doorway.”",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                fontStyle = FontStyle.Italic
+                            )
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 4.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                            )
+                            Text(
+                                text = "The AI maps the feeling of hesitation, dread, or being stuck, pulling up matching moments like:",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "• “Watching the shadows move across the wall...”\n• “A strange sense of impending deadlines.”",
+                                style = MaterialTheme.typography.bodyMedium,
+                                lineHeight = 20.sp
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Even with zero identical words, Laniakea connects entries that share the exact same state of mind.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        )
     }
 }

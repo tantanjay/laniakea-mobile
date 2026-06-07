@@ -382,6 +382,8 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     val vector = embedder.embed(decryptedContent)
                     
                     if (vector != null) {
+                        Log.d("SemanticManager", "--- Classifying new vector ---")
+                        Log.d("SemanticManager", "Content: $decryptedContent")
                         val aiVibe = VibeEngine.calculateVibeScore(vector)
                         val semanticTheme = semanticManager.classifyTheme(rawVector)
                         
@@ -396,7 +398,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             }
             isProcessing = false
             refreshData()
-            loadThemeClusters() // refresh the themes UI
         }
     }
 
@@ -412,6 +413,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
     fun refreshData() {
         viewModelScope.launch(Dispatchers.IO) {
+            refreshInsights()
             refreshProcessingStats()
             val dao = db.diaryDao()
             if (isEngineActive) calibrateAnchors()
@@ -497,6 +499,11 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         return semanticManager.findSimilarEntries(entryId, limit)
     }
 
+    suspend fun refreshInsights() {
+        loadThemeClusters()
+        loadWeeklyDigest()
+    }
+
     suspend fun loadThemeClusters() {
         isThemesLoading = true
         try {
@@ -514,8 +521,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             selectedThemes = themes
             
             if (isEngineActive) {
-                loadThemeClusters()
-                loadWeeklyDigest()
+                refreshData()
             }
         }
     }
