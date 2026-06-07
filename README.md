@@ -5,6 +5,15 @@
 
 Its standout feature is its **On-Device NLP Engine**, which uses **Artificial Intelligence (AI)** to analyze the semantic meaning and structural language patterns of journal entries. Unlike typical apps that rely on cloud-based inference, Laniakea performs all analysis **entirely on the device** and applies mathematically grounded, privacy-preserving transformations (referred to as **Privacy Shields**) to ensure that reflections remain truly private.
 
+Ultimately, Laniakea acts as a **personal semantic memory system** that reveals patterns in your writing over time.
+
+### Key Capabilities
+- **Journaling & Calendar:** A robust daily journaling system with intuitive calendar-based navigation.
+- **Personal Semantic Memory:** Automatically connects related past entries to create a continuous narrative of thought.
+- **Meaning-Based Search:** Replaces rigid keyword search with deep semantic retrieval.
+- **Structural Language Trends:** Tracks how your writing evolves over time (e.g., vocabulary diversity, question frequency) instead of assigning emotional scores.
+- **Weekly Digests & Themes:** Auto-generates weekly insights and clusters entries into semantic themes without manual tagging.
+
 ## User Privacy & Ethical Use
 
 > **Note on App Purpose & Ethics:** Laniakea is a technical showcase of on-device AI (TensorFlow Lite / Universal Sentence Encoder) used for semantic text clustering. It is designed purely as a personal journaling and self-reflection tool. It is not a medical device, nor is it intended to diagnose, treat, or monitor any psychological or mental health conditions. All thematic clustering is based purely on mathematical vector distance (L2), not clinical psychology.
@@ -58,7 +67,16 @@ To reduce the risk of embedding inversion attacks—where original text is recon
 
 ---
 
-## 5. Writing Reflections (Insights)
+## 5. Semantic Search & Memory (Phase 1 Complete)
+
+Laniakea completely replaces traditional keyword search with **meaning-based retrieval**, powered by the on-device sentence embedder.
+
+- **Semantic Search:** You can search your journal history using abstract concepts or feelings (e.g., "Moments of clarity," "Times I felt stuck") without relying on exact word matches or manual tags.
+- **Semantic Memory (Find Similar):** Every journal entry features a "Find Similar" action. By calculating the L2 vector distance between entries, Laniakea resurfaces past entries where you shared the exact same state of mind, creating a continuous narrative of your thoughts over time.
+
+---
+
+## 6. Writing Reflections (Insights)
 
 Laniakea analyzes decrypted journal entries locally to provide structural insights into how your writing evolves over time. These are objective observations of language, completely devoid of emotional interpretation.
 
@@ -70,11 +88,14 @@ The **Insight Screen** tracks 5 key metrics over your last 30 entries:
 5. **Future vs Past Orientation:** Measures the temporal focus of your writing by comparing future-oriented keywords (will, hope, plan) against past-oriented ones (was, yesterday, remembered).
 
 ### Semantic Themes
-Using the generated embeddings, Laniakea automatically clusters your entries into recurring **Semantic Themes** (e.g., relationships, career, health) without requiring manual tags.
+Using the generated embeddings, Laniakea automatically clusters your entries into recurring **Semantic Themes** (e.g., Relationships & Connection, Learning & Curiosity) without requiring manual tags.
+
+### Weekly Reflection Digest
+The app also features an auto-generated weekly summary, providing a structural snapshot of your journaling consistency, dominant semantic themes, and language evolution over the past week.
 
 ---
 
-## 6. The Vibe Engine & Privacy Math
+## 7. The Vibe Engine & Privacy Math
 
 Laniakea supports **multiple entries per day**. Each entry generates its own embedding, and the underlying Vibe Engine updates a personalized baseline dynamically.
 
@@ -96,7 +117,7 @@ Given an entry embedding \(E\), the internal Vibe Score is computed by projectin
 
 ---
 
-## 7. Dynamic Calibration (20-Sentiment Model)
+## 8. Dynamic Calibration (20-Sentiment Model)
 
 While Laniakea starts with generic emotional anchors, the system adapts over time using **Dynamic Calibration**.
 
@@ -110,7 +131,7 @@ While Laniakea starts with generic emotional anchors, the system adapts over tim
 
 ---
 
-## 8. The Accuracy Paradox: Shuffling & Noise
+## 9. The Accuracy Paradox: Shuffling & Noise
 
 ### Why Vector Shuffling Preserves Accuracy
 - **Fixed Permutation:** Vector shuffling uses a deterministic permutation derived from a user-specific `privacySeed`, stored in encrypted settings.
