@@ -7,6 +7,8 @@ Its standout feature is its **On-Device NLP Engine**, which uses **Artificial In
 
 ## User Privacy & Ethical Use
 
+> **Note on App Purpose & Ethics:** Laniakea is a technical showcase of on-device AI (TensorFlow Lite / Universal Sentence Encoder) used for semantic text clustering. It is designed purely as a personal journaling and self-reflection tool. It is not a medical device, nor is it intended to diagnose, treat, or monitor any psychological or mental health conditions. All thematic clustering is based purely on mathematical vector distance (L2), not clinical psychology.
+
 Laniakea is designed as a **personal reflection tool**, not a diagnostic or judgmental app.
 - All analysis is **performed locally** on your device.
 - The system observes **language patterns and structure** (e.g., vocabulary diversity, question frequency); it does **not label, diagnose, or interpret** your psychology.

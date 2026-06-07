@@ -219,14 +219,12 @@ class SemanticManager(
 
         for ((themeName, centroid) in centroids) {
             val distance = calculateL2Distance(rawVector, centroid)
-            Log.d("SemanticManager", "Theme: $themeName -> dist: $distance")
             if (distance < minDistance) {
                 minDistance = distance
                 bestTheme = themeName
             }
         }
 
-        Log.d("SemanticManager", "Winner: $bestTheme (dist: $minDistance, threshold: $MAX_DISTANCE_THEME)")
         return if (minDistance < MAX_DISTANCE_THEME) bestTheme else null
     }
 
