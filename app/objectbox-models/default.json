@@ -5,7 +5,7 @@
   "entities": [
     {
       "id": "1:8918916038744708733",
-      "lastPropertyId": "3:3272682920398800264",
+      "lastPropertyId": "4:4258453080731685922",
       "name": "ObjectBoxSentenceVector",
       "properties": [
         {
@@ -25,12 +25,46 @@
           "indexId": "1:8994397947450381609",
           "type": 28,
           "flags": 8
+        },
+        {
+          "id": "4:4258453080731685922",
+          "name": "semanticTheme",
+          "type": 9
+        }
+      ],
+      "relations": []
+    },
+    {
+      "id": "2:7133012930251762558",
+      "lastPropertyId": "4:2370198447996678537",
+      "name": "ObjectBoxThemeCentroid",
+      "properties": [
+        {
+          "id": "1:4037555428380794149",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:7867996411157693671",
+          "name": "themeName",
+          "type": 9
+        },
+        {
+          "id": "3:2353967898376143836",
+          "name": "vector",
+          "type": 28
+        },
+        {
+          "id": "4:2370198447996678537",
+          "name": "version",
+          "type": 5
         }
       ],
       "relations": []
     }
   ],
-  "lastEntityId": "1:8918916038744708733",
+  "lastEntityId": "2:7133012930251762558",
   "lastIndexId": "1:8994397947450381609",
   "lastRelationId": "0:0",
   "lastSequenceId": "0:0",

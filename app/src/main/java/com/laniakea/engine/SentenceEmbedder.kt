@@ -85,6 +85,19 @@ class SentenceEmbedder(
     }
 
     suspend fun embed(text: String): FloatArray? = mutex.withLock {
+        embedInternal(text, applyNoise = true)
+    }
+
+    /**
+     * Produces an embedding in the same privacy-shielded vector space (same permutation)
+     * but WITHOUT random noise injection. Use for internal reference vectors (theme anchors)
+     * that must be compared against stored entry vectors.
+     */
+    suspend fun embedRaw(text: String): FloatArray? = mutex.withLock {
+        embedInternal(text, applyNoise = false)
+    }
+
+    private fun embedInternal(text: String, applyNoise: Boolean): FloatArray? {
         val activeInterpreter = interpreter ?: run {
             Log.w("SentenceEmbedder", "Interpreter not ready yet")
             return null
@@ -99,9 +112,38 @@ class SentenceEmbedder(
             val tokens = activeTokenizer.tokenize(text, maxLen)
             val inputIds = Array(1) { tokens }
             val attentionMask = Array(1) { tokens.map { if (it > 0) 1 else 0 }.toIntArray() }
+            val tokenTypeIds = Array(1) { IntArray(maxLen) { 0 } }
             val output = Array(1) { Array(maxLen) { FloatArray(hiddenDim) } }
 
-            activeInterpreter.runForMultipleInputsOutputs(arrayOf(inputIds, attentionMask), mapOf(0 to output))
+            val permutations = if (activeInterpreter.inputTensorCount == 3) {
+                listOf(
+                    arrayOf(attentionMask, tokenTypeIds, inputIds), // TF Hub / Alphabetical
+                    arrayOf(attentionMask, inputIds, tokenTypeIds), // HuggingFace standard
+                    arrayOf(inputIds, attentionMask, tokenTypeIds)  // Fallback
+                )
+            } else {
+                listOf(
+                    arrayOf(attentionMask, inputIds),
+                    arrayOf(inputIds, tokenTypeIds),
+                    arrayOf(inputIds, attentionMask)
+                )
+            }
+
+            var success = false
+            for ((index, inputs) in permutations.withIndex()) {
+                try {
+                    activeInterpreter.runForMultipleInputsOutputs(inputs, mapOf(0 to output))
+                    Log.d("SentenceEmbedder", "Successfully ran model with ${activeInterpreter.inputTensorCount} inputs. Permutation index: $index")
+                    success = true
+                    break
+                } catch (e: Exception) {
+                    // Wrong tensor order causes OutOfBounds (e.g. inputIds into token_type_ids)
+                }
+            }
+
+            if (!success) {
+                activeInterpreter.runForMultipleInputsOutputs(arrayOf(inputIds, attentionMask), mapOf(0 to output))
+            }
 
             val sentenceEmbedding = FloatArray(hiddenDim)
             for (i in 0 until hiddenDim) {
@@ -116,7 +158,7 @@ class SentenceEmbedder(
                 sentenceEmbedding[i] = if (count > 0) sum / count else 0f
             }
 
-            applyPrivacyShield(sentenceEmbedding)
+            applyPrivacyShield(sentenceEmbedding, applyNoise = applyNoise)
         } catch (e: Exception) {
             Log.e("SentenceEmbedder", "Embedding failed", e)
             null
@@ -142,26 +184,31 @@ class SentenceEmbedder(
         return newSeed
     }
 
-    private fun applyPrivacyShield(vector: FloatArray, doShuffle: Boolean = true): FloatArray {
+    private fun applyPrivacyShield(vector: FloatArray, applyNoise: Boolean = true): FloatArray {
         val magnitude = sqrt(vector.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
         if (magnitude < 1e-9f) return vector
 
-        val noiseScale = 0.002f
-        val noisy = FloatArray(vector.size) { i ->
-            val u = Random.nextFloat() - 0.5f
-            val noise = -noiseScale * sign(u) * ln(1.0 - 2.0 * abs(u).toDouble()).toFloat()
-            vector[i] + noise
+        val processed = if (applyNoise) {
+            val noiseScale = 0.002f
+            val noisy = FloatArray(vector.size) { i ->
+                val u = Random.nextFloat() - 0.5f
+                val noise = -noiseScale * sign(u) * ln(1.0 - 2.0 * abs(u).toDouble()).toFloat()
+                vector[i] + noise
+            }
+            noisy
+        } else {
+            vector.copyOf()
         }
 
-        val noisyNorm = sqrt(noisy.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
-        val unitVector = FloatArray(noisy.size) { noisy[it] / (noisyNorm + 1e-9f) }
+        val norm = sqrt(processed.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
+        val unitVector = FloatArray(processed.size) { processed[it] / (norm + 1e-9f) }
 
         val clipped = FloatArray(unitVector.size) { i ->
             (unitVector[i] * 10000).toInt() / 10000f
         }
 
         val perm = cachedPermutation
-        return if (doShuffle && perm != null) {
+        return if (perm != null) {
             FloatArray(clipped.size) { clipped[perm[it]] }
         } else {
             clipped

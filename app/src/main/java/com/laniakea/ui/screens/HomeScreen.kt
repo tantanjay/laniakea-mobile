@@ -702,7 +702,7 @@ fun AnalysisStatusCard(vm: LaniakeaViewModel) {
 
                         Button(
                             onClick = { vm.processMissingEntries() },
-                            enabled = vm.isEngineActive && !vm.isProcessing,
+                            enabled = vm.isEngineActive && vm.isThemesInitialized && !vm.isProcessing,
                             shape = RoundedCornerShape(12.dp),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
                             modifier = Modifier.height(36.dp)
@@ -713,6 +713,10 @@ fun AnalysisStatusCard(vm: LaniakeaViewModel) {
                                     strokeWidth = 2.dp,
                                     color = MaterialTheme.colorScheme.onPrimary
                                 )
+                            } else if (!vm.isEngineActive) {
+                                Text("Waking AI...", fontSize = 12.sp)
+                            } else if (!vm.isThemesInitialized) {
+                                Text("Loading Themes...", fontSize = 12.sp)
                             } else {
                                 Text("Process", fontSize = 12.sp)
                             }

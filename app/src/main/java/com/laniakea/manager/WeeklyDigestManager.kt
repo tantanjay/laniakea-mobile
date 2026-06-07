@@ -13,11 +13,10 @@ import java.util.Calendar
 class WeeklyDigestManager(
     private val db: DiaryDatabase,
     private val securityManager: SecurityManager,
-    private val semanticManager: SemanticManager,
     private val isEngineActive: () -> Boolean
 ) {
 
-    suspend fun generateDigest(): WeeklyDigest? {
+    suspend fun generateDigest(selectedThemes: List<String>): WeeklyDigest? {
         return withContext(Dispatchers.IO) {
             val dao = db.diaryDao()
             
@@ -49,7 +48,7 @@ class WeeklyDigestManager(
 
             // 3. Dominant Themes (only if engine is active)
             val dominantThemes = if (isEngineActive()) {
-                calculateDominantThemes(thisWeekEntriesRaw.map { it.id })
+                calculateDominantThemes(thisWeekEntriesRaw.map { it.id }, selectedThemes)
             } else {
                 emptyList()
             }
@@ -71,10 +70,12 @@ class WeeklyDigestManager(
     }
 
     private fun calculateActiveDays(entries: List<DiaryEntry>): Int {
-        val cal = Calendar.getInstance()
-        return entries.map {
-            cal.timeInMillis = it.dateTime
-            "${cal.get(Calendar.YEAR)}-${cal.get(Calendar.DAY_OF_YEAR)}"
+        val calendar = Calendar.getInstance()
+        return entries.map { 
+            calendar.timeInMillis = it.dateTime
+            val year = calendar.get(Calendar.YEAR)
+            val day = calendar.get(Calendar.DAY_OF_YEAR)
+            "$year-$day"
         }.distinct().size
     }
 
@@ -92,10 +93,10 @@ class WeeklyDigestManager(
         var entriesWithContent = 0
 
         for (entry in entries) {
-            val content = entry.content
-            if (content.isBlank() || content == "[Encrypted]") continue
-            
-            val words = content.lowercase().split(Regex("[\\s,.!?;:()\"]+")).filter { it.isNotBlank() }
+            val content = entry.content.trim()
+            if (content.isEmpty()) continue
+
+            val words = content.split(Regex("\\s+")).filter { it.isNotBlank() }
             if (words.isEmpty()) continue
 
             totalWords += words.size
@@ -116,42 +117,17 @@ class WeeklyDigestManager(
         return StructuralMetrics(avgLength, vocabDiversity, questionRatio)
     }
 
-    private suspend fun calculateDominantThemes(entryIds: List<Long>): List<String> {
-        val themeVectors = semanticManager.getCachedThemes() ?: return emptyList()
+    private fun calculateDominantThemes(entryIds: List<Long>, selectedThemes: List<String>): List<String> {
         val entryIdSet = entryIds.toSet()
-        
-        // Fetch all vectors for this week's entries
         val vectorBox = ObjectBoxManager.vectorBox
-        val relevantVectors = mutableListOf<FloatArray>()
-        for (id in entryIdSet) {
-            val vObj = vectorBox.query(com.laniakea.data.ObjectBoxSentenceVector_.entryId.equal(id)).build().findFirst()
-            if (vObj != null) {
-                vObj.vector?.let { relevantVectors.add(it) }
-            }
-        }
         
-        if (relevantVectors.isEmpty()) return emptyList()
-
         val themeCounts = mutableMapOf<String, Int>()
 
-        // Forward map each entry vector to its single closest theme
-        for (vector in relevantVectors) {
-            var bestTheme = ""
-            var minDistance = Double.MAX_VALUE
-
-            for ((themeName, anchors) in themeVectors) {
-                for (anchor in anchors) {
-                    val distance = semanticManager.calculateL2Distance(vector, anchor)
-                    if (distance < minDistance) {
-                        minDistance = distance
-                        bestTheme = themeName
-                    }
-                }
-            }
-
-            // Only count if it's genuinely close to the theme
-            if (minDistance < SemanticManager.MAX_DISTANCE_THEME) {
-                themeCounts[bestTheme] = themeCounts.getOrDefault(bestTheme, 0) + 1
+        for (id in entryIdSet) {
+            val vObj = vectorBox.query(com.laniakea.data.ObjectBoxSentenceVector_.entryId.equal(id)).build().findFirst()
+            val theme = vObj?.semanticTheme
+            if (theme != null && selectedThemes.contains(theme)) {
+                themeCounts[theme] = themeCounts.getOrDefault(theme, 0) + 1
             }
         }
 
