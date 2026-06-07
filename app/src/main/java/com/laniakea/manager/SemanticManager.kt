@@ -8,6 +8,9 @@ import com.laniakea.engine.SentenceEmbedder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
 class SemanticManager(
     private val db: DiaryDatabase,
     private val embedder: SentenceEmbedder,
@@ -15,74 +18,77 @@ class SemanticManager(
     private val isEngineActive: () -> Boolean
 ) {
 
-    private var cachedThemeVectors: Map<String, List<FloatArray>>? = null
+    private var cachedThemeCentroids: Map<String, FloatArray>? = null
+    private val initMutex = Mutex()
 
     private val richThemes = mapOf(
         "Relationships & Connection" to listOf(
             "Relationships with family, friends, romance, and coworkers.",
-            "Feeling connected, social interactions, and belonging.",
-            "Conflict with people, arguments, and feeling lonely."
+            "Feeling connected, social interactions, belonging, and community.",
+            "Conflict with people, arguments, disagreements, and loneliness."
         ),
         "Career & Purpose" to listOf(
-            "Career, professional life, work, and projects.",
-            "Productivity, achieving success, and planning for the future.",
-            "Finding meaning, ambition, and work responsibilities."
+            "Career, professional life, work projects, and job responsibilities.",
+            "Productivity, achieving success, promotions, and planning ahead.",
+            "Finding meaning and purpose through work and profession."
         ),
         "Goals & Ambition" to listOf(
-            "Goal setting, ambition, pushing boundaries, and milestones.",
-            "I have zero tolerance for friction when chasing my goals.",
-            "Building the future, succeeding, and hard work."
+            "Goal setting, ambition, milestones, and personal targets.",
+            "Determination, drive, discipline, and pushing boundaries.",
+            "Building the future, succeeding, and working hard toward objectives."
         ),
         "Inner Reflection" to listOf(
-            "Deep self-observation, contemplation, mindfulness, and solitude.",
-            "Understanding my own mind, wandering thoughts, and introspection.",
-            "Observation is more interesting than participation today."
+            "Self-observation, contemplation, mindfulness, and solitude.",
+            "Understanding my own mind, introspection, and self-awareness.",
+            "Quiet reflection, journaling about thoughts, and inner dialogue."
         ),
         "Emotional Wellbeing" to listOf(
             "Feelings, moods, mental health, and emotional processing.",
-            "My heart is pinned to my sleeve today.",
-            "Feeling sensitive, emotional highs and lows, and inner peace."
+            "Emotional sensitivity, vulnerability, and being open with feelings.",
+            "Emotional highs and lows, inner peace, and mood regulation."
         ),
         "Physical Wellbeing" to listOf(
-            "Body, health, movement, exercise, diet, and sleep.",
-            "My bones feel tired today, lacking energy, physical exhaustion.",
-            "Physical sensations, resting, and recovering."
+            "Body, health, exercise, fitness, diet, and sleep quality.",
+            "Fatigue, lacking energy, physical exhaustion, and body aches.",
+            "Physical sensations, resting, recovering, and medical health."
         ),
         "Stress & Anxiety" to listOf(
-            "Feeling overwhelmed, anxious, worried, and stressed.",
-            "A strange sense of impending deadlines and pressure.",
-            "Background static in my brain today, panic, and nervousness."
+            "Feeling overwhelmed, anxious, worried, and stressed out.",
+            "Deadline pressure, being overloaded, and mental tension.",
+            "Panic, nervousness, restlessness, and racing thoughts."
         ),
         "Learning & Curiosity" to listOf(
-            "Education, studying, reading, and discovering new ideas.",
-            "Curiosity, acquiring skills, and personal growth.",
-            "Fascination with how things work and learning."
+            "Education, studying, reading books, and discovering new ideas.",
+            "Curiosity, acquiring new skills, and intellectual growth.",
+            "Research, fascination with how things work, and knowledge seeking."
         ),
         "Creativity & Expression" to listOf(
-            "Art, music, writing, drawing, and coding.",
+            "Art, music, writing, drawing, coding, and creative work.",
             "Creative projects, self-expression, and making things.",
-            "Flow state, imagination, and artistic expression."
+            "Imagination, artistic inspiration, and creative flow."
         ),
         "Uncertainty & Waiting" to listOf(
             "Not knowing the future, feeling stuck, and ambiguity.",
-            "Wondering about the paths not taken and waiting for news.",
-            "Honestly, i keep checking the clock, doubt, and feeling lost."
+            "Doubt, indecision, waiting for results, and being unsure.",
+            "Feeling lost, confused about direction, and lacking clarity."
         ),
         "Gratitude & Joy" to listOf(
             "Thankfulness, appreciation, and moments of happiness.",
             "Counting blessings, joy, and positive experiences.",
-            "Feeling grateful for the little things in life."
+            "Feeling grateful, contentment, and savoring good moments."
         ),
         "Challenges & Resilience" to listOf(
             "Facing difficult times, overcoming obstacles, and resilience.",
-            "The walls are down, pushing through hardship, and endurance.",
-            "Staying strong during a crisis and bouncing back."
+            "Struggling through hardship, endurance, and perseverance.",
+            "Staying strong during a crisis, bouncing back, and coping."
         )
     )
     
     val availableThemeNames = richThemes.keys.toList()
 
     companion object {
+        const val THEME_TEMPLATE_VERSION = 1
+        
         /**
          * Distance thresholds for normalized 768-dim vectors (L2 distance).
          * 0.0 = identical, ~1.0 = weakly related, ~1.41 = unrelated, 2.0 = opposite.
@@ -143,31 +149,82 @@ class SemanticManager(
         }
     }
 
-    suspend fun initializeThemes(selectedThemes: List<String>) {
+    suspend fun initializeThemes() {
         if (!isEngineActive()) return
         
         // Only initialize once
-        if (cachedThemeVectors != null) return
+        if (cachedThemeCentroids != null) return
 
-        val vectors = mutableMapOf<String, List<FloatArray>>()
-        for ((title, descriptions) in richThemes) {
-            if (selectedThemes.contains(title)) {
-                val embeddedDesc = descriptions.mapNotNull { embedder.embed(it) }
-                if (embeddedDesc.isNotEmpty()) {
-                    vectors[title] = embeddedDesc
+        initMutex.withLock {
+            if (cachedThemeCentroids != null) return@withLock
+            
+            withContext(Dispatchers.IO) {
+                val themeBox = ObjectBoxManager.themeBox
+                val storedThemes = themeBox.query().build().find()
+                
+                // Attempt to load from ObjectBox
+                if (storedThemes.isNotEmpty() && storedThemes.first().version == THEME_TEMPLATE_VERSION) {
+                    val centroids = mutableMapOf<String, FloatArray>()
+                    for (t in storedThemes) {
+                        t.vector?.let { centroids[t.themeName] = it }
+                    }
+                    if (centroids.size == richThemes.size) {
+                        cachedThemeCentroids = centroids
+                        return@withContext
+                    }
                 }
+                
+                // If not available or version mismatch, calculate from scratch
+                themeBox.removeAll()
+                val centroids = mutableMapOf<String, FloatArray>()
+                for ((title, descriptions) in richThemes) {
+                    val embeddedDesc = descriptions.mapNotNull { embedder.embedRaw(it) }
+                    if (embeddedDesc.isNotEmpty()) {
+                        val avg = averageVectors(embeddedDesc)
+                        centroids[title] = avg
+                        themeBox.put(
+                            com.laniakea.data.ObjectBoxThemeCentroid(
+                                themeName = title, 
+                                vector = avg, 
+                                version = THEME_TEMPLATE_VERSION
+                            )
+                        )
+                    }
+                }
+                cachedThemeCentroids = centroids
             }
         }
-        cachedThemeVectors = vectors
     }
 
-    suspend fun reinitializeThemes(selectedThemes: List<String>) {
-        cachedThemeVectors = null
-        initializeThemes(selectedThemes)
+    suspend fun classifyTheme(rawVector: FloatArray?): String? {
+        if (rawVector == null || !isEngineActive()) return null
+        
+        if (cachedThemeCentroids == null) {
+            initializeThemes()
+        }
+        
+        val centroids = cachedThemeCentroids ?: return null
+        
+        var bestTheme: String? = null
+        var minDistance = Double.MAX_VALUE
+
+        for ((themeName, centroid) in centroids) {
+            val distance = calculateL2Distance(rawVector, centroid)
+            if (distance < minDistance) {
+                minDistance = distance
+                bestTheme = themeName
+            }
+        }
+
+        return if (minDistance < MAX_DISTANCE_THEME) bestTheme else null
     }
 
-    fun getCachedThemes(): Map<String, List<FloatArray>>? {
-        return cachedThemeVectors
+    fun getCachedThemes(): Map<String, FloatArray>? {
+        return cachedThemeCentroids
+    }
+
+    fun isThemesInitialized(): Boolean {
+        return cachedThemeCentroids != null
     }
 
     fun calculateL2Distance(a: FloatArray?, b: FloatArray): Double {
@@ -207,46 +264,24 @@ class SemanticManager(
         if (!isEngineActive()) return emptyMap()
         
         // Ensure themes are initialized
-        if (cachedThemeVectors == null) {
-            initializeThemes(selectedThemes)
+        if (cachedThemeCentroids == null) {
+            initializeThemes()
         }
 
         return withContext(Dispatchers.IO) {
-            val themeVectors = cachedThemeVectors ?: return@withContext emptyMap()
-            // Forward mapping
-            val clusterMap = mutableMapOf<String, MutableList<Pair<Long, Double>>>()
-
             val vectorBox = ObjectBoxManager.vectorBox
             val allVectors = vectorBox.query().build().find()
 
-            for (vectorObj in allVectors) {
-                if (vectorObj.vector == null) continue
+            // Group by pre-calculated semanticTheme
+            val groupedByTheme = allVectors
+                .filter { it.semanticTheme != null && selectedThemes.contains(it.semanticTheme) }
+                .groupBy { it.semanticTheme!! }
 
-                var bestTheme = ""
-                var minDistance = Double.MAX_VALUE
-
-                for ((themeName, anchors) in themeVectors) {
-                    for (anchor in anchors) {
-                        val distance = calculateL2Distance(vectorObj.vector!!, anchor)
-                        if (distance < minDistance) {
-                            minDistance = distance
-                            bestTheme = themeName
-                        }
-                    }
-                }
-
-                if (minDistance < MAX_DISTANCE_THEME) {
-                    clusterMap.getOrPut(bestTheme) { mutableListOf() }.add(vectorObj.entryId to minDistance)
-                }
-            }
-
-            // Resolve entries and build final map
             val finalClusters = mutableMapOf<String, List<DiaryEntry>>()
-            
-            for ((theme, pairs) in clusterMap) {
-                // Take top 3 closest entries for this theme
-                pairs.sortBy { it.second }
-                val potentialIds = pairs.take(10).map { it.first }
+
+            for ((theme, vectors) in groupedByTheme) {
+                // Sort by entryId DESC (most recent) and take top 10 potential entries
+                val potentialIds = vectors.sortedByDescending { it.entryId }.take(10).map { it.entryId }
                 
                 if (potentialIds.isNotEmpty()) {
                     val entries = db.diaryDao().getEntriesByIds(potentialIds)
@@ -256,7 +291,7 @@ class SemanticManager(
                         .mapNotNull { entryMap[it] }
                         .map { securityManager.decryptEntry(it) }
                         .distinctBy { it.content.lowercase().trim() }
-                        .take(3)
+                        .take(3) // Finally show the top 3 distinct recent entries
                     
                     finalClusters[theme] = decryptedEntries
                 }

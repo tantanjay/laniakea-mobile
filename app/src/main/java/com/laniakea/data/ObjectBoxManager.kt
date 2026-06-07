@@ -15,11 +15,15 @@ object ObjectBoxManager {
     
     lateinit var vectorBox: Box<ObjectBoxSentenceVector>
         private set
+        
+    lateinit var themeBox: Box<ObjectBoxThemeCentroid>
+        private set
 
     fun init(context: Context) {
         if (!this::store.isInitialized) {
             store = MyObjectBox.builder().androidContext(context).build()
             vectorBox = store.boxFor(ObjectBoxSentenceVector::class.java)
+            themeBox = store.boxFor(ObjectBoxThemeCentroid::class.java)
         }
     }
 

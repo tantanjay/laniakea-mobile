@@ -17,6 +17,8 @@ import androidx.compose.ui.unit.sp
 import com.laniakea.viewmodel.LaniakeaViewModel
 import com.laniakea.ui.components.insight.WritingTrendCard
 import com.laniakea.ui.components.insight.WeeklyDigestCard
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.style.TextOverflow
 
 @Composable
 fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
@@ -272,7 +274,7 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 }
 
 @Composable
-fun ThemeSelectionDialog(vm: com.laniakea.viewmodel.LaniakeaViewModel, onDismiss: () -> Unit) {
+fun ThemeSelectionDialog(vm: LaniakeaViewModel, onDismiss: () -> Unit) {
     val allThemes = listOf(
         "Relationships & Connection",
         "Career & Purpose",
@@ -360,6 +362,9 @@ fun ThemeSelectionDialog(vm: com.laniakea.viewmodel.LaniakeaViewModel, onDismiss
 
 @Composable
 fun ThemeClusterCard(theme: String, entries: List<com.laniakea.data.DiaryEntry>) {
+    val configuration = LocalConfiguration.current
+    val isTablet = configuration.screenWidthDp > 600
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
@@ -375,9 +380,11 @@ fun ThemeClusterCard(theme: String, entries: List<com.laniakea.data.DiaryEntry>)
             Spacer(modifier = Modifier.height(8.dp))
             entries.take(3).forEach { entry ->
                 Text(
-                    text = "• " + entry.content.take(60) + if(entry.content.length > 60) "..." else "",
+                    text = "• " + entry.content,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                    maxLines = if (isTablet) Int.MAX_VALUE else 2,
+                    overflow = if (isTablet) TextOverflow.Clip else TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(4.dp))
             }

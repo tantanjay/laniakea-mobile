@@ -68,7 +68,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     
     private val semanticManager = SemanticManager(db, embedder, securityManager) { isEngineActive }
 
-    private val digestManager = WeeklyDigestManager(db, securityManager, semanticManager) { isEngineActive }
+    private val digestManager = WeeklyDigestManager(db, securityManager) { isEngineActive }
 
     // UI State
     var userName by mutableStateOf("Traveller")
@@ -86,6 +86,8 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
     var isEngineActive by mutableStateOf(false)
     var isEngineLoading by mutableStateOf(false)
+    var isThemesInitialized by mutableStateOf(false)
+        private set
     var autoLoadEnabled by mutableStateOf(false)
     var vibeYear by mutableStateOf("2025")
     var tagline by mutableStateOf("Analyzing your cosmic vibes...")
@@ -196,10 +198,13 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
                     withContext(Dispatchers.IO) { 
                         calibrateAnchors() 
-                        semanticManager.initializeThemes(selectedThemes)
+                        semanticManager.initializeThemes()
                     }
+                    isThemesInitialized = true
                     refreshData()
                     loadWeeklyDigest()
+                } else {
+                    isThemesInitialized = false
                 }
             }
         }
@@ -337,16 +342,22 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 isVectorized = false
             )
 
-            if (isEngineActive) {
+            if (isEngineActive && semanticManager.isThemesInitialized()) {
+                val rawVector = embedder.embedRaw(content)
                 val vector = embedder.embed(content)
+                
                 if (vector != null) {
                     val aiVibe = VibeEngine.calculateVibeScore(vector)
+                    val semanticTheme = semanticManager.classifyTheme(rawVector)
+                    
                     val entryToSave = securityManager.encryptEntry(
                         rawEntry.copy(latentVibe = aiVibe.toDouble(), isVectorized = true)
                     )
 
                     val entryId = db.diaryDao().insertEntry(entryToSave)
-                    ObjectBoxManager.vectorBox.put(ObjectBoxSentenceVector(entryId = entryId, vector = vector))
+                    ObjectBoxManager.vectorBox.put(
+                        ObjectBoxSentenceVector(entryId = entryId, vector = vector, semanticTheme = semanticTheme)
+                    )
                     refreshData()
                     return@launch
                 }
@@ -359,7 +370,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun processMissingEntries() {
-        if (isProcessing || !isEngineActive) return
+        if (isProcessing || !isEngineActive || !semanticManager.isThemesInitialized()) return
         viewModelScope.launch(Dispatchers.IO) {
             isProcessing = true
             val dao = db.diaryDao()
@@ -367,18 +378,25 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             missing.forEach { entry ->
                 try {
                     val decryptedContent = securityManager.decrypt(entry.content)
+                    val rawVector = embedder.embedRaw(decryptedContent)
                     val vector = embedder.embed(decryptedContent)
+                    
                     if (vector != null) {
                         val aiVibe = VibeEngine.calculateVibeScore(vector)
+                        val semanticTheme = semanticManager.classifyTheme(rawVector)
+                        
                         val updatedEntry = entry.copy(latentVibe = aiVibe.toDouble(), isVectorized = true)
                         dao.updateEntry(updatedEntry)
-                        ObjectBoxManager.vectorBox.put(ObjectBoxSentenceVector(entryId = entry.id, vector = vector))
+                        ObjectBoxManager.vectorBox.put(
+                            ObjectBoxSentenceVector(entryId = entry.id, vector = vector, semanticTheme = semanticTheme)
+                        )
                     }
                 } catch (e: Exception) { e.printStackTrace() }
                 refreshProcessingStats()
             }
             isProcessing = false
             refreshData()
+            loadThemeClusters() // refresh the themes UI
         }
     }
 
@@ -491,14 +509,11 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     fun updateSelectedThemes(themes: List<String>) {
         viewModelScope.launch {
             val dao = db.diaryDao()
-            val current = dao.getSettings() ?: com.laniakea.data.AppSettings()
+            val current = dao.getSettings() ?: AppSettings()
             dao.saveSettings(current.copy(selectedThemes = themes.joinToString(",")))
             selectedThemes = themes
             
             if (isEngineActive) {
-                withContext(Dispatchers.IO) {
-                    semanticManager.reinitializeThemes(themes)
-                }
                 loadThemeClusters()
                 loadWeeklyDigest()
             }
@@ -512,7 +527,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     suspend fun loadWeeklyDigest() {
         isDigestLoading = true
         try {
-            weeklyDigest = digestManager.generateDigest()
+            weeklyDigest = digestManager.generateDigest(selectedThemes)
         } finally {
             isDigestLoading = false
         }
