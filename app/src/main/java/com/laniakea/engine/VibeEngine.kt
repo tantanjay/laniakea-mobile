@@ -41,10 +41,6 @@ object VibeEngine {
         buildAxis()
     }
 
-    fun getAnchors(): Pair<FloatArray?, FloatArray?> {
-        return joyAnchor to distressAnchor
-    }
-
     private fun buildAxis() {
 
         val joy = joyAnchor ?: return
@@ -81,17 +77,6 @@ object VibeEngine {
         }
 
         return scaleVibeSmooth(score)
-    }
-
-    fun scaleVibe(raw: Float, maxExpected: Float = 0.1f): Float {
-        val normalized = (raw / maxExpected).coerceIn(-1f, 1f)
-        return (tanh(normalized.toDouble()) * 2.0).toFloat()
-    }
-
-    fun    scaleVibeDamped(raw: Float, maxExpected: Float = 0.1f, damp: Float = 0.5f): Float {
-        val attenuated = raw * (1 - exp( - abs(raw) /damp))
-        val normalized = attenuated / maxExpected
-        return (tanh(normalized.toDouble()) * 2.0).toFloat()
     }
 
     fun scaleVibeSmooth(raw: Float, maxExpected: Float = 0.1f): Float {

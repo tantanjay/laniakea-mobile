@@ -112,7 +112,7 @@ class SentenceEmbedder(
             val tokens = activeTokenizer.tokenize(text, maxLen)
             val inputIds = Array(1) { tokens }
             val attentionMask = Array(1) { tokens.map { if (it > 0) 1 else 0 }.toIntArray() }
-            val tokenTypeIds = Array(1) { IntArray(maxLen) { 0 } }
+            val tokenTypeIds = Array(1) { IntArray(maxLen) }
             val output = Array(1) { Array(maxLen) { FloatArray(hiddenDim) } }
 
             val inputs = Array<Any>(activeInterpreter.inputTensorCount) { arrayOf<IntArray>() }
