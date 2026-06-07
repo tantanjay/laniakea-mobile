@@ -80,17 +80,4 @@ interface DiaryDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveSettings(settings: AppSettings)
-
-    fun floatArrayToByteArray(floats: FloatArray): ByteArray {
-        val buffer = java.nio.ByteBuffer.allocate(floats.size * 4)
-        floats.forEach { buffer.putFloat(it) }
-        return buffer.array()
-    }
-
-    fun byteArrayToFloatArray(bytes: ByteArray): FloatArray {
-        val buffer = java.nio.ByteBuffer.wrap(bytes)
-        val floats = FloatArray(bytes.size / 4)
-        for (i in floats.indices) floats[i] = buffer.getFloat()
-        return floats
-    }
 }

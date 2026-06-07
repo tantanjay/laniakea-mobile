@@ -17,7 +17,8 @@ import androidx.compose.ui.unit.sp
 import com.laniakea.viewmodel.LaniakeaViewModel
 import com.laniakea.ui.components.insight.WritingTrendCard
 import com.laniakea.ui.components.insight.WeeklyDigestCard
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.style.TextOverflow
 
 @Composable
@@ -362,8 +363,9 @@ fun ThemeSelectionDialog(vm: LaniakeaViewModel, onDismiss: () -> Unit) {
 
 @Composable
 fun ThemeClusterCard(theme: String, entries: List<com.laniakea.data.DiaryEntry>) {
-    val configuration = LocalConfiguration.current
-    val isTablet = configuration.screenWidthDp > 600
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val isTablet = with(density) { windowInfo.containerSize.width.toDp() > 600.dp }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),

@@ -14,7 +14,7 @@ import com.laniakea.data.getMoodColor
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.TextStyle
-import java.util.*
+import androidx.compose.ui.platform.LocalLocale
 
 @Composable
 fun DailyJournalCard(entries: List<DiaryEntry>, onFindSimilar: ((DiaryEntry) -> Unit)? = null) {
@@ -49,7 +49,7 @@ fun DailyJournalCard(entries: List<DiaryEntry>, onFindSimilar: ((DiaryEntry) -> 
                 ) {
                     Text(
                         text = "${date.dayOfMonth} ${
-                            date.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+                            date.month.getDisplayName(TextStyle.SHORT, LocalLocale.current.platformLocale)
                         }",
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelMedium,
@@ -75,7 +75,7 @@ fun DailyJournalCard(entries: List<DiaryEntry>, onFindSimilar: ((DiaryEntry) -> 
                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                     ) {
                         Text(
-                            text = String.format(Locale.getDefault(), "%02d:%02d", time.hour, time.minute),
+                            text = String.format(LocalLocale.current.platformLocale, "%02d:%02d", time.hour, time.minute),
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
