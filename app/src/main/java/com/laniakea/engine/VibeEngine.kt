@@ -1,7 +1,5 @@
 package com.laniakea.engine
 
-import kotlin.math.abs
-import kotlin.math.exp
 import kotlin.math.tanh
 
 /**
