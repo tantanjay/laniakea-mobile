@@ -26,4 +26,3 @@ data class DiaryEntry(
     val latentVibe: Double = 0.0,
     val isVectorized: Boolean = false
 )
-
