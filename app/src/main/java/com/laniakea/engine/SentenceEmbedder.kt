@@ -72,8 +72,18 @@ class SentenceEmbedder(
 
                 if (interpreter == null) {
                     val modelBuffer = loadModelFile(modelFile)
-                    interpreter = Interpreter(modelBuffer)
-                    Log.i("SentenceEmbedder", "Model and Privacy Shield initialized")
+                    
+                    // Thread allocation: use half the cores, capped between 2 and 4
+                    val availableCores = Runtime.getRuntime().availableProcessors()
+                    val threadsToUse = (availableCores / 2).coerceIn(2, 4)
+
+                    val options = Interpreter.Options().apply {
+                        setNumThreads(threadsToUse)
+                        setUseXNNPACK(true) // Forces state-of-the-art multi-threading and floating point acceleration on MediaTek/ARM
+                    }
+                    
+                    interpreter = Interpreter(modelBuffer, options)
+                    Log.i("SentenceEmbedder", "Model and Privacy Shield initialized with $threadsToUse threads (XNNPACK Enabled)")
                 }
 
                 _ready.emit(true)
@@ -85,7 +95,8 @@ class SentenceEmbedder(
     }
 
     suspend fun embed(text: String): FloatArray? = mutex.withLock {
-        embedInternal(text, applyNoise = true)
+        val base = getBaseEmbedding(text) ?: return@withLock null
+        applyPrivacyShield(base, applyNoise = true)
     }
 
     /**
@@ -94,10 +105,19 @@ class SentenceEmbedder(
      * that must be compared against stored entry vectors.
      */
     suspend fun embedRaw(text: String): FloatArray? = mutex.withLock {
-        embedInternal(text, applyNoise = false)
+        val base = getBaseEmbedding(text) ?: return@withLock null
+        applyPrivacyShield(base, applyNoise = false)
     }
 
-    private fun embedInternal(text: String, applyNoise: Boolean): FloatArray? {
+    suspend fun embedBoth(text: String): Pair<FloatArray, FloatArray>? = mutex.withLock {
+        val base = getBaseEmbedding(text) ?: return@withLock null
+        Pair(
+            applyPrivacyShield(base, applyNoise = false), // raw vector
+            applyPrivacyShield(base, applyNoise = true)   // noisy vector
+        )
+    }
+
+    private fun getBaseEmbedding(text: String): FloatArray? {
         val activeInterpreter = interpreter ?: run {
             Log.w("SentenceEmbedder", "Interpreter not ready yet")
             return null
@@ -162,7 +182,7 @@ class SentenceEmbedder(
                 sentenceEmbedding[i] = if (count > 0) sum / count else 0f
             }
 
-            applyPrivacyShield(sentenceEmbedding, applyNoise = applyNoise)
+            sentenceEmbedding
         } catch (e: Exception) {
             Log.e("SentenceEmbedder", "Embedding failed", e)
             null
@@ -266,7 +286,10 @@ class SentenceEmbedder(
 
         fun tokenize(text: String, maxLen: Int): IntArray {
             val result = mutableListOf<Int>()
-            val normalized = normalize(text)
+            // Rough heuristic: 256 tokens is around 1000-1500 characters max.
+            // Truncate early to prevent massive regex/memory overhead if the user pastes a novel.
+            val truncatedText = if (text.length > 1000) text.substring(0, 1000) else text
+            val normalized = normalize(truncatedText)
 
             val words = normalized
                 .replace(Regex("(\\p{Punct})"), " $1 ")

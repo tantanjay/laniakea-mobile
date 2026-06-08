@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.poi.ss.usermodel.Cell
 import org.apache.poi.ss.usermodel.CellType
+import org.apache.poi.ss.usermodel.DateUtil
 import org.apache.poi.ss.usermodel.WorkbookFactory
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
@@ -273,8 +274,14 @@ class VaultManager(
                 val row = sheet.getRow(i) ?: continue
 
                 try {
-                    val dateStr = getCellStringValue(row.getCell(0)).substringBefore(".")
-                    val timeStr = getCellStringValue(row.getCell(1)).substringBefore(".")
+                    val dateCell = row.getCell(0)
+                    val dateStr = getCellDateStringValue(dateCell, "yyyy-MM-dd")
+                        ?: getCellStringValue(dateCell).substringBefore(".")
+
+                    val timeCell = row.getCell(1)
+                    val timeStr = getCellDateStringValue(timeCell, "HH:mm:ss")
+                        ?: getCellStringValue(timeCell).substringBefore(".")
+
                     val mood = getCellStringValue(row.getCell(2))
                     val category = getCellStringValue(row.getCell(3))
                     val weather = getCellStringValue(row.getCell(4))
@@ -332,6 +339,17 @@ class VaultManager(
         } finally {
             withContext(Dispatchers.Main) { onStateChange(false, false, false) }
         }
+    }
+
+    private fun getCellDateStringValue(cell: Cell?, pattern: String): String? {
+        if (cell == null) return null
+        if (cell.cellType == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
+            val date = cell.dateCellValue
+            if (date != null) {
+                return SimpleDateFormat(pattern, Locale.getDefault()).format(date)
+            }
+        }
+        return null
     }
 
     private fun getCellStringValue(cell: Cell?): String {
