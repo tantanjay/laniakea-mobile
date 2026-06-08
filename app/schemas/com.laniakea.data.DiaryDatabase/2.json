@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 1,
-    "identityHash": "be0b868ad11e8639dd685b0a436c7221",
+    "version": 2,
+    "identityHash": "f7f66a0260e281043486f7a76144cb78",
     "entities": [
       {
         "tableName": "entries",
@@ -78,7 +78,7 @@
       },
       {
         "tableName": "app_settings",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `privacySeed` TEXT, `autoLoadEngine` INTEGER NOT NULL, `userName` TEXT NOT NULL, `theme` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `privacySeed` TEXT, `autoLoadEngine` INTEGER NOT NULL, `userName` TEXT NOT NULL, `theme` TEXT NOT NULL, `selectedThemes` TEXT NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -108,6 +108,12 @@
             "columnName": "theme",
             "affinity": "TEXT",
             "notNull": true
+          },
+          {
+            "fieldPath": "selectedThemes",
+            "columnName": "selectedThemes",
+            "affinity": "TEXT",
+            "notNull": true
           }
         ],
         "primaryKey": {
@@ -120,7 +126,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'be0b868ad11e8639dd685b0a436c7221')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f7f66a0260e281043486f7a76144cb78')"
     ]
   }
 }
