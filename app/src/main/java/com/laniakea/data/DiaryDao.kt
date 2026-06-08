@@ -22,6 +22,9 @@ interface DiaryDao {
     @Update
     suspend fun updateEntry(entry: DiaryEntry)
 
+    @Update
+    suspend fun updateEntries(entries: List<DiaryEntry>)
+
     @Query("SELECT * FROM entries ORDER BY dateTime ASC")
     suspend fun getAllEntries(): List<DiaryEntry>
 

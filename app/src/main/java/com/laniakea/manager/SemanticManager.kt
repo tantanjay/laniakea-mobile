@@ -81,21 +81,41 @@ class SemanticManager(
             "Facing difficult times, overcoming obstacles, and resilience.",
             "Struggling through hardship, endurance, and perseverance.",
             "Staying strong during a crisis, bouncing back, and coping."
+        ),
+        "Leisure & Recreation" to listOf(
+            "Playing games, hobbies, entertainment, and unwinding.",
+            "Watching movies, playing video games, and relaxing activities.",
+            "Having fun, enjoying free time, and recreational pastimes."
+        ),
+        "Travel & Exploration" to listOf(
+            "Vacations, flights, traveling, sightseeing, and tourism.",
+            "Exploring new places, trips, and souvenir hunting.",
+            "Being away from home, commuting, and navigating new areas."
+        ),
+        "Food & Dining" to listOf(
+            "Eating meals, restaurants, cooking, and food cravings.",
+            "Dining out, enjoying food, cafes, and discovering new dishes.",
+            "Snacks, drinks, meals, and culinary experiences."
+        ),
+        "Daily Routine & Chores" to listOf(
+            "Everyday tasks, running errands, chores, and household work.",
+            "Daily habits, regular routines, and mundane activities.",
+            "Grocery shopping, cleaning, and doing standard day-to-day things."
         )
     )
     
     companion object {
-        const val THEME_TEMPLATE_VERSION = 3
+        const val THEME_TEMPLATE_VERSION = 4
         
         /**
          * Distance thresholds for normalized 768-dim vectors (L2 distance).
          * 0.0 = identical, ~1.0 = weakly related, ~1.41 = unrelated, 2.0 = opposite.
          *
          * SEARCH/SIMILAR: 0.85 ≈ cosine similarity 0.64 — filters clearly unrelated results.
-         * THEME_CLUSTER:  1.25 ≈ cosine similarity 0.22 — looser threshold for rich theme descriptions.
+         * THEME_CLUSTER:  0.95 ≈ tighter threshold to ensure semantic relevance.
          */
         private const val MAX_DISTANCE_SEARCH = 0.85
-        const val MAX_DISTANCE_THEME = 1.10
+        const val MAX_DISTANCE_THEME = 0.95
     }
 
     suspend fun semanticSearch(query: String, limit: Int = 5): List<DiaryEntry> {

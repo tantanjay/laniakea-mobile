@@ -288,7 +288,11 @@ fun ThemeSelectionDialog(vm: LaniakeaViewModel, onDismiss: () -> Unit) {
         "Creativity & Expression",
         "Uncertainty & Waiting",
         "Gratitude & Joy",
-        "Challenges & Resilience"
+        "Challenges & Resilience",
+        "Leisure & Recreation",
+        "Travel & Exploration",
+        "Food & Dining",
+        "Daily Routine & Chores"
     )
 
     var selectedThemes by remember { mutableStateOf(vm.selectedThemes.toSet()) }

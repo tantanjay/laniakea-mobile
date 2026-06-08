@@ -171,11 +171,33 @@ Creates continuity of thought over time.
 
 ---
 
+### 9. Anomaly & Novelty Detection
+Because your app tracks entries sequentially in a queue, you can easily implement a "Unique Day" alert using your existing calculateL2Distance helper.
+
+You can calculate the running average (centroid) of a user's last 30 diary entries to represent their "baseline" state.
+
+When they log a new entry, calculate its distance from that 30-day baseline.
+
+If the distance is exceptionally high (e.g., an L2 distance approaching 1.4 or higher), your app can flag it as a highly unusual day or a cognitive anomaly worth reflecting on.
+
+---
+
+### 10. Cognitive Style & Pacing Tracker
+Track subtle subconscious shifts in writing style as markers of cognitive load, agency, certainty, and abstraction:
+
+* **Syntactic Pacing (Clause Complexity Shift):** Ratio of simple sentences to complex/compound sentences using conjunctions and sentence-length heuristics to flag mental fatigue vs. deep reflection.
+* **Agency Tracking (Active vs. Passive Voice):** Frequency of active verbs vs. passive voice constructions via helper-verb pattern matching to observe shifts in psychological agency and control.
+* **Epistemic Modality (Absolute vs. Hedged Language):** Lexical tracking of conviction markers (*definitely, never*) vs. hedging markers (*maybe, seems*) to track changes in cognitive certainty.
+* **Processing Markers (Narrative vs. Explanatory):** Density of causal connectives (*because, therefore, realize*) to distinguish logbook logging from active cognitive processing.
+* **Temporal Horizon (Proximity vs. Distance):** Use **Semantic Axis Projection** (defining anchor sentences for concrete details vs. abstract concepts and projecting embeddings) to map macro-focus vs. immediate daily execution.
+
+---
+
 # Phase 3 — Personalization & Expansion
 
 ---
 
-### 9. Personal Language Compass (User-Defined Axes)
+### 11. Personal Language Compass (User-Defined Axes)
 Allow users to define their own semantic axes.
 
 Examples:
@@ -193,7 +215,7 @@ Key principle:
 
 ---
 
-### 10. Multi-Axis Reflection Space ("Star Map")
+### 12. Multi-Axis Reflection Space ("Star Map")
 Instead of numeric dashboards, visualize axes as a constellation:
 
 ⭐ Confidence Signal  
@@ -277,6 +299,8 @@ It is building a **semantic memory system**:
 - Life Chapters
 - Entry Graph
 - Journal Replay
+- Anomaly & Novelty Detection
+- Cognitive Style & Pacing Tracker
 
 ### Phase 3 — Meaning Layer
 - Personal Language Compass

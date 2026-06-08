@@ -343,10 +343,11 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             )
 
             if (isEngineActive && semanticManager.isThemesInitialized()) {
-                val rawVector = embedder.embedRaw(content)
-                val vector = embedder.embed(content)
+                val vectors = embedder.embedBoth(content)
                 
-                if (vector != null) {
+                if (vectors != null) {
+                    val rawVector = vectors.first
+                    val vector = vectors.second
                     val aiVibe = VibeEngine.calculateVibeScore(vector)
                     val semanticTheme = semanticManager.classifyTheme(rawVector)
                     
@@ -375,25 +376,53 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             isProcessing = true
             val dao = db.diaryDao()
             val missing = dao.getUnprocessedEntries()
+            var processedCount = 0
+            var lastRefreshTime = System.currentTimeMillis()
+            
+            val updatedEntriesBatch = mutableListOf<DiaryEntry>()
+            val vectorBatch = mutableListOf<ObjectBoxSentenceVector>()
+
             missing.forEach { entry ->
                 try {
                     val decryptedContent = securityManager.decrypt(entry.content)
-                    val rawVector = embedder.embedRaw(decryptedContent)
-                    val vector = embedder.embed(decryptedContent)
+                    val vectors = embedder.embedBoth(decryptedContent)
                     
-                    if (vector != null) {
+                    if (vectors != null) {
+                        val rawVector = vectors.first
+                        val vector = vectors.second
+                        
                         val aiVibe = VibeEngine.calculateVibeScore(vector)
                         val semanticTheme = semanticManager.classifyTheme(rawVector)
                         
-                        val updatedEntry = entry.copy(latentVibe = aiVibe.toDouble(), isVectorized = true)
-                        dao.updateEntry(updatedEntry)
-                        ObjectBoxManager.vectorBox.put(
+                        updatedEntriesBatch.add(entry.copy(latentVibe = aiVibe.toDouble(), isVectorized = true))
+                        vectorBatch.add(
                             ObjectBoxSentenceVector(entryId = entry.id, vector = vector, semanticTheme = semanticTheme)
                         )
                     }
                 } catch (e: Exception) { e.printStackTrace() }
-                refreshProcessingStats()
+                
+                processedCount++
+                val currentTime = System.currentTimeMillis()
+                
+                // Flush to DB and UI every 10 items OR if 5 seconds have passed, whichever comes first
+                if (processedCount % 10 == 0 || (currentTime - lastRefreshTime) > 5000) {
+                    if (updatedEntriesBatch.isNotEmpty()) {
+                        dao.updateEntries(updatedEntriesBatch)
+                        ObjectBoxManager.vectorBox.put(vectorBatch)
+                        updatedEntriesBatch.clear()
+                        vectorBatch.clear()
+                    }
+                    refreshProcessingStats()
+                    lastRefreshTime = currentTime
+                }
             }
+            
+            // Final flush
+            if (updatedEntriesBatch.isNotEmpty()) {
+                dao.updateEntries(updatedEntriesBatch)
+                ObjectBoxManager.vectorBox.put(vectorBatch)
+            }
+            refreshProcessingStats() // Final refresh
             isProcessing = false
             refreshData()
         }
