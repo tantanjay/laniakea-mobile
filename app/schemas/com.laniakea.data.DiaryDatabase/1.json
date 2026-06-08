@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "183b9dcc40129982d0d1d8c81828ee10",
+    "identityHash": "be0b868ad11e8639dd685b0a436c7221",
     "entities": [
       {
         "tableName": "entries",
@@ -77,60 +77,6 @@
         }
       },
       {
-        "tableName": "vectors",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `entryId` INTEGER NOT NULL, `vector` BLOB NOT NULL, FOREIGN KEY(`entryId`) REFERENCES `entries`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
-        "fields": [
-          {
-            "fieldPath": "id",
-            "columnName": "id",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "entryId",
-            "columnName": "entryId",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "vector",
-            "columnName": "vector",
-            "affinity": "BLOB",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": true,
-          "columnNames": [
-            "id"
-          ]
-        },
-        "indices": [
-          {
-            "name": "index_vectors_entryId",
-            "unique": false,
-            "columnNames": [
-              "entryId"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_vectors_entryId` ON `${TABLE_NAME}` (`entryId`)"
-          }
-        ],
-        "foreignKeys": [
-          {
-            "table": "entries",
-            "onDelete": "CASCADE",
-            "onUpdate": "NO ACTION",
-            "columns": [
-              "entryId"
-            ],
-            "referencedColumns": [
-              "id"
-            ]
-          }
-        ]
-      },
-      {
         "tableName": "app_settings",
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `privacySeed` TEXT, `autoLoadEngine` INTEGER NOT NULL, `userName` TEXT NOT NULL, `theme` TEXT NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
@@ -174,7 +120,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '183b9dcc40129982d0d1d8c81828ee10')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'be0b868ad11e8639dd685b0a436c7221')"
     ]
   }
 }

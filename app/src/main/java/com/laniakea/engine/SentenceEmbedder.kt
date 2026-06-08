@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.laniakea.data.AppSettings
 import com.laniakea.data.DiaryDatabase
-import com.laniakea.security.SecurityManager
+import com.laniakea.manager.SecurityManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -85,6 +85,19 @@ class SentenceEmbedder(
     }
 
     suspend fun embed(text: String): FloatArray? = mutex.withLock {
+        embedInternal(text, applyNoise = true)
+    }
+
+    /**
+     * Produces an embedding in the same privacy-shielded vector space (same permutation)
+     * but WITHOUT random noise injection. Use for internal reference vectors (theme anchors)
+     * that must be compared against stored entry vectors.
+     */
+    suspend fun embedRaw(text: String): FloatArray? = mutex.withLock {
+        embedInternal(text, applyNoise = false)
+    }
+
+    private fun embedInternal(text: String, applyNoise: Boolean): FloatArray? {
         val activeInterpreter = interpreter ?: run {
             Log.w("SentenceEmbedder", "Interpreter not ready yet")
             return null
@@ -99,9 +112,42 @@ class SentenceEmbedder(
             val tokens = activeTokenizer.tokenize(text, maxLen)
             val inputIds = Array(1) { tokens }
             val attentionMask = Array(1) { tokens.map { if (it > 0) 1 else 0 }.toIntArray() }
+            val tokenTypeIds = Array(1) { IntArray(maxLen) }
             val output = Array(1) { Array(maxLen) { FloatArray(hiddenDim) } }
 
-            activeInterpreter.runForMultipleInputsOutputs(arrayOf(inputIds, attentionMask), mapOf(0 to output))
+            val inputs = Array<Any>(activeInterpreter.inputTensorCount) { arrayOf<IntArray>() }
+            
+            // Extract numerical IDs from opaque names like "serving_default_input_19:0"
+            // HuggingFace standard graph creation order is: input_ids, attention_mask, token_type_ids
+            val tensorInfo = mutableListOf<Pair<Int, Int>>() // Pair(tensorIndex, extractedNodeId)
+            for (i in 0 until activeInterpreter.inputTensorCount) {
+                val name = activeInterpreter.getInputTensor(i).name()
+                val match = Regex("\\d+").find(name)
+                val nodeId = match?.value?.toInt() ?: i
+                tensorInfo.add(Pair(i, nodeId))
+            }
+            
+            // Sort by node ID to restore creation order
+            tensorInfo.sortBy { it.second }
+            
+            if (tensorInfo.size >= 3) {
+                inputs[tensorInfo[0].first] = inputIds
+                inputs[tensorInfo[1].first] = attentionMask
+                inputs[tensorInfo[2].first] = tokenTypeIds
+            } else if (tensorInfo.size == 2) {
+                inputs[tensorInfo[0].first] = inputIds
+                inputs[tensorInfo[1].first] = attentionMask
+            } else if (tensorInfo.size == 1) {
+                inputs[0] = inputIds
+            }
+
+            try {
+                activeInterpreter.runForMultipleInputsOutputs(inputs, mapOf(0 to output))
+            } catch (e: Exception) {
+                Log.e("SentenceEmbedder", "Dynamic tensor mapping crashed!", e)
+                // Fallback just in case
+                activeInterpreter.runForMultipleInputsOutputs(arrayOf(inputIds, attentionMask), mapOf(0 to output))
+            }
 
             val sentenceEmbedding = FloatArray(hiddenDim)
             for (i in 0 until hiddenDim) {
@@ -116,7 +162,7 @@ class SentenceEmbedder(
                 sentenceEmbedding[i] = if (count > 0) sum / count else 0f
             }
 
-            applyPrivacyShield(sentenceEmbedding)
+            applyPrivacyShield(sentenceEmbedding, applyNoise = applyNoise)
         } catch (e: Exception) {
             Log.e("SentenceEmbedder", "Embedding failed", e)
             null
@@ -142,26 +188,31 @@ class SentenceEmbedder(
         return newSeed
     }
 
-    private fun applyPrivacyShield(vector: FloatArray, doShuffle: Boolean = true): FloatArray {
+    private fun applyPrivacyShield(vector: FloatArray, applyNoise: Boolean = true): FloatArray {
         val magnitude = sqrt(vector.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
         if (magnitude < 1e-9f) return vector
 
-        val noiseScale = 0.002f
-        val noisy = FloatArray(vector.size) { i ->
-            val u = Random.nextFloat() - 0.5f
-            val noise = -noiseScale * sign(u) * ln(1.0 - 2.0 * abs(u).toDouble()).toFloat()
-            vector[i] + noise
+        val processed = if (applyNoise) {
+            val noiseScale = 0.002f
+            val noisy = FloatArray(vector.size) { i ->
+                val u = Random.nextFloat() - 0.5f
+                val noise = -noiseScale * sign(u) * ln(1.0 - 2.0 * abs(u).toDouble()).toFloat()
+                vector[i] + noise
+            }
+            noisy
+        } else {
+            vector.copyOf()
         }
 
-        val noisyNorm = sqrt(noisy.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
-        val unitVector = FloatArray(noisy.size) { noisy[it] / (noisyNorm + 1e-9f) }
+        val norm = sqrt(processed.fold(0f) { acc, f -> acc + f * f }.toDouble()).toFloat()
+        val unitVector = FloatArray(processed.size) { processed[it] / (norm + 1e-9f) }
 
         val clipped = FloatArray(unitVector.size) { i ->
             (unitVector[i] * 10000).toInt() / 10000f
         }
 
         val perm = cachedPermutation
-        return if (doShuffle && perm != null) {
+        return if (perm != null) {
             FloatArray(clipped.size) { clipped[perm[it]] }
         } else {
             clipped
@@ -317,12 +368,12 @@ class SentenceEmbedder(
             val maxWordRatio = maxWordCount.toFloat() / words.size.toFloat()
 
             val varietyMultiplier = when {
-                // If one single word makes up more than 50% of the entry (e.g. "sad i i i i" -> "i" is 80%)
-                words.size > 3 && maxWordRatio > 0.5f -> {
-                    1.0f - maxWordRatio // Penalty: 80% spam becomes a 0.2 multiplier
+                // If one single word makes up half or more of the entry (e.g. "this this this sad sad sad")
+                words.size > 3 && maxWordRatio >= 0.5f -> {
+                    (1.0f - maxWordRatio).coerceAtMost(varietyRatio)
                 }
                 // If they are just mashing a few keys over and over (e.g. "asdf asdf asdf asdf")
-                words.size > 5 && varietyRatio < 0.3f -> {
+                words.size > 5 && varietyRatio < 0.5f -> {
                     varietyRatio
                 }
                 else -> 1.0f // Normal text
@@ -354,7 +405,6 @@ class SentenceEmbedder(
             // Final score combinations
             val finalScore = (dictionaryScore * varietyMultiplier * densityMultiplier)
 
-            Log.d("Tokenizer", "Quality for text: Dict=$dictionaryScore, Variety=$varietyMultiplier, Density=$densityMultiplier, Final=$finalScore")
             return finalScore.coerceIn(0f, 1f)
         }
 

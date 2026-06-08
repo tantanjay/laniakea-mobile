@@ -14,10 +14,10 @@ import com.laniakea.data.getMoodColor
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.TextStyle
-import java.util.*
+import androidx.compose.ui.platform.LocalLocale
 
 @Composable
-fun DailyJournalCard(entries: List<DiaryEntry>) {
+fun DailyJournalCard(entries: List<DiaryEntry>, onFindSimilar: ((DiaryEntry) -> Unit)? = null) {
     if (entries.isEmpty()) return
 
     val firstEntry = entries.first()
@@ -49,7 +49,7 @@ fun DailyJournalCard(entries: List<DiaryEntry>) {
                 ) {
                     Text(
                         text = "${date.dayOfMonth} ${
-                            date.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+                            date.month.getDisplayName(TextStyle.SHORT, LocalLocale.current.platformLocale)
                         }",
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelMedium,
@@ -75,7 +75,7 @@ fun DailyJournalCard(entries: List<DiaryEntry>) {
                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                     ) {
                         Text(
-                            text = String.format(Locale.getDefault(), "%02d:%02d", time.hour, time.minute),
+                            text = String.format(LocalLocale.current.platformLocale, "%02d:%02d", time.hour, time.minute),
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold
@@ -125,6 +125,22 @@ fun DailyJournalCard(entries: List<DiaryEntry>) {
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+
+                        if (onFindSimilar != null && entry.isVectorized) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            TextButton(
+                                onClick = { onFindSimilar.invoke(entry) },
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.height(24.dp)
+                            ) {
+                                Text(
+                                    "Find Similar",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
