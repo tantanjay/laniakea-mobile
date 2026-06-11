@@ -247,7 +247,6 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     // ANOMALY ALERT DIALOG
     val anomalyAlert = vm.currentAnomalyAlert
     if (anomalyAlert != null) {
-        val entry = anomalyAlert.first
         val distance = anomalyAlert.second
         AlertDialog(
             onDismissRequest = { vm.dismissAnomalyAlert() },

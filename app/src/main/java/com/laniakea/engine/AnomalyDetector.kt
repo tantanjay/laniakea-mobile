@@ -15,7 +15,7 @@ class AnomalyDetector(
     /**
      * Threshold for L2 distance. 
      * Typical normalized vectors have max distance of ~2.0 (opposite directions).
-     * 1.41 means orthogonal (unrelated). Distance > 1.4 suggests a very unique day/theme.
+     * 1.41 means orthogonal (unrelated). Distance > 1.4 suggests a unique day/theme.
      */
     private val anomalyThreshold = 1.4f
 
