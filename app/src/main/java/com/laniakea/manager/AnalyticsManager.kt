@@ -11,7 +11,12 @@ data class WritingMetrics(
     val vocabularyDiversity: List<Pair<Long, Float>>,
     val questionFrequency: List<Pair<Long, Float>>,
     val firstPersonUsage: List<Pair<Long, Float>>,
-    val futureVsPast: List<Pair<Long, Float>>
+    val futureVsPast: List<Pair<Long, Float>>,
+    val syntacticPacing: List<Pair<Long, Float>>,
+    val agencyScore: List<Pair<Long, Float>>,
+    val epistemicModality: List<Pair<Long, Float>>,
+    val processingMarkers: List<Pair<Long, Float>>,
+    val temporalHorizon: List<Pair<Long, Float>>
 )
 
 class AnalyticsManager(
@@ -42,6 +47,11 @@ class AnalyticsManager(
             val questionFrequency = mutableListOf<Pair<Long, Float>>()
             val firstPersonUsage = mutableListOf<Pair<Long, Float>>()
             val futureVsPast = mutableListOf<Pair<Long, Float>>()
+            val syntacticPacing = mutableListOf<Pair<Long, Float>>()
+            val agencyScore = mutableListOf<Pair<Long, Float>>()
+            val epistemicModality = mutableListOf<Pair<Long, Float>>()
+            val processingMarkers = mutableListOf<Pair<Long, Float>>()
+            val temporalHorizon = mutableListOf<Pair<Long, Float>>()
 
             for (entry in entries) {
                 val content = entry.content
@@ -76,6 +86,13 @@ class AnalyticsManager(
                 val total = (futureCount + pastCount).toFloat()
                 val orientation = if (total > 0) (futureCount - pastCount) / total else 0f
                 futureVsPast.add(timestamp to orientation)
+                
+                // 6. Cognitive Metrics
+                syntacticPacing.add(timestamp to entry.syntacticPacing)
+                agencyScore.add(timestamp to entry.agencyScore)
+                epistemicModality.add(timestamp to entry.epistemicModality)
+                processingMarkers.add(timestamp to entry.processingMarkers.toFloat())
+                temporalHorizon.add(timestamp to entry.temporalHorizon)
             }
 
             WritingMetrics(
@@ -83,7 +100,12 @@ class AnalyticsManager(
                 vocabularyDiversity = vocabularyDiversity,
                 questionFrequency = questionFrequency,
                 firstPersonUsage = firstPersonUsage,
-                futureVsPast = futureVsPast
+                futureVsPast = futureVsPast,
+                syntacticPacing = syntacticPacing,
+                agencyScore = agencyScore,
+                epistemicModality = epistemicModality,
+                processingMarkers = processingMarkers,
+                temporalHorizon = temporalHorizon
             )
         }
     }

@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Polyline
 import androidx.compose.material3.*
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.*
@@ -22,6 +23,7 @@ enum class AppDestinations(
 ) {
     HOME("Home", Icons.Default.Home),
     JOURNAL("Journal", Icons.Default.Book),
+    MAP("Map", Icons.Default.Polyline),
     INSIGHTS("Insights", Icons.Default.Info),
     PROFILE("Profile", Icons.Default.AccountBox),
 }
@@ -48,6 +50,7 @@ fun LaniakeaApp(vm: LaniakeaViewModel = viewModel()) {
             when (currentDestination) {
                 AppDestinations.HOME -> HomeScreen(paddingValues, vm)
                 AppDestinations.JOURNAL -> JournalScreen(paddingValues, vm)
+                AppDestinations.MAP -> ConnectionsScreen(paddingValues, vm)
                 AppDestinations.INSIGHTS -> InsightScreen(paddingValues, vm)
                 AppDestinations.PROFILE -> ProfileScreen(paddingValues, vm)
             }

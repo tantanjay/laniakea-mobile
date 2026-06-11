@@ -124,21 +124,6 @@ Pure observation.
 
 ---
 
-### 5. What Have I Been Thinking About?
-Cluster entries into themes:
-
-- Career
-- Relationships
-- Health
-- Learning
-- Life transitions
-
-No manual tagging required.
-
-Derived purely from embeddings.
-
----
-
 ### 6. Entry Connections Graph
 Visualize journal entries as a network:
 
@@ -146,18 +131,6 @@ Visualize journal entries as a network:
 - Edges = semantic similarity
 
 This allows users to explore how thoughts evolve over time.
-
----
-
-### 7. Life Chapters (Automatic Clustering)
-Detect phases in life:
-
-- New Job Phase
-- Travel Period
-- Personal Transition
-- Learning Phase
-
-Each chapter emerges from clusters of similar embeddings.
 
 ---
 
@@ -197,7 +170,34 @@ Track subtle subconscious shifts in writing style as markers of cognitive load, 
 
 ---
 
-### 11. Personal Language Compass (User-Defined Axes)
+### 11. What Have I Been Thinking About? (Topic Clustering)
+Cluster entries into themes:
+
+- Career
+- Relationships
+- Health
+- Learning
+- Life transitions
+
+No manual tagging required.
+
+Derived purely from embeddings.
+
+---
+
+### 12. Life Chapters (Automatic Clustering)
+Detect phases in life:
+
+- New Job Phase
+- Travel Period
+- Personal Transition
+- Learning Phase
+
+Each chapter emerges from clusters of similar embeddings.
+
+---
+
+### 13. Personal Language Compass (User-Defined Axes)
 Allow users to define their own semantic axes.
 
 Examples:
@@ -215,7 +215,7 @@ Key principle:
 
 ---
 
-### 12. Multi-Axis Reflection Space ("Star Map")
+### 14. Multi-Axis Reflection Space ("Star Map")
 Instead of numeric dashboards, visualize axes as a constellation:
 
 ⭐ Confidence Signal  
@@ -295,14 +295,14 @@ It is building a **semantic memory system**:
 - Weekly Digest
 
 ### Phase 2 — Structure Layer
-- Topic Clustering
-- Life Chapters
 - Entry Graph
 - Journal Replay
 - Anomaly & Novelty Detection
 - Cognitive Style & Pacing Tracker
 
 ### Phase 3 — Meaning Layer
+- Topic Clustering
+- Life Chapters
 - Personal Language Compass
 - Multi-axis Star Map Visualization
 - Fully personalized semantic space
