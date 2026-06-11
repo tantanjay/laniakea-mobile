@@ -417,12 +417,24 @@ class GraphEngine {
                 val targetX = (centerX - timelineWidth / 2f) + (dateProgress * timelineWidth)
                 
                 val adx = targetX - node.x
-                val ady = anchor.second - node.y
-                val adz = anchor.third - node.z
+                
+                // Twist the tunnel! Rotate the YZ anchor around the center based on time progress.
+                val twistAngle = dateProgress * Math.PI * 4.0 // 2 full twists from start to end
+                val cosT = kotlin.math.cos(twistAngle).toFloat()
+                val sinT = kotlin.math.sin(twistAngle).toFloat()
+                
+                val relY = anchor.second - centerY
+                val relZ = anchor.third - centerZ
+                
+                val twistedY = centerY + (relY * cosT - relZ * sinT)
+                val twistedZ = centerZ + (relY * sinT + relZ * cosT)
+                
+                val ady = twistedY - node.y
+                val adz = twistedZ - node.z
                 
                 // Extremely strong pull to the timeline X
                 node.vx += adx * 0.15f 
-                // Strong pull to the YZ cluster lanes
+                // Strong pull to the twisted YZ cluster lanes to create the helix warp look
                 node.vy += ady * 0.05f
                 node.vz += adz * 0.05f
             }
