@@ -5,12 +5,16 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,18 +25,33 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import androidx.compose.foundation.gestures.detectTransformGestures
 import com.laniakea.data.ObjectBoxSentenceVector
 import com.laniakea.engine.GraphEdge
 import com.laniakea.engine.GraphEngine
 import com.laniakea.engine.GraphNode
 import com.laniakea.manager.SecurityManager
 import com.laniakea.viewmodel.LaniakeaViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlin.math.min
-import kotlin.math.sqrt
 import kotlin.time.Duration.Companion.milliseconds
+import androidx.compose.ui.platform.LocalLocale
 
 @Composable
 fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
@@ -53,13 +72,25 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     var layoutWidth by remember { mutableFloatStateOf(0f) }
     var layoutHeight by remember { mutableFloatStateOf(0f) }
     
+    var yaw by remember { mutableFloatStateOf(0f) }
+    var pitch by remember { mutableFloatStateOf(0f) }
+    var cameraZ by remember { mutableFloatStateOf(800f) }
+    
     var selectedNode by remember { mutableStateOf<GraphNode?>(null) }
+    var isIsolateMode by remember { mutableStateOf(false) }
+    var showConnectionsFor by remember { mutableStateOf<GraphNode?>(null) }
     
     var vectorsFetched by remember { mutableStateOf(false) }
     var vectors by remember { mutableStateOf<List<ObjectBoxSentenceVector>>(emptyList()) }
     
+    var hasBuiltGraph by remember { mutableStateOf(false) }
+    var isBuildingGraph by remember { mutableStateOf(false) }
+    
+    var entryLimit by remember { mutableIntStateOf(300) }
+    
     val context = androidx.compose.ui.platform.LocalContext.current
     val securityManager = remember { SecurityManager(context) }
+    val textMeasurer = rememberTextMeasurer()
     
     // Pulsing glow animation
     val infiniteTransition = rememberInfiniteTransition(label = "glow")
@@ -81,19 +112,30 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     }
     
     // Build and pre-settle the graph — layout is already done when it appears
-    LaunchedEffect(vectorsFetched, layoutWidth, layoutHeight) {
-        if (vectorsFetched && layoutWidth > 0 && layoutHeight > 0 && allNodes.isEmpty()) {
-            val (initialNodes, initialEdges) = graphEngine.buildInitialGraph(
-                entries = allEntries,
-                vectors = vectors,
-                similarityThreshold = 0.55f,
-                width = layoutWidth,
-                height = layoutHeight
-            )
+    LaunchedEffect(vectorsFetched, allEntries.size, layoutWidth, layoutHeight, entryLimit) {
+        if (vectorsFetched && allEntries.isNotEmpty() && layoutWidth > 0 && layoutHeight > 0) {
+            val entriesToProcess = allEntries.sortedByDescending { it.dateTime }.take(entryLimit)
+            if (hasBuiltGraph && allNodes.size == entriesToProcess.size) return@LaunchedEffect
+            
+            isBuildingGraph = true
+            
+            val entriesIds = entriesToProcess.map { it.id }.toSet()
+            val vectorsToProcess = vectors.filter { it.entryId in entriesIds }
+            
+            val (initialNodes, initialEdges) = withContext(Dispatchers.Default) {
+                graphEngine.buildInitialGraph(
+                    entries = entriesToProcess,
+                    vectors = vectorsToProcess,
+                    similarityThreshold = 0.55f,
+                    width = layoutWidth,
+                    height = layoutHeight
+                )
+            }
             allNodes = initialNodes.sortedBy { it.date }
             allEdges = initialEdges
-            // Show all nodes immediately — the layout is already settled
             replayProgress = allNodes.size
+            hasBuiltGraph = true
+            isBuildingGraph = false
         }
     }
     
@@ -134,28 +176,13 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             .padding(padding)
             .background(Brush.verticalGradient(listOf(Color(0xFF0A0E21), Color(0xFF1A1A2E), Color(0xFF16213E))))
     ) {
-        if (!isEngineActive) {
+        if (!isEngineActive || isBuildingGraph) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = Color(0xFF64FFDA), strokeWidth = 2.dp)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        "Warming up the Vector Engine...",
-                        color = Color.White.copy(alpha = 0.7f),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            }
-            return@Box
-        }
-        
-        if (allNodes.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Color(0xFF64FFDA), strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        "Building your constellation...",
+                        if (!isEngineActive) "Warming up the Vector Engine..." else "Building your constellation...",
                         color = Color.White.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -168,97 +195,209 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             return@Box
         }
 
-        val visibleNodes = allNodes.take(replayProgress)
+        val baseVisibleNodes = allNodes.take(replayProgress)
+        val visibleNodes = if (isIsolateMode && selectedNode != null) {
+            val connectedIds = allEdges.filter { it.source.entryId == selectedNode!!.entryId || it.target.entryId == selectedNode!!.entryId }
+                .flatMap { listOf(it.source.entryId, it.target.entryId) }
+                .toSet()
+            baseVisibleNodes.filter { it.entryId == selectedNode!!.entryId || it.entryId in connectedIds }
+        } else {
+            baseVisibleNodes
+        }
+
         val visibleIds = visibleNodes.map { it.entryId }.toSet()
-        val visibleEdges = allEdges.filter { it.source.entryId in visibleIds && it.target.entryId in visibleIds }
+        val visibleEdges = if (isIsolateMode && selectedNode != null) {
+            allEdges.filter { (it.source.entryId == selectedNode!!.entryId || it.target.entryId == selectedNode!!.entryId) && 
+                              it.source.entryId in visibleIds && it.target.entryId in visibleIds }
+        } else {
+            allEdges.filter { it.source.entryId in visibleIds && it.target.entryId in visibleIds }
+        }
+        
+        val currentVisibleNodes by rememberUpdatedState(visibleNodes)
 
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
-                    detectTapGestures { offset ->
-                        val clicked = visibleNodes.find { node ->
-                            val dx = node.x - offset.x
-                            val dy = node.y - offset.y
-                            (dx * dx + dy * dy) < 900f
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        if (zoom != 1f) {
+                            cameraZ = (cameraZ / zoom).coerceIn(50f, 4000f)
                         }
+                        yaw += pan.x * 0.005f
+                        pitch -= pan.y * 0.005f
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectTapGestures { tapOffset ->
+                        val center = Offset(layoutWidth / 2f, layoutHeight / 2f)
+                        val projectedNodes = currentVisibleNodes.map { node ->
+                            node to projectPoint(node.x, node.y, node.z, center, yaw, pitch, cameraZ)
+                        }.sortedByDescending { it.second.z }
+                        
+                        val clicked = projectedNodes.findLast { (_, p) ->
+                            val dx = p.x - tapOffset.x
+                            val dy = p.y - tapOffset.y
+                            val hitScale = p.scale.coerceAtMost(3f)
+                            (dx * dx + dy * dy) < (2500f * hitScale)
+                        }?.first
                         selectedNode = clicked
                     }
                 }
         ) {
             layoutWidth = size.width
             layoutHeight = size.height
+            val canvasCenter = Offset(size.width / 2f, size.height / 2f)
             
             // Draw Edges
             visibleEdges.forEach { edge ->
-                val normalizedWeight = ((edge.weight - 0.55f) / 0.45f).coerceIn(0f, 1f)
-                val edgeAlpha = 0.08f + normalizedWeight * 0.35f
-                val edgeWidth = 1f + normalizedWeight * 3f
+                val p1 = projectPoint(edge.source.x, edge.source.y, edge.source.z, canvasCenter, yaw, pitch, cameraZ)
+                val p2 = projectPoint(edge.target.x, edge.target.y, edge.target.z, canvasCenter, yaw, pitch, cameraZ)
                 
-                val avgMood = (edge.source.moodScore + edge.target.moodScore) / 2.0
-                val edgeColor = when {
-                    avgMood > 1.0 -> Color(0xFF64FFDA)
-                    avgMood > 0.0 -> Color(0xFF82B1FF)
-                    avgMood > -1.0 -> Color(0xFFFFAB40)
-                    else -> Color(0xFFFF5252)
+                if (p1.z + cameraZ > 0 && p2.z + cameraZ > 0) {
+                    val normalizedWeight = ((edge.weight - 0.55f) / 0.45f).coerceIn(0f, 1f)
+                    val avgScale = (p1.scale + p2.scale) / 2f
+                    val drawScale = avgScale.coerceAtMost(3f)
+                    // Shrink even more when zooming way out
+                    val visualScale = if (drawScale < 1f) drawScale * drawScale else drawScale
+                    val edgeAlpha = (0.04f + normalizedWeight * 0.25f) * drawScale.coerceIn(0.05f, 1f)
+                    val edgeWidth = (0.5f + normalizedWeight * 2f) * visualScale
+                    
+                    val avgMood = (edge.source.moodScore + edge.target.moodScore) / 2.0
+                    val edgeColor = when {
+                        avgMood >= 0.5 -> Color(0xFF64FFDA)
+                        avgMood >= -0.2 -> Color(0xFF82B1FF)
+                        avgMood >= -0.6 -> Color(0xFFFFAB40)
+                        else -> Color(0xFFFF5252)
+                    }
+                    
+                    drawLine(
+                        color = edgeColor.copy(alpha = edgeAlpha),
+                        start = Offset(p1.x, p1.y),
+                        end = Offset(p2.x, p2.y),
+                        strokeWidth = edgeWidth,
+                        cap = StrokeCap.Round
+                    )
                 }
-                
-                drawLine(
-                    color = edgeColor.copy(alpha = edgeAlpha),
-                    start = Offset(edge.source.x, edge.source.y),
-                    end = Offset(edge.target.x, edge.target.y),
-                    strokeWidth = edgeWidth,
-                    cap = StrokeCap.Round
-                )
             }
             
             // Draw Nodes
-            visibleNodes.forEach { node ->
-                val isSelected = node == selectedNode
-                val nodeColor = getMoodNodeColor(node.moodScore)
-                
-                val connectionCount = visibleEdges.count { 
-                    it.source.entryId == node.entryId || it.target.entryId == node.entryId 
-                }
-                val baseRadius = 6f + min(connectionCount * 1.5f, 10f)
-                val glowRadius = baseRadius * 2.5f
-                
-                // Outer glow
-                drawCircle(
-                    color = nodeColor.copy(alpha = if (isSelected) 0.5f else glowPulse * 0.3f),
-                    radius = if (isSelected) glowRadius * 1.5f else glowRadius,
-                    center = Offset(node.x, node.y)
-                )
-                
-                // Mid glow
-                drawCircle(
-                    color = nodeColor.copy(alpha = if (isSelected) 0.4f else 0.15f),
-                    radius = if (isSelected) baseRadius * 1.8f else baseRadius * 1.4f,
-                    center = Offset(node.x, node.y)
-                )
-                
-                // Core
-                drawCircle(
-                    color = if (isSelected) Color.White else nodeColor,
-                    radius = if (isSelected) baseRadius * 1.2f else baseRadius,
-                    center = Offset(node.x, node.y)
-                )
-                
-                // Bright center
-                drawCircle(
-                    color = Color.White.copy(alpha = if (isSelected) 1f else 0.7f),
-                    radius = if (isSelected) 4f else 2.5f,
-                    center = Offset(node.x, node.y)
-                )
-                
-                // Selection ring
-                if (isSelected) {
+            val projectedNodes = visibleNodes.map { node ->
+                node to projectPoint(node.x, node.y, node.z, canvasCenter, yaw, pitch, cameraZ)
+            }.sortedByDescending { it.second.z } // Distant nodes first
+            
+            projectedNodes.forEach { (node, p) ->
+                if (p.z + cameraZ > 0) {
+                    val isSelected = node == selectedNode
+                    val nodeColor = getMoodNodeColor(node.moodScore)
+                    
+                    val connectionCount = visibleEdges.count { 
+                        it.source.entryId == node.entryId || it.target.entryId == node.entryId 
+                    }
+                    
+                    val drawScale = p.scale.coerceAtMost(3f)
+                    // Shrink nodes faster when zoomed out so they look like tiny stars
+                    val visualScale = if (drawScale < 1f) drawScale * drawScale else drawScale
+                    
+                    val alphaFactor = p.scale.coerceIn(0.1f, 1f)
+                    val baseRadius = (3f + min(connectionCount * 1.0f, 8f)) * visualScale
+                    val glowRadius = baseRadius * 2.0f
+                    
+                    // Outer glow
                     drawCircle(
-                        color = Color.White.copy(alpha = 0.6f),
-                        radius = baseRadius * 2f,
-                        center = Offset(node.x, node.y),
-                        style = Stroke(width = 1.5f)
+                        color = nodeColor.copy(alpha = (if (isSelected) 0.5f else glowPulse * 0.3f) * alphaFactor),
+                        radius = if (isSelected) glowRadius * 1.5f else glowRadius,
+                        center = Offset(p.x, p.y)
                     )
+                    
+                    // Mid glow
+                    drawCircle(
+                        color = nodeColor.copy(alpha = (if (isSelected) 0.4f else 0.15f) * alphaFactor),
+                        radius = if (isSelected) baseRadius * 1.8f else baseRadius * 1.4f,
+                        center = Offset(p.x, p.y)
+                    )
+                    
+                    // Core
+                    drawCircle(
+                        color = (if (isSelected) Color.White else nodeColor).copy(alpha = alphaFactor),
+                        radius = if (isSelected) baseRadius * 1.2f else baseRadius,
+                        center = Offset(p.x, p.y)
+                    )
+                    
+                    // Bright center
+                    drawCircle(
+                        color = Color.White.copy(alpha = (if (isSelected) 1f else 0.8f) * alphaFactor),
+                        radius = (if (isSelected) 3f else 1.5f) * visualScale,
+                        center = Offset(p.x, p.y)
+                    )
+                    
+                    // Selection ring
+                    if (isSelected) {
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.6f),
+                            radius = baseRadius * 2f,
+                            center = Offset(p.x, p.y),
+                            style = Stroke(width = 1.0f * drawScale)
+                        )
+                    }
+                    
+                    // Text label in focus mode
+                    if (isIsolateMode) {
+                        val nodeMoodLabel = when {
+                            node.moodScore > 1.5 -> "🤩 Awesome"
+                            node.moodScore > 0.5 -> "🙂 Good"
+                            node.moodScore > -0.5 -> "😐 Fine"
+                            node.moodScore > -1.5 -> "🙁 Bad"
+                            else -> "😫 Terrible"
+                        }
+                        
+                        val dateString = SimpleDateFormat("MMM dd", Locale.getDefault()).format(Date(node.date))
+                        
+                        val labelText = buildAnnotatedString {
+                            if (node.theme != "Unknown") {
+                                withStyle(SpanStyle(fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.9f))) {
+                                    append(node.theme)
+                                }
+                                append("\n")
+                            }
+                            withStyle(SpanStyle(fontWeight = FontWeight.Light, color = Color.White.copy(alpha = 0.7f), fontSize = (7f * visualScale).coerceIn(5f, 9f).sp)) {
+                                append("$dateString  •  $nodeMoodLabel")
+                            }
+                        }
+
+                        val textLayoutResult = textMeasurer.measure(
+                            text = labelText,
+                            style = TextStyle(
+                                fontSize = (8f * visualScale).coerceIn(6f, 11f).sp,
+                                lineHeight = (11f * visualScale).coerceIn(8f, 14f).sp
+                            )
+                        )
+                        
+                        val padding = 6f * visualScale.coerceIn(0.5f, 1.2f)
+                        val cardWidth = textLayoutResult.size.width + padding * 2
+                        val cardHeight = textLayoutResult.size.height + padding * 2
+                        
+                        val cardOffset = Offset(
+                            p.x - cardWidth / 2f,
+                            p.y + baseRadius * 2f + 4f
+                        )
+                        
+                        // Draw background card
+                        drawRoundRect(
+                            color = Color(0xFF1E1E2E).copy(alpha = 0.85f),
+                            topLeft = cardOffset,
+                            size = Size(cardWidth, cardHeight),
+                            cornerRadius = CornerRadius(12f, 12f)
+                        )
+                        
+                        val textOffset = Offset(
+                            cardOffset.x + padding,
+                            cardOffset.y + padding
+                        )
+                        drawText(
+                            textLayoutResult = textLayoutResult,
+                            topLeft = textOffset
+                        )
+                    }
                 }
             }
         }
@@ -288,7 +427,7 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         }
         
         // Node detail panel
-        if (selectedNode != null) {
+        if (selectedNode != null && !isIsolateMode) {
             val decryptedContent = remember(selectedNode) {
                 try {
                     securityManager.decrypt(selectedNode!!.content)
@@ -326,25 +465,54 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                                 drawCircle(color = nodeColor, radius = size.minDimension / 2f)
                             }
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = selectedNode!!.theme,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
+                            if (selectedNode!!.theme != "Unknown") {
+                                Text(
+                                    text = selectedNode!!.theme,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
                         }
                         IconButton(onClick = { selectedNode = null }) {
                             Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White.copy(alpha = 0.6f))
                         }
                     }
                     
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(moodLabel, style = MaterialTheme.typography.bodySmall, color = nodeColor)
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
                     val nodeConnections = visibleEdges.count {
                         it.source.entryId == selectedNode!!.entryId || it.target.entryId == selectedNode!!.entryId
                     }
+                    
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(moodLabel, style = MaterialTheme.typography.bodySmall, color = nodeColor)
+                        
+                        Row {
+                            if (nodeConnections > 0) {
+                                TextButton(
+                                    onClick = { showConnectionsFor = selectedNode },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(24.dp)
+                                ) {
+                                    Text("View All", style = MaterialTheme.typography.labelSmall, color = Color(0xFF82B1FF))
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            TextButton(
+                                onClick = { isIsolateMode = true },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(24.dp)
+                            ) {
+                                Text("Focus", style = MaterialTheme.typography.labelSmall, color = Color(0xFF64FFDA))
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         "$nodeConnections similar thoughts connected",
                         style = MaterialTheme.typography.labelSmall,
@@ -381,9 +549,43 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 style = MaterialTheme.typography.bodyMedium
             )
             
-            Spacer(modifier = Modifier.height(16.dp))
+            // Controls moved to BottomEnd
             
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Legend
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                LegendDot(Color(0xFF64FFDA), "Positive")
+                LegendDot(Color(0xFF82B1FF), "Neutral")
+                LegendDot(Color(0xFFFFAB40), "Low")
+                LegendDot(Color(0xFFFF5252), "Negative")
+            }
+        }
+        
+        // Floating Controls (Bottom Right)
+        if (isIsolateMode) {
+            FloatingActionButton(
+                onClick = { isIsolateMode = false },
+                containerColor = Color.White.copy(alpha = 0.1f),
+                contentColor = Color(0xFF64FFDA),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Exit Focus Mode")
+            }
+        } else {
+            val fabBottomOffset = if (selectedNode != null) 220.dp else 16.dp
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = fabBottomOffset)
+            ) {
                 if (isReplaying) {
                     FloatingActionButton(
                         onClick = { 
@@ -407,28 +609,112 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 
                 if (!isSettling && !isReplaying) {
                     FloatingActionButton(
+                        onClick = { 
+                            yaw = 0f
+                            pitch = 0f
+                            cameraZ = 800f
+                        },
+                        containerColor = Color.White.copy(alpha = 0.1f),
+                        contentColor = Color.White.copy(alpha = 0.8f)
+                    ) {
+                        Icon(Icons.Default.Home, contentDescription = "Reset View")
+                    }
+                    FloatingActionButton(
                         onClick = { isSettling = true },
                         containerColor = Color.White.copy(alpha = 0.1f),
                         contentColor = Color.White.copy(alpha = 0.8f)
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Re-settle")
                     }
+                    if (allEntries.size > entryLimit) {
+                        FloatingActionButton(
+                            onClick = { entryLimit += 300 },
+                            containerColor = Color.White.copy(alpha = 0.1f),
+                            contentColor = Color.White.copy(alpha = 0.8f)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Load More")
+                        }
+                    }
                 }
             }
+        }
+        
+        if (showConnectionsFor != null) {
+            val connectedEdges = visibleEdges.filter {
+                it.source.entryId == showConnectionsFor!!.entryId || it.target.entryId == showConnectionsFor!!.entryId
+            }.sortedByDescending { it.weight }
             
-            // Legend
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
-            ) {
-                LegendDot(Color(0xFF64FFDA), "Positive")
-                LegendDot(Color(0xFF82B1FF), "Neutral")
-                LegendDot(Color(0xFFFFAB40), "Low")
-                LegendDot(Color(0xFFFF5252), "Negative")
-            }
+            AlertDialog(
+                onDismissRequest = { showConnectionsFor = null },
+                title = {
+                    Text(
+                        "Connected Thoughts",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White
+                    )
+                },
+                text = {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(connectedEdges) { edge ->
+                            val relatedNode = if (edge.source.entryId == showConnectionsFor!!.entryId) edge.target else edge.source
+                            val decryptedNodeContent = try {
+                                securityManager.decrypt(relatedNode.content)
+                            } catch (_: Exception) {
+                                relatedNode.content
+                            }
+                            
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            if (relatedNode.theme != "Unknown") {
+                                                Text(
+                                                    relatedNode.theme,
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = getMoodNodeColor(relatedNode.moodScore),
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                            val listDateString = SimpleDateFormat("MMM dd, yyyy", LocalLocale.current.platformLocale).format(Date(relatedNode.date))
+                                            Text(
+                                                listDateString,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color.White.copy(alpha = 0.6f)
+                                            )
+                                        }
+                                        Text(
+                                            "${(edge.weight * 100).toInt()}% match",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        decryptedNodeContent.take(150) + if (decryptedNodeContent.length > 150) "..." else "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.White.copy(alpha = 0.85f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showConnectionsFor = null }) {
+                        Text("Close", color = Color(0xFF64FFDA))
+                    }
+                },
+                containerColor = Color(0xFF1E1E2E),
+                titleContentColor = Color.White,
+                textContentColor = Color.White
+            )
         }
     }
 }
@@ -446,9 +732,37 @@ private fun LegendDot(color: Color, label: String) {
 
 private fun getMoodNodeColor(moodScore: Double): Color {
     return when {
-        moodScore > 1.0 -> Color(0xFF64FFDA)
-        moodScore > 0.0 -> Color(0xFF82B1FF)
-        moodScore > -1.0 -> Color(0xFFFFAB40)
+        moodScore >= 0.5 -> Color(0xFF64FFDA)
+        moodScore >= -0.2 -> Color(0xFF82B1FF)
+        moodScore >= -0.6 -> Color(0xFFFFAB40)
         else -> Color(0xFFFF5252)
     }
+}
+
+data class ProjectedPoint(val x: Float, val y: Float, val z: Float, val scale: Float)
+
+fun projectPoint(nodeX: Float, nodeY: Float, nodeZ: Float, canvasCenter: Offset, yaw: Float, pitch: Float, cameraZ: Float): ProjectedPoint {
+    val relX = nodeX - canvasCenter.x
+    val relY = nodeY - canvasCenter.y
+
+    val cosYaw = kotlin.math.cos(yaw.toDouble()).toFloat()
+    val sinYaw = kotlin.math.sin(yaw.toDouble()).toFloat()
+    val x1 = relX * cosYaw - nodeZ * sinYaw
+    val z1 = relX * sinYaw + nodeZ * cosYaw
+    
+    val cosPitch = kotlin.math.cos(pitch.toDouble()).toFloat()
+    val sinPitch = kotlin.math.sin(pitch.toDouble()).toFloat()
+    val y2 = relY * cosPitch - z1 * sinPitch
+    val z2 = relY * sinPitch + z1 * cosPitch
+
+    val focalLength = 800f
+    val depth = (z2 + cameraZ).coerceAtLeast(10f)
+    val scale = focalLength / depth
+    
+    return ProjectedPoint(
+        x = canvasCenter.x + x1 * scale,
+        y = canvasCenter.y + y2 * scale,
+        z = z2,
+        scale = scale
+    )
 }
