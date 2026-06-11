@@ -227,7 +227,13 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                                 label = "Agency (Active vs Passive)",
                                 emoji = "💪",
                                 dataPoints = metrics.agencyScore,
-                                formatValue = { "%.2f ratio".format(it) },
+                                formatValue = { v ->
+                                    when {
+                                        v > 0.3f -> "Active"
+                                        v < -0.3f -> "Passive"
+                                        else -> "Balanced"
+                                    }
+                                },
                                 sparklineColor = MaterialTheme.colorScheme.primary
                             )
 
@@ -259,8 +265,8 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                                 dataPoints = metrics.temporalHorizon,
                                 formatValue = { v ->
                                     when {
-                                        v > 0.05f -> "Abstract"
-                                        v < -0.05f -> "Concrete"
+                                        v > 0.6f -> "Abstract"
+                                        v < 0.4f -> "Concrete"
                                         else -> "Neutral"
                                     }
                                 },
@@ -442,14 +448,6 @@ fun ThemeSelectionDialog(vm: LaniakeaViewModel, onDismiss: () -> Unit) {
                         }
                     }
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    "Note: Enabling more themes requires more device processing power. We recommend choosing 4-6 core themes.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         },
         confirmButton = {

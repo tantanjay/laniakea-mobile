@@ -37,14 +37,14 @@ class CognitiveTracker(private val embedder: SentenceEmbedder) {
                 activeI++
             }
         }
-        val agencyScore = activeI.toFloat() / (passiveCount + 1).toFloat()
+        val agencyScore = (activeI - passiveCount).toFloat() / (activeI + passiveCount + 1).toFloat()
         
         // 3. Epistemic Modality: Absolutes vs Hedging
         val absolutes = setOf("always", "never", "definitely", "absolutely", "certainly", "must", "impossible", "clearly", "obviously")
         val hedges = setOf("maybe", "perhaps", "might", "could", "seems", "probably", "possibly", "guess", "assume", "think")
         val absoluteCount = words.count { it in absolutes }
         val hedgeCount = words.count { it in hedges }
-        val epistemicModality = absoluteCount.toFloat() - hedgeCount.toFloat()
+        val epistemicModality = (absoluteCount - hedgeCount).toFloat() / (absoluteCount + hedgeCount + 1).toFloat()
         
         // 4. Processing Markers: Words indicating cognitive processing or causal reasoning
         val processingWords = setOf("because", "therefore", "realize", "realized", "understand", "understood", "sense", "meaning", "figure", "learn", "learned")
