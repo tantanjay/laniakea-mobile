@@ -45,6 +45,8 @@ import com.laniakea.manager.VaultManager
 import com.laniakea.manager.WeeklyDigestManager
 import com.laniakea.manager.WritingMetrics
 import com.laniakea.data.WeeklyDigest
+import com.laniakea.engine.AnomalyDetector
+import com.laniakea.engine.CognitiveTracker
 import kotlin.time.Duration.Companion.milliseconds
 
 class LaniakeaViewModel(application: Application) : AndroidViewModel(application) {
@@ -69,8 +71,17 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     private val semanticManager = SemanticManager(db, embedder, securityManager) { isEngineActive }
 
     private val digestManager = WeeklyDigestManager(db, securityManager) { isEngineActive }
+    
+    private val anomalyDetector = AnomalyDetector(db.diaryDao())
+    private val cognitiveTracker = CognitiveTracker(embedder)
 
     // UI State
+    var currentAnomalyAlert by mutableStateOf<Pair<DiaryEntry, Float>?>(null)
+        private set
+
+    fun dismissAnomalyAlert() {
+        currentAnomalyAlert = null
+    }
     var userName by mutableStateOf("Traveller")
     var theme by mutableStateOf("PURPLE")
     var selectedThemes by mutableStateOf<List<String>>(emptyList())
@@ -351,14 +362,33 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     val aiVibe = VibeEngine.calculateVibeScore(vector)
                     val semanticTheme = semanticManager.classifyTheme(rawVector)
                     
+                    val metrics = cognitiveTracker.analyze(content, vector)
+                    
                     val entryToSave = securityManager.encryptEntry(
-                        rawEntry.copy(latentVibe = aiVibe.toDouble(), isVectorized = true)
+                        rawEntry.copy(
+                            latentVibe = aiVibe.toDouble(), 
+                            isVectorized = true,
+                            syntacticPacing = metrics.syntacticPacing,
+                            agencyScore = metrics.agencyScore,
+                            epistemicModality = metrics.epistemicModality,
+                            processingMarkers = metrics.processingMarkers,
+                            temporalHorizon = metrics.temporalHorizon
+                        )
                     )
 
                     val entryId = db.diaryDao().insertEntry(entryToSave)
                     ObjectBoxManager.vectorBox.put(
                         ObjectBoxSentenceVector(entryId = entryId, vector = vector, semanticTheme = semanticTheme)
                     )
+                    
+                    // Check for anomaly
+                    val anomalyResult = anomalyDetector.detectAnomaly(vector)
+                    if (anomalyResult.second) { // isAnomaly
+                        withContext(Dispatchers.Main) {
+                            currentAnomalyAlert = Pair(rawEntry, anomalyResult.first)
+                        }
+                    }
+
                     refreshData()
                     return@launch
                 }
@@ -394,7 +424,17 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                         val aiVibe = VibeEngine.calculateVibeScore(vector)
                         val semanticTheme = semanticManager.classifyTheme(rawVector)
                         
-                        updatedEntriesBatch.add(entry.copy(latentVibe = aiVibe.toDouble(), isVectorized = true))
+                        val metrics = cognitiveTracker.analyze(decryptedContent, vector)
+                        
+                        updatedEntriesBatch.add(entry.copy(
+                            latentVibe = aiVibe.toDouble(), 
+                            isVectorized = true,
+                            syntacticPacing = metrics.syntacticPacing,
+                            agencyScore = metrics.agencyScore,
+                            epistemicModality = metrics.epistemicModality,
+                            processingMarkers = metrics.processingMarkers,
+                            temporalHorizon = metrics.temporalHorizon
+                        ))
                         vectorBatch.add(
                             ObjectBoxSentenceVector(entryId = entry.id, vector = vector, semanticTheme = semanticTheme)
                         )
