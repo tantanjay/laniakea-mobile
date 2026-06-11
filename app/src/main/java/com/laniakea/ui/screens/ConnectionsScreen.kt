@@ -49,14 +49,37 @@ import com.laniakea.viewmodel.LaniakeaViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import kotlin.math.min
 import kotlin.time.Duration.Companion.milliseconds
 import androidx.compose.ui.platform.LocalLocale
+import com.laniakea.engine.LayoutMode
+
+val communityColors = listOf(
+    Color(0xFFE91E63), // Pink
+    Color(0xFF9C27B0), // Purple
+    Color(0xFF3F51B5), // Indigo
+    Color(0xFF00BCD4), // Cyan
+    Color(0xFF4CAF50), // Green
+    Color(0xFFFFC107), // Amber
+    Color(0xFFFF5722), // Deep Orange
+    Color(0xFF795548), // Brown
+    Color(0xFF607D8B), // Blue Grey
+    Color(0xFF8BC34A)  // Light Green
+)
+
+enum class ColorMode { MOOD, COMMUNITY }
+
+fun getCommunityColor(clusterId: Int): Color {
+    if (clusterId < 0) return Color.Gray
+    return communityColors[clusterId % communityColors.size]
+}
 
 @Composable
 fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val allEntries by vm.allEntries.collectAsState()
     val isEngineActive = vm.isEngineActive
+
+    var colorMode by remember { mutableStateOf(ColorMode.MOOD) }
+    var layoutMode by remember { mutableStateOf(LayoutMode.GALAXY) }
 
     var allNodes by remember { mutableStateOf<List<GraphNode>>(emptyList()) }
     var allEdges by remember { mutableStateOf<List<GraphEdge>>(emptyList()) }
@@ -142,6 +165,7 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     // Live physics for the "Settle" button only
     LaunchedEffect(isSettling) {
         if (isSettling) {
+            graphEngine.layoutMode = layoutMode
             graphEngine.startLiveSimulation()
             var steps = 0
             while (isSettling && steps < 200) {
@@ -151,6 +175,13 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 steps++
             }
             isSettling = false
+        }
+    }
+    
+    // Automatically settle when switching layout modes
+    LaunchedEffect(layoutMode) {
+        if (hasBuiltGraph && !isReplaying) {
+            isSettling = true
         }
     }
     
@@ -262,12 +293,16 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     val edgeAlpha = (0.04f + normalizedWeight * 0.25f) * drawScale.coerceIn(0.05f, 1f)
                     val edgeWidth = (0.5f + normalizedWeight * 2f) * visualScale
                     
-                    val avgMood = (edge.source.moodScore + edge.target.moodScore) / 2.0
-                    val edgeColor = when {
-                        avgMood >= 0.5 -> Color(0xFF64FFDA)
-                        avgMood >= -0.2 -> Color(0xFF82B1FF)
-                        avgMood >= -0.6 -> Color(0xFFFFAB40)
-                        else -> Color(0xFFFF5252)
+                    val edgeColor = if (colorMode == ColorMode.MOOD) {
+                        val avgMood = (edge.source.moodScore + edge.target.moodScore) / 2.0
+                        when {
+                            avgMood >= 0.5 -> Color(0xFF64FFDA)
+                            avgMood >= -0.2 -> Color(0xFF82B1FF)
+                            avgMood >= -0.6 -> Color(0xFFFFAB40)
+                            else -> Color(0xFFFF5252)
+                        }
+                    } else {
+                        if (edge.source.clusterId == edge.target.clusterId) getCommunityColor(edge.source.clusterId) else Color.Gray.copy(alpha = 0.3f)
                     }
                     
                     drawLine(
@@ -288,19 +323,20 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             projectedNodes.forEach { (node, p) ->
                 if (p.z + cameraZ > 0) {
                     val isSelected = node == selectedNode
-                    val nodeColor = getMoodNodeColor(node.moodScore)
-                    
-                    val connectionCount = visibleEdges.count { 
-                        it.source.entryId == node.entryId || it.target.entryId == node.entryId 
-                    }
-                    
+                    val nodeColor = if (colorMode == ColorMode.MOOD) getMoodNodeColor(node.moodScore) else getCommunityColor(node.clusterId)
+
                     val drawScale = p.scale.coerceAtMost(3f)
                     // Shrink nodes faster when zoomed out so they look like tiny stars
                     val visualScale = if (drawScale < 1f) drawScale * drawScale else drawScale
                     
                     val alphaFactor = p.scale.coerceIn(0.1f, 1f)
-                    val baseRadius = (3f + min(connectionCount * 1.0f, 8f)) * visualScale
-                    val glowRadius = baseRadius * 2.0f
+                    
+                    val importanceSq = node.importance * node.importance
+                    val importanceScale = 1f + (importanceSq * 1.0f) // Supernovas get up to 2x larger
+                    
+                    // Base radius doesn't double-count connection count anymore, importance handles it
+                    val baseRadius = 3.5f * visualScale * importanceScale
+                    val glowRadius = baseRadius * (1.8f + node.importance * 1.2f) // Glow scales linearly with importance
                     
                     // Outer glow
                     drawCircle(
@@ -309,7 +345,7 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         center = Offset(p.x, p.y)
                     )
                     
-                    // Mid glow
+                    // Mid-glow
                     drawCircle(
                         color = nodeColor.copy(alpha = (if (isSelected) 0.4f else 0.15f) * alphaFactor),
                         radius = if (isSelected) baseRadius * 1.8f else baseRadius * 1.4f,
@@ -333,15 +369,15 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     // Selection ring
                     if (isSelected) {
                         drawCircle(
-                            color = Color.White.copy(alpha = 0.6f),
-                            radius = baseRadius * 2f,
+                            color = nodeColor,
+                            radius = 2.5f * drawScale,
                             center = Offset(p.x, p.y),
                             style = Stroke(width = 1.0f * drawScale)
                         )
                     }
                     
-                    // Text label in focus mode
-                    if (isIsolateMode) {
+                    // Text label in focus mode OR high importance node
+                    if (isIsolateMode || (node.importance > 0.85f && node.theme != "Unknown" && drawScale > 0.3f)) {
                         val nodeMoodLabel = when {
                             node.moodScore > 1.5 -> "🤩 Awesome"
                             node.moodScore > 0.5 -> "🙂 Good"
@@ -354,12 +390,12 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         
                         val labelText = buildAnnotatedString {
                             if (node.theme != "Unknown") {
-                                withStyle(SpanStyle(fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.9f))) {
+                                withStyle(SpanStyle(fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = if (isIsolateMode) 0.9f else 0.75f))) {
                                     append(node.theme)
                                 }
                                 append("\n")
                             }
-                            withStyle(SpanStyle(fontWeight = FontWeight.Light, color = Color.White.copy(alpha = 0.7f), fontSize = (7f * visualScale).coerceIn(5f, 9f).sp)) {
+                            withStyle(SpanStyle(fontWeight = FontWeight.Light, color = Color.White.copy(alpha = if (isIsolateMode) 0.7f else 0.5f), fontSize = (7f * visualScale).coerceIn(5f, 9f).sp)) {
                                 append("$dateString  •  $nodeMoodLabel")
                             }
                         }
@@ -383,7 +419,7 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         
                         // Draw background card
                         drawRoundRect(
-                            color = Color(0xFF1E1E2E).copy(alpha = 0.85f),
+                            color = Color(0xFF1E1E2E).copy(alpha = if (isIsolateMode) 0.85f else 0.45f),
                             topLeft = cardOffset,
                             size = Size(cardWidth, cardHeight),
                             cornerRadius = CornerRadius(12f, 12f)
@@ -551,18 +587,85 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             
             // Controls moved to BottomEnd
             
-            // Legend
             Spacer(modifier = Modifier.height(12.dp))
             Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                LegendDot(Color(0xFF64FFDA), "Positive")
-                LegendDot(Color(0xFF82B1FF), "Neutral")
-                LegendDot(Color(0xFFFFAB40), "Low")
-                LegendDot(Color(0xFFFF5252), "Negative")
+                // Layout Mode Toggle (Galaxy | Time Warp)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                        .padding(4.dp)
+                ) {
+                    TextButton(
+                        onClick = { layoutMode = LayoutMode.GALAXY },
+                        colors = ButtonDefaults.textButtonColors(
+                            containerColor = if (layoutMode == LayoutMode.GALAXY) Color.White.copy(alpha=0.2f) else Color.Transparent
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("Galaxy", color = Color.White, fontSize = 12.sp)
+                    }
+                    TextButton(
+                        onClick = { layoutMode = LayoutMode.TIME_WARP },
+                        colors = ButtonDefaults.textButtonColors(
+                            containerColor = if (layoutMode == LayoutMode.TIME_WARP) Color.White.copy(alpha=0.2f) else Color.Transparent
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("Time Warp", color = Color.White, fontSize = 12.sp)
+                    }
+                }
+                
+                // Color Mode Toggle (Mood | Themes)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                        .padding(4.dp)
+                ) {
+                    TextButton(
+                        onClick = { colorMode = ColorMode.MOOD },
+                        colors = ButtonDefaults.textButtonColors(
+                            containerColor = if (colorMode == ColorMode.MOOD) Color.White.copy(alpha=0.2f) else Color.Transparent
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("Mood", color = Color.White, fontSize = 12.sp)
+                    }
+                    TextButton(
+                        onClick = { colorMode = ColorMode.COMMUNITY },
+                        colors = ButtonDefaults.textButtonColors(
+                            containerColor = if (colorMode == ColorMode.COMMUNITY) Color.White.copy(alpha=0.2f) else Color.Transparent
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("Themes", color = Color.White, fontSize = 12.sp)
+                    }
+                }
+            }
+            
+            // Legend
+            if (colorMode == ColorMode.MOOD) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    LegendDot(Color(0xFF64FFDA), "Positive")
+                    LegendDot(Color(0xFF82B1FF), "Neutral")
+                    LegendDot(Color(0xFFFFAB40), "Low")
+                    LegendDot(Color(0xFFFF5252), "Negative")
+                }
             }
         }
         
