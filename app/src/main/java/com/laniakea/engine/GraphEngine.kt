@@ -8,6 +8,10 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.math.abs
+import kotlin.math.exp
+
+enum class LayoutMode { GALAXY, TIME_WARP }
 
 data class GraphNode(
     val entryId: Long,
@@ -20,7 +24,10 @@ data class GraphNode(
     val date: Long,
     val theme: String,
     val moodScore: Double,
-    val content: String
+    val content: String,
+    var clusterId: Int = -1,
+    var clusterName: String = "Uncharted Thoughts",
+    var importance: Float = 0f
 )
 
 data class GraphEdge(
@@ -30,6 +37,10 @@ data class GraphEdge(
 )
 
 class GraphEngine {
+    
+    var layoutMode: LayoutMode = LayoutMode.GALAXY
+    private var minDate: Long = 0L
+    private var maxDate: Long = 0L
     
     fun buildInitialGraph(
         entries: List<DiaryEntry>,
@@ -84,9 +95,17 @@ class GraphEngine {
                 val v2 = vectorMap[e2.id]!!.vector
                 
                 if (v1 != null && v2 != null) {
-                    val sim = cosineSimilarity(v1, v2)
-                    if (sim >= similarityThreshold) {
-                        edgeCandidates.add(GraphEdge(nodeMap[e1.id]!!, nodeMap[e2.id]!!, sim))
+                    val rawSim = cosineSimilarity(v1, v2)
+                    
+                    // Filter by raw semantic similarity first to drop unrelated thoughts
+                    if (rawSim >= similarityThreshold) {
+                        val daysApart = kotlin.math.abs(e1.dateTime - e2.dateTime).toDouble() / (24L * 60 * 60 * 1000).toDouble()
+                        val temporalFactor = kotlin.math.exp(-daysApart / 90.0).toFloat()
+                        
+                        // Hybrid Score: Topic + Era
+                        val hybridScore = rawSim * temporalFactor
+                        
+                        edgeCandidates.add(GraphEdge(nodeMap[e1.id]!!, nodeMap[e2.id]!!, hybridScore))
                     }
                 }
             }
@@ -110,10 +129,104 @@ class GraphEngine {
         }
         val edges = edgesSet.toList()
         
+        if (nodes.isNotEmpty()) {
+            minDate = nodes.minOf { it.date }
+            maxDate = nodes.maxOf { it.date }
+        }
+        
+        // --- Calculate Importance Score ---
+        val now = System.currentTimeMillis()
+        var maxRawImportance = 0.001f
+        for (node in nodes) {
+            val daysAgo = (now - node.date) / (1000f * 60f * 60f * 24f)
+            val recencyBoost = exp(-daysAgo / 90.0f) // 90-day half-life for recency
+            
+            val connectionCount = edgesByNode[node.entryId]?.size ?: 0
+            val moodIntensity = abs(node.moodScore.toFloat())
+            val lengthFactor = min(node.content.length / 500f, 1f)
+            
+            val rawImportance = moodIntensity + (connectionCount * 0.15f) + recencyBoost + lengthFactor
+            node.importance = rawImportance
+            if (rawImportance > maxRawImportance) {
+                maxRawImportance = rawImportance
+            }
+        }
+        
+        // Normalize importance to 0.0 - 1.0 range
+        for (node in nodes) {
+            node.importance /= maxRawImportance
+        }
+        
+        // Run Community Detection BEFORE settling layout so physics can use clusters
+        detectCommunities(nodes, edges)
+        
         // Pre-settle the layout so it appears stable immediately
         settleLayout(nodes, edges, width, height)
         
         return Pair(nodes, edges)
+    }
+    
+    /**
+     * Label Propagation Algorithm (LPA) for unsupervised community detection.
+     * Iteratively groups nodes based on edge weights and dynamically names clusters.
+     */
+    private fun detectCommunities(nodes: List<GraphNode>, edges: List<GraphEdge>) {
+        if (nodes.isEmpty()) return
+        
+        // 1. Initialize labels
+        nodes.forEachIndexed { index, node -> node.clusterId = index }
+        
+        val adj = mutableMapOf<Long, MutableList<GraphEdge>>()
+        nodes.forEach { adj[it.entryId] = mutableListOf() }
+        edges.forEach {
+            adj[it.source.entryId]!!.add(it)
+            adj[it.target.entryId]!!.add(it)
+        }
+        
+        // 2. Propagate labels
+        var changed = true
+        var iterations = 0
+        while (changed && iterations < 15) {
+            changed = false
+            val shuffledNodes = nodes.shuffled()
+            for (node in shuffledNodes) {
+                val neighborEdges = adj[node.entryId]!!
+                if (neighborEdges.isEmpty()) continue
+                
+                val labelWeights = mutableMapOf<Int, Float>()
+                for (edge in neighborEdges) {
+                    val neighbor = if (edge.source.entryId == node.entryId) edge.target else edge.source
+                    labelWeights[neighbor.clusterId] = (labelWeights[neighbor.clusterId] ?: 0f) + edge.weight
+                }
+                
+                val bestLabel = labelWeights.maxByOrNull { it.value }?.key ?: node.clusterId
+                if (bestLabel != node.clusterId) {
+                    node.clusterId = bestLabel
+                    changed = true
+                }
+            }
+            iterations++
+        }
+        
+        // 3. Dynamic Cluster Naming
+        val clusters = nodes.groupBy { it.clusterId }
+        for ((clusterId, clusterNodes) in clusters) {
+            // Find most frequent theme, ignoring Unknown
+            val validThemes = clusterNodes.map { it.theme }.filter { it != "Unknown" && it.isNotBlank() }
+            val dominantTheme = validThemes.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
+            
+            val clusterName = if (dominantTheme != null) {
+                dominantTheme
+            } else {
+                // Fallback: extract most common word > 4 chars if no theme
+                val words = clusterNodes.flatMap { it.content.lowercase().split(Regex("[^a-z]+")) }
+                    .filter { it.length > 4 }
+                val topWord = words.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
+                if (topWord != null) topWord.replaceFirstChar { it.uppercase() } + " Thoughts" else "Uncharted Thoughts"
+            }
+            
+            clusterNodes.forEach { it.clusterName = clusterName }
+        }
     }
     
     /**
@@ -177,7 +290,48 @@ class GraphEngine {
         val progress = step.toFloat() / totalSteps.toFloat()
         val temperature = maxOf(0.3f, 30f * (1f - progress * progress))
         
-        // --- Repulsion: push apart when within 3× ideal spacing ---
+        // --- Anchors ---
+        val clusterCounts = mutableMapOf<Int, Int>()
+        nodes.forEach { clusterCounts[it.clusterId] = (clusterCounts[it.clusterId] ?: 0) + 1 }
+        
+        val clustersBySize = clusterCounts.entries.sortedByDescending { it.value }
+        val numClusters = clustersBySize.size.coerceAtLeast(1)
+        val maxRingRadius = maxRadius * 1.5f // Expand the galaxy to give arms more room
+        
+        val clusterAnchors = mutableMapOf<Int, Triple<Float, Float, Float>>()
+        
+        if (layoutMode == LayoutMode.GALAXY) {
+            clustersBySize.forEachIndexed { index, entry ->
+                val cId = entry.key
+                val goldenRatio = 1.61803398875
+                val angle = index * goldenRatio * Math.PI * 2.0
+                
+                val radiusFraction = index.toFloat() / numClusters.coerceAtLeast(2).toFloat()
+                val r = maxRingRadius * (0.15f + 0.85f * radiusFraction)
+                
+                val ax = centerX + (kotlin.math.cos(angle) * r).toFloat()
+                val ay = centerY + (kotlin.math.sin(angle) * r).toFloat()
+                val az = centerZ + ((index % 2 * 2 - 1) * r * 0.3f)
+                
+                clusterAnchors[cId] = Triple(ax, ay, az)
+            }
+        } else {
+            // TIME WARP: Flatten clusters onto YZ plane, creating parallel lanes
+            clustersBySize.forEachIndexed { index, entry ->
+                val cId = entry.key
+                val angle = index * 2.0 * Math.PI / numClusters
+                // Tighter ring so they don't drift too far off screen vertically
+                val r = maxRingRadius * 0.6f 
+                
+                val ay = centerY + (kotlin.math.cos(angle) * r).toFloat()
+                val az = centerZ + (kotlin.math.sin(angle) * r).toFloat()
+                
+                // X anchor doesn't matter here, it's overridden per node
+                clusterAnchors[cId] = Triple(centerX, ay, az)
+            }
+        }
+        
+        // --- Pairwise Physics: Repulsion & Theme Gravity ---
         val repulsionCutoffSq = (idealSpacing * 3f) * (idealSpacing * 3f)
         for (i in nodes.indices) {
             for (j in i + 1 until n) {
@@ -188,12 +342,16 @@ class GraphEngine {
                 val dz = a.z - b.z
                 val distSq = dx * dx + dy * dy + dz * dz
                 
-                if (distSq < repulsionCutoffSq && distSq > 0.01f) {
-                    val dist = sqrt(distSq).coerceAtLeast(1f)
+                if (distSq < 0.01f) continue
+                
+                val dist = sqrt(distSq).coerceAtLeast(1f)
+                val ux = dx / dist
+                val uy = dy / dist
+                val uz = dz / dist
+                
+                // 1. Repulsion: push apart when within 3x ideal spacing
+                if (distSq < repulsionCutoffSq) {
                     val force = min(spacingSq / dist, temperature) * 0.5f
-                    val ux = dx / dist
-                    val uy = dy / dist
-                    val uz = dz / dist
                     a.vx += ux * force
                     a.vy += uy * force
                     a.vz += uz * force
@@ -229,14 +387,45 @@ class GraphEngine {
             b.vz += uz * cappedForce
         }
         
-        // --- Gentle center gravity ---
+        // --- Gravity & Timeline Lock ---
+        val dateSpan = (maxDate - minDate).coerceAtLeast(1L).toFloat()
+        val timelineWidth = width * 2.0f // Stretch the timeline out for the "tunnel" effect
+        
         for (node in nodes) {
-            val dx = centerX - node.x
-            val dy = centerY - node.y
-            val dz = centerZ - node.z
-            node.vx += dx * 0.03f
-            node.vy += dy * 0.03f
-            node.vz += dz * 0.03f
+            val anchor = clusterAnchors[node.clusterId] ?: Triple(centerX, centerY, centerZ)
+            
+            if (layoutMode == LayoutMode.GALAXY) {
+                // Strong pull to their specific cluster anchor
+                val adx = anchor.first - node.x
+                val ady = anchor.second - node.y
+                val adz = anchor.third - node.z
+                node.vx += adx * 0.035f
+                node.vy += ady * 0.035f
+                node.vz += adz * 0.035f
+                
+                // Very weak pull to absolute center to keep the galaxy intact
+                val gdx = centerX - node.x
+                val gdy = centerY - node.y
+                val gdz = centerZ - node.z
+                node.vx += gdx * 0.005f
+                node.vy += gdy * 0.005f
+                node.vz += gdz * 0.005f
+            } else {
+                // TIME WARP
+                // X is strongly locked to chronological date
+                val dateProgress = (node.date - minDate).toFloat() / dateSpan
+                val targetX = (centerX - timelineWidth / 2f) + (dateProgress * timelineWidth)
+                
+                val adx = targetX - node.x
+                val ady = anchor.second - node.y
+                val adz = anchor.third - node.z
+                
+                // Extremely strong pull to the timeline X
+                node.vx += adx * 0.15f 
+                // Strong pull to the YZ cluster lanes
+                node.vy += ady * 0.05f
+                node.vz += adz * 0.05f
+            }
         }
         
         // --- Apply velocities with damping ---
@@ -258,18 +447,20 @@ class GraphEngine {
             node.y += node.vy
             node.z += node.vz
             
-            // Hard radial clamp
-            val dxc = node.x - centerX
-            val dyc = node.y - centerY
-            val dzc = node.z - centerZ
-            val distc = sqrt(dxc * dxc + dyc * dyc + dzc * dzc)
-            if (distc > maxRadius) {
-                node.x = centerX + (dxc / distc) * maxRadius
-                node.y = centerY + (dyc / distc) * maxRadius
-                node.z = centerZ + (dzc / distc) * maxRadius
-                node.vx *= 0.1f
-                node.vy *= 0.1f
-                node.vz *= 0.1f
+            // Soft radial clamp for Galaxy mode ONLY
+            if (layoutMode == LayoutMode.GALAXY) {
+                val dxc = node.x - centerX
+                val dyc = node.y - centerY
+                val dzc = node.z - centerZ
+                val distc = sqrt(dxc * dxc + dyc * dyc + dzc * dzc)
+                if (distc > maxRadius) {
+                    val excess = distc - maxRadius
+                    // Apply a strong elastic force pushing them back inside the sphere
+                    // instead of a hard teleport, so they can naturally sort themselves into the spiral
+                    node.vx -= (dxc / distc) * excess * 0.15f
+                    node.vy -= (dyc / distc) * excess * 0.15f
+                    node.vz -= (dzc / distc) * excess * 0.15f
+                }
             }
         }
     }
