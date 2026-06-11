@@ -97,7 +97,10 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     
     var yaw by remember { mutableFloatStateOf(0f) }
     var pitch by remember { mutableFloatStateOf(0f) }
+    var cameraX by remember { mutableFloatStateOf(0f) }
+    var cameraY by remember { mutableFloatStateOf(0f) }
     var cameraZ by remember { mutableFloatStateOf(800f) }
+    var activePointers by remember { mutableIntStateOf(0) }
     
     var selectedNode by remember { mutableStateOf<GraphNode?>(null) }
     var isIsolateMode by remember { mutableStateOf(false) }
@@ -250,19 +253,32 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            activePointers = event.changes.count { it.pressed }
+                        }
+                    }
+                }
+                .pointerInput(Unit) {
                     detectTransformGestures { _, pan, zoom, _ ->
                         if (zoom != 1f) {
                             cameraZ = (cameraZ / zoom).coerceIn(50f, 4000f)
                         }
-                        yaw += pan.x * 0.005f
-                        pitch -= pan.y * 0.005f
+                        if (activePointers >= 3) {
+                            cameraX -= pan.x * 1.5f
+                            cameraY -= pan.y * 1.5f
+                        } else {
+                            yaw += pan.x * 0.005f
+                            pitch -= pan.y * 0.005f
+                        }
                     }
                 }
                 .pointerInput(Unit) {
                     detectTapGestures { tapOffset ->
                         val center = Offset(layoutWidth / 2f, layoutHeight / 2f)
                         val projectedNodes = currentVisibleNodes.map { node ->
-                            node to projectPoint(node.x, node.y, node.z, center, yaw, pitch, cameraZ)
+                            node to projectPoint(node.x, node.y, node.z, center, yaw, pitch, cameraX, cameraY, cameraZ)
                         }.sortedByDescending { it.second.z }
                         
                         val clicked = projectedNodes.findLast { (_, p) ->
@@ -281,8 +297,8 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             
             // Draw Edges
             visibleEdges.forEach { edge ->
-                val p1 = projectPoint(edge.source.x, edge.source.y, edge.source.z, canvasCenter, yaw, pitch, cameraZ)
-                val p2 = projectPoint(edge.target.x, edge.target.y, edge.target.z, canvasCenter, yaw, pitch, cameraZ)
+                val p1 = projectPoint(edge.source.x, edge.source.y, edge.source.z, canvasCenter, yaw, pitch, cameraX, cameraY, cameraZ)
+                val p2 = projectPoint(edge.target.x, edge.target.y, edge.target.z, canvasCenter, yaw, pitch, cameraX, cameraY, cameraZ)
                 
                 if (p1.z + cameraZ > 0 && p2.z + cameraZ > 0) {
                     val normalizedWeight = ((edge.weight - 0.55f) / 0.45f).coerceIn(0f, 1f)
@@ -317,7 +333,7 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             
             // Draw Nodes
             val projectedNodes = visibleNodes.map { node ->
-                node to projectPoint(node.x, node.y, node.z, canvasCenter, yaw, pitch, cameraZ)
+                node to projectPoint(node.x, node.y, node.z, canvasCenter, yaw, pitch, cameraX, cameraY, cameraZ)
             }.sortedByDescending { it.second.z } // Distant nodes first
             
             projectedNodes.forEach { (node, p) ->
@@ -434,6 +450,69 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                             topLeft = textOffset
                         )
                     }
+                }
+            }
+            
+            // Time Warp HUD Labels
+            if (layoutMode == LayoutMode.TIME_WARP && allNodes.isNotEmpty()) {
+                val minDate = allNodes.minOf { it.date }
+                val maxDate = allNodes.maxOf { it.date }
+                val dateSpan = (maxDate - minDate).coerceAtLeast(1L)
+                val spanDays = dateSpan / (1000L * 60 * 60 * 24)
+                
+                val calendar = java.util.Calendar.getInstance()
+                calendar.timeInMillis = minDate
+                
+                val (calendarField, formatStr) = when {
+                    spanDays <= 365 * 3 -> java.util.Calendar.MONTH to "MMM yyyy"
+                    else -> java.util.Calendar.YEAR to "yyyy"
+                }
+                // Quarterly if > 6 months, else Monthly
+                val step = if (spanDays > 180 && spanDays <= 365 * 3) 3 else 1
+                
+                if (calendarField == java.util.Calendar.MONTH) {
+                    calendar.set(java.util.Calendar.DAY_OF_MONTH, 1)
+                } else {
+                    calendar.set(java.util.Calendar.DAY_OF_YEAR, 1)
+                }
+                
+                val formatter = SimpleDateFormat(formatStr, Locale.getDefault())
+                val timelineWidth = layoutWidth * 2.0f
+                val timelineY = layoutHeight / 2f - 600f // Floating high above the tunnel
+                val timelineZ = 0f
+                
+                while (calendar.timeInMillis <= maxDate) {
+                    val tickTime = calendar.timeInMillis
+                    if (tickTime >= minDate) {
+                        val dateProgress = (tickTime - minDate).toFloat() / dateSpan.toFloat()
+                        val targetX = (layoutWidth / 2f - timelineWidth / 2f) + (dateProgress * timelineWidth)
+                        
+                        val p = projectPoint(targetX, timelineY, timelineZ, canvasCenter, yaw, pitch, cameraX, cameraY, cameraZ)
+                        
+                        if (p.z + cameraZ > 0 && p.scale > 0.1f) {
+                            val label = formatter.format(Date(tickTime))
+                            val textLayoutResult = textMeasurer.measure(
+                                text = label,
+                                style = TextStyle(
+                                    color = Color.White.copy(alpha = 0.5f), 
+                                    fontSize = (12f * p.scale.coerceIn(0.5f, 2.5f)).sp, 
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                            drawText(
+                                textLayoutResult = textLayoutResult,
+                                topLeft = Offset(p.x - textLayoutResult.size.width / 2f, p.y - textLayoutResult.size.height / 2f)
+                            )
+                            // Draw indicator line pointing down to the timeline
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.2f),
+                                start = Offset(p.x, p.y + textLayoutResult.size.height / 2f + 8f),
+                                end = Offset(p.x, p.y + textLayoutResult.size.height / 2f + 50f * p.scale),
+                                strokeWidth = 2f * p.scale
+                            )
+                        }
+                    }
+                    calendar.add(calendarField, step)
                 }
             }
         }
@@ -715,6 +794,8 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         onClick = { 
                             yaw = 0f
                             pitch = 0f
+                            cameraX = 0f
+                            cameraY = 0f
                             cameraZ = 800f
                         },
                         containerColor = Color.White.copy(alpha = 0.1f),
@@ -723,7 +804,11 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         Icon(Icons.Default.Home, contentDescription = "Reset View")
                     }
                     FloatingActionButton(
-                        onClick = { isSettling = true },
+                        onClick = { 
+                            isSettling = true 
+                            cameraX = 0f
+                            cameraY = 0f
+                        },
                         containerColor = Color.White.copy(alpha = 0.1f),
                         contentColor = Color.White.copy(alpha = 0.8f)
                     ) {
@@ -844,9 +929,9 @@ private fun getMoodNodeColor(moodScore: Double): Color {
 
 data class ProjectedPoint(val x: Float, val y: Float, val z: Float, val scale: Float)
 
-fun projectPoint(nodeX: Float, nodeY: Float, nodeZ: Float, canvasCenter: Offset, yaw: Float, pitch: Float, cameraZ: Float): ProjectedPoint {
-    val relX = nodeX - canvasCenter.x
-    val relY = nodeY - canvasCenter.y
+fun projectPoint(nodeX: Float, nodeY: Float, nodeZ: Float, canvasCenter: Offset, yaw: Float, pitch: Float, cameraX: Float, cameraY: Float, cameraZ: Float): ProjectedPoint {
+    val relX = nodeX - canvasCenter.x - cameraX
+    val relY = nodeY - canvasCenter.y - cameraY
 
     val cosYaw = kotlin.math.cos(yaw.toDouble()).toFloat()
     val sinYaw = kotlin.math.sin(yaw.toDouble()).toFloat()
