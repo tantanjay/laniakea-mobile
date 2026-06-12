@@ -5,11 +5,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
@@ -17,7 +12,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,27 +49,66 @@ import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
 import androidx.compose.ui.platform.LocalLocale
 import com.laniakea.engine.LayoutMode
+import com.laniakea.ui.components.map.getCommunityColor
+import com.laniakea.ui.components.map.getMoodNodeColor
+import com.laniakea.ui.components.map.projectPoint
+import com.laniakea.ui.components.map.MapControls
+import com.laniakea.ui.components.map.MapLegend
+import com.laniakea.ui.components.map.MapNodeDetailPanel
+import com.laniakea.ui.components.map.MapStatsBadge
+import com.laniakea.ui.components.map.MapConnectionsDialog
 
 enum class ColorMode { MOOD, COMMUNITY }
 
-fun getCommunityColor(clusterName: String): Color {
-    if (clusterName == "Unknown" || clusterName.isBlank()) return Color.Gray
-    // Stable hash ensures the same theme always gets the exact same color
-    val hash = kotlin.math.abs(clusterName.hashCode())
-    val hue = (hash * 137.508f) % 360f
-    // 85% saturation for vibrancy, 100% value for brightness
-    val hsvColor = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.85f, 1.0f))
-    return Color(hsvColor)
-}
+data class GalaxyStar(val x: Float, val y: Float, val z: Float, val size: Float, val color: Color)
 
 @Composable
-fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
+fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val allEntries by vm.allEntries.collectAsState()
     val isEngineActive = vm.isEngineActive
     val isEngineLoading = vm.isEngineLoading
 
     var colorMode by remember { mutableStateOf(ColorMode.MOOD) }
     var layoutMode by remember { mutableStateOf(LayoutMode.CLUSTERS) }
+
+    val backgroundStars = remember {
+        val list = mutableListOf<GalaxyStar>()
+        val numStars = 4000
+        val numArms = 2
+        val random = java.util.Random()
+
+        for (i in 0 until numStars) {
+            val isCore = i < numStars * 0.35f
+            if (isCore) {
+                val r = (kotlin.math.abs(random.nextGaussian()) * 150f).toFloat()
+                val theta = random.nextDouble() * 2 * Math.PI
+                val phi = kotlin.math.acos(2 * random.nextDouble() - 1)
+                
+                val x = r * kotlin.math.sin(phi) * kotlin.math.cos(theta)
+                val y = r * kotlin.math.sin(phi) * kotlin.math.sin(theta)
+                val z = r * kotlin.math.cos(phi) * 0.8
+                
+                val color = Color(0xFFFFFFFF)
+                val size = random.nextFloat() * 1.5f + 0.5f
+                list.add(GalaxyStar(x.toFloat(), y.toFloat(), z.toFloat(), size, color))
+            } else {
+                val armIndex = i % numArms
+                val dist = (random.nextFloat() * 1000f) + 80f
+                val baseAngle = dist * 0.004f + (armIndex * (2 * Math.PI / numArms))
+                val spread = (random.nextGaussian() * (dist * 0.18f)).toFloat()
+                val angle = baseAngle + (spread * 0.002f)
+                val x = (kotlin.math.cos(angle) * dist).toFloat() + spread * kotlin.math.cos(angle + Math.PI/2).toFloat()
+                val y = (kotlin.math.sin(angle) * dist).toFloat() + spread * kotlin.math.sin(angle + Math.PI/2).toFloat()
+                val zThickness = (1000f - dist).coerceAtLeast(0f) * 0.03f
+                val z = (random.nextGaussian() * zThickness).toFloat()
+                
+                val color = Color(0xFFB0B0B0)
+                val size = random.nextFloat() * 2.0f + 0.5f
+                list.add(GalaxyStar(x, y, z, size, color))
+            }
+        }
+        list
+    }
 
     var allNodes by remember { mutableStateOf<List<GraphNode>>(emptyList()) }
     var allEdges by remember { mutableStateOf<List<GraphEdge>>(emptyList()) }
@@ -207,13 +240,28 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 animTime += 0.016f
                 
                 if (layoutMode == LayoutMode.CLUSTERS) {
-                    // Spin the galaxy like a disk using the new roll axis
+                    // Spin the clusters slowly like a disk
                     roll -= 0.003f
-                } else {
+                } else if (layoutMode == LayoutMode.TIME_WARP) {
                     // Warpy time tunnel animation: fly forward with a gentle warp wobble
                     cameraZ -= 3f
                     yaw = kotlin.math.sin(animTime * 0.5f) * 0.05f
                     pitch = -0.6f + kotlin.math.cos(animTime * 0.3f) * 0.05f
+                }
+            }
+        }
+    }
+    
+    // Continuous Galaxy Rotation
+    LaunchedEffect(layoutMode) {
+        if (layoutMode == LayoutMode.GALAXY) {
+            var t = 0f
+            while (true) {
+                delay(16L.milliseconds)
+                t += 0.016f
+                if (selectedNode == null && !showDetailPanelInFocusMode) {
+                    roll -= 0.002f // Spin around the galaxy's center
+                    yaw = kotlin.math.cos(t * 0.1f) * 0.1f
                 }
             }
         }
@@ -349,6 +397,21 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             layoutWidth = size.width
             layoutHeight = size.height
             val canvasCenter = Offset(size.width / 2f, size.height / 2f)
+            
+            // Draw Background Stars (Galaxy Mode only)
+            if (layoutMode == LayoutMode.GALAXY) {
+                backgroundStars.forEach { star ->
+                    val p = projectPoint(star.x + canvasCenter.x, star.y + canvasCenter.y, star.z, canvasCenter, yaw, pitch, roll, cameraX, cameraY, cameraZ)
+                    if (p.z + cameraZ > 0) {
+                        val visualScale = if (p.scale < 1f) p.scale * p.scale else p.scale
+                        if (visualScale > 0.05f) {
+                            val alphaFactor = visualScale.coerceIn(0.1f, 1f)
+                            drawCircle(color = star.color.copy(alpha = alphaFactor * 0.3f), radius = star.size * visualScale * 2.5f, center = Offset(p.x, p.y))
+                            drawCircle(color = star.color.copy(alpha = alphaFactor * 0.9f), radius = star.size * visualScale, center = Offset(p.x, p.y))
+                        }
+                    }
+                }
+            }
             
             // Draw Edges
             visibleEdges.forEach { edge ->
@@ -573,28 +636,11 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         }
 
         // Stats badge
-        Surface(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp),
-            shape = RoundedCornerShape(12.dp),
-            color = Color.White.copy(alpha = 0.08f),
-            tonalElevation = 0.dp
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Text(
-                    "${visibleNodes.size} thoughts",
-                    color = Color.White.copy(alpha = 0.9f),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    "${visibleEdges.size} connections",
-                    color = Color(0xFF64FFDA).copy(alpha = 0.8f),
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
-        }
+        MapStatsBadge(
+            nodeCount = visibleNodes.size,
+            edgeCount = visibleEdges.size,
+            modifier = Modifier.align(Alignment.TopEnd)
+        )
         
         // Node detail panel
         val showPanel = (!isIsolateMode && selectedNode != null) || (isIsolateMode && showDetailPanelInFocusMode && selectedNode != null)
@@ -616,105 +662,23 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 else -> "😫 Terrible"
             }
             
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(16.dp)
-                    .fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                color = Color(0xFF1E1E2E).copy(alpha = 0.95f),
-                tonalElevation = 8.dp,
-                shadowElevation = 8.dp
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Canvas(modifier = Modifier.size(12.dp)) {
-                                drawCircle(color = nodeColor, radius = size.minDimension / 2f)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            if (nodeToShow.theme != "Unknown") {
-                                Text(
-                                    text = nodeToShow.theme,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
-                        }
-                        IconButton(onClick = { 
-                            if (isIsolateMode) showDetailPanelInFocusMode = false else selectedNode = null 
-                        }) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White.copy(alpha = 0.6f))
-                        }
-                    }
-                    
-                    val nodeConnections = visibleEdges.count {
-                        it.source.entryId == nodeToShow.entryId || it.target.entryId == nodeToShow.entryId
-                    }
-                    
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(moodLabel, style = MaterialTheme.typography.bodySmall, color = nodeColor)
-                        
-                        Row {
-                            if (nodeConnections > 0) {
-                                TextButton(
-                                    onClick = { showConnectionsFor = nodeToShow },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                    modifier = Modifier.height(24.dp)
-                                ) {
-                                    Text("View All", style = MaterialTheme.typography.labelSmall, color = Color(0xFF82B1FF))
-                                }
-                            }
-                            if (!isIsolateMode) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                TextButton(
-                                    onClick = { 
-                                        isIsolateMode = true
-                                        showDetailPanelInFocusMode = false 
-                                    },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                    modifier = Modifier.height(24.dp)
-                                ) {
-                                    Text("Focus", style = MaterialTheme.typography.labelSmall, color = Color(0xFF64FFDA))
-                                }
-                            }
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "$nodeConnections similar thoughts connected",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF64FFDA).copy(alpha = 0.7f)
-                    )
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color.White.copy(alpha = 0.05f)
-                    ) {
-                        Text(
-                            text = decryptedContent,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.85f),
-                            modifier = Modifier
-                                .padding(12.dp)
-                                .heightIn(max = 150.dp)
-                                .verticalScroll(rememberScrollState())
-                        )
-                    }
-                }
-            }
+            MapNodeDetailPanel(
+                nodeToShow = nodeToShow,
+                decryptedContent = decryptedContent,
+                nodeColor = nodeColor,
+                moodLabel = moodLabel,
+                nodeConnections = visibleEdges.count { it.source.entryId == nodeToShow.entryId || it.target.entryId == nodeToShow.entryId },
+                isIsolateMode = isIsolateMode,
+                onClose = {
+                    if (isIsolateMode) showDetailPanelInFocusMode = false else selectedNode = null
+                },
+                onViewAll = { showConnectionsFor = nodeToShow },
+                onFocus = {
+                    isIsolateMode = true
+                    showDetailPanelInFocusMode = false
+                },
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         }
         
         // Controls
@@ -734,86 +698,17 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             // Controls moved to BottomEnd
             
             Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Layout Mode Dropdown
-                var layoutDropdownExpanded by remember { mutableStateOf(false) }
-                Box {
-                    TextButton(
-                        onClick = { layoutDropdownExpanded = true },
-                        colors = ButtonDefaults.textButtonColors(containerColor = Color.White.copy(alpha=0.1f)),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier.height(32.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (layoutMode == LayoutMode.CLUSTERS) "Clusters" else "Time Warp", color = Color.White, fontSize = 12.sp)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Select layout", tint = Color.White, modifier = Modifier.size(16.dp))
-                        }
-                    }
-                    DropdownMenu(
-                        expanded = layoutDropdownExpanded,
-                        onDismissRequest = { layoutDropdownExpanded = false },
-                        containerColor = Color(0xFF1E1E2C)
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Clusters", color = Color.White) },
-                            onClick = { layoutMode = LayoutMode.CLUSTERS; layoutDropdownExpanded = false }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Time Warp", color = Color.White) },
-                            onClick = { layoutMode = LayoutMode.TIME_WARP; layoutDropdownExpanded = false }
-                        )
-                    }
-                }
-                
-                // Color Mode Toggle (Mood | Themes)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier
-                        .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                        .padding(4.dp)
-                ) {
-                    TextButton(
-                        onClick = { colorMode = ColorMode.MOOD },
-                        colors = ButtonDefaults.textButtonColors(
-                            containerColor = if (colorMode == ColorMode.MOOD) Color.White.copy(alpha=0.2f) else Color.Transparent
-                        ),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier.height(32.dp)
-                    ) {
-                        Text("Mood", color = Color.White, fontSize = 12.sp)
-                    }
-                    TextButton(
-                        onClick = { colorMode = ColorMode.COMMUNITY },
-                        colors = ButtonDefaults.textButtonColors(
-                            containerColor = if (colorMode == ColorMode.COMMUNITY) Color.White.copy(alpha=0.2f) else Color.Transparent
-                        ),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier.height(32.dp)
-                    ) {
-                        Text("Themes", color = Color.White, fontSize = 12.sp)
-                    }
-                }
-            }
+            MapControls(
+                layoutMode = layoutMode,
+                onLayoutModeChange = { layoutMode = it },
+                colorMode = colorMode,
+                onColorModeChange = { colorMode = it }
+            )
             
             // Legend
             if (colorMode == ColorMode.MOOD) {
                 Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier
-                        .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    LegendDot(Color(0xFF64FFDA), "Positive")
-                    LegendDot(Color(0xFF82B1FF), "Neutral")
-                    LegendDot(Color(0xFFFFAB40), "Low")
-                    LegendDot(Color(0xFFFF5252), "Negative")
-                }
+                MapLegend()
             }
         }
         
@@ -907,138 +802,13 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         }
         
         if (showConnectionsFor != null) {
-            val connectedEdges = visibleEdges.filter {
-                it.source.entryId == showConnectionsFor!!.entryId || it.target.entryId == showConnectionsFor!!.entryId
-            }.sortedByDescending { it.weight }
-            
-            AlertDialog(
-                onDismissRequest = { showConnectionsFor = null },
-                title = {
-                    Text(
-                        "Connected Thoughts",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White
-                    )
-                },
-                text = {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(connectedEdges) { edge ->
-                            val relatedNode = if (edge.source.entryId == showConnectionsFor!!.entryId) edge.target else edge.source
-                            val decryptedNodeContent = try {
-                                securityManager.decrypt(relatedNode.content)
-                            } catch (_: Exception) {
-                                relatedNode.content
-                            }
-                            
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column {
-                                            if (relatedNode.theme != "Unknown") {
-                                                Text(
-                                                    relatedNode.theme,
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    color = getMoodNodeColor(relatedNode.moodScore),
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                            val listDateString = SimpleDateFormat("MMM dd, yyyy", LocalLocale.current.platformLocale).format(Date(relatedNode.date))
-                                            Text(
-                                                listDateString,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = Color.White.copy(alpha = 0.6f)
-                                            )
-                                        }
-                                        Text(
-                                            "${(edge.weight * 100).toInt()}% match",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White.copy(alpha = 0.5f)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        decryptedNodeContent.take(150) + if (decryptedNodeContent.length > 150) "..." else "",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White.copy(alpha = 0.85f)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { showConnectionsFor = null }) {
-                        Text("Close", color = Color(0xFF64FFDA))
-                    }
-                },
-                containerColor = Color(0xFF1E1E2E),
-                titleContentColor = Color.White,
-                textContentColor = Color.White
+            MapConnectionsDialog(
+                targetNode = showConnectionsFor!!,
+                visibleEdges = visibleEdges,
+                securityManager = securityManager,
+                onDismiss = { showConnectionsFor = null }
             )
         }
         
     }
-}
-
-@Composable
-private fun LegendDot(color: Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Canvas(modifier = Modifier.size(8.dp)) {
-            drawCircle(color = color)
-        }
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(label, color = Color.White.copy(alpha = 0.5f), style = MaterialTheme.typography.labelSmall)
-    }
-}
-
-private fun getMoodNodeColor(moodScore: Double): Color {
-    return when {
-        moodScore >= 0.5 -> Color(0xFF64FFDA)
-        moodScore >= -0.2 -> Color(0xFF82B1FF)
-        moodScore >= -0.6 -> Color(0xFFFFAB40)
-        else -> Color(0xFFFF5252)
-    }
-}
-
-data class ProjectedPoint(val x: Float, val y: Float, val z: Float, val scale: Float)
-
-fun projectPoint(nodeX: Float, nodeY: Float, nodeZ: Float, canvasCenter: Offset, yaw: Float, pitch: Float, roll: Float, cameraX: Float, cameraY: Float, cameraZ: Float): ProjectedPoint {
-    val relX = nodeX - canvasCenter.x - cameraX
-    val relY = nodeY - canvasCenter.y - cameraY
-
-    // 1. Roll (rotate around Z axis)
-    val cosRoll = kotlin.math.cos(roll.toDouble()).toFloat()
-    val sinRoll = kotlin.math.sin(roll.toDouble()).toFloat()
-    val xr = relX * cosRoll - relY * sinRoll
-    val yr = relX * sinRoll + relY * cosRoll
-
-    // 2. Yaw (rotate around Y axis)
-    val cosYaw = kotlin.math.cos(yaw.toDouble()).toFloat()
-    val sinYaw = kotlin.math.sin(yaw.toDouble()).toFloat()
-    val x1 = xr * cosYaw - nodeZ * sinYaw
-    val z1 = xr * sinYaw + nodeZ * cosYaw
-    
-    // 3. Pitch (rotate around X axis)
-    val cosPitch = kotlin.math.cos(pitch.toDouble()).toFloat()
-    val sinPitch = kotlin.math.sin(pitch.toDouble()).toFloat()
-    val y2 = yr * cosPitch - z1 * sinPitch
-    val z2 = yr * sinPitch + z1 * cosPitch
-
-    val focalLength = 800f
-    val depth = (z2 + cameraZ).coerceAtLeast(10f)
-    val scale = focalLength / depth
-    
-    return ProjectedPoint(
-        x = canvasCenter.x + x1 * scale,
-        y = canvasCenter.y + y2 * scale,
-        z = z2,
-        scale = scale
-    )
 }

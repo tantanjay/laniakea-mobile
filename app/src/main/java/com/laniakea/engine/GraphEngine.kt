@@ -11,7 +11,7 @@ import kotlin.math.sqrt
 import kotlin.math.abs
 import kotlin.math.exp
 
-enum class LayoutMode { CLUSTERS, TIME_WARP }
+enum class LayoutMode { CLUSTERS, GALAXY, TIME_WARP }
 
 data class GraphNode(
     val entryId: Long,
@@ -227,7 +227,7 @@ class GraphEngine {
                 val words = clusterNodes.flatMap { node ->
                     val text = try {
                         securityManager?.decrypt(node.content) ?: node.content
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         node.content
                     }
                     text.lowercase().split(Regex("[^a-z]+"))
@@ -401,59 +401,118 @@ class GraphEngine {
         
         // --- Gravity & Anchoring ---
         val dateSpan = (maxDate - minDate).coerceAtLeast(1L).toFloat()
-        
-        if (layoutMode == LayoutMode.CLUSTERS) {
-            for (node in nodes) {
-                val anchor = clusterAnchors[node.clusterId] ?: Triple(centerX, centerY, centerZ)
-                
-                // Deterministic spread to give the cluster volume
-                val hashX = ((node.entryId * 31337L) % 1000) / 500f - 1f
-                val hashY = ((node.entryId * 2654435761L) % 1000) / 500f - 1f
-                val hashZ = ((node.entryId * 179424673L) % 1000) / 500f - 1f
-                
-                // Important nodes sit near the exact core of the cluster, others float on the outskirts
-                val spreadRadius = 250f * (1f - node.importance.coerceIn(0f, 1f))
-                
-                val targetX = anchor.first + hashX * spreadRadius
-                val targetY = anchor.second + hashY * spreadRadius
-                val targetZ = anchor.third + hashZ * spreadRadius
-                
-                // Strong gravitational pull to its cluster core
-                node.vx += (targetX - node.x) * 0.08f
-                node.vy += (targetY - node.y) * 0.08f
-                node.vz += (targetZ - node.z) * 0.08f
+
+        when (layoutMode) {
+            LayoutMode.CLUSTERS -> {
+                for (node in nodes) {
+                    val anchor = clusterAnchors[node.clusterId] ?: Triple(centerX, centerY, centerZ)
+
+                    // Deterministic spread to give the cluster volume
+                    val hashX = ((node.entryId * 31337L) % 1000) / 500f - 1f
+                    val hashY = ((node.entryId * 2654435761L) % 1000) / 500f - 1f
+                    val hashZ = ((node.entryId * 179424673L) % 1000) / 500f - 1f
+
+                    // Important nodes sit near the exact core of the cluster, others float on the outskirts
+                    val spreadRadius = 250f * (1f - node.importance.coerceIn(0f, 1f))
+
+                    val targetX = anchor.first + hashX * spreadRadius
+                    val targetY = anchor.second + hashY * spreadRadius
+                    val targetZ = anchor.third + hashZ * spreadRadius
+
+                    // Strong gravitational pull to its cluster core
+                    node.vx += (targetX - node.x) * 0.08f
+                    node.vy += (targetY - node.y) * 0.08f
+                    node.vz += (targetZ - node.z) * 0.08f
+                }
             }
-        } else {
-            // TIME WARP: X = chronological date, YZ = twisted cluster lanes
-            val timelineWidth = width * 2.0f
-            
-            for (node in nodes) {
-                val anchor = clusterAnchors[node.clusterId] ?: Triple(centerX, centerY, centerZ)
-                
-                val dateProgress = (node.date - minDate).toFloat() / dateSpan
-                val targetX = (centerX - timelineWidth / 2f) + (dateProgress * timelineWidth)
-                
-                val adx = targetX - node.x
-                
-                // Twist the tunnel! Rotate the YZ anchor around the center based on time progress.
-                val twistAngle = dateProgress * Math.PI * 4.0 // 2 full twists from start to end
-                val cosT = cos(twistAngle).toFloat()
-                val sinT = sin(twistAngle).toFloat()
-                
-                val relY = anchor.second - centerY
-                val relZ = anchor.third - centerZ
-                
-                val twistedY = centerY + (relY * cosT - relZ * sinT)
-                val twistedZ = centerZ + (relY * sinT + relZ * cosT)
-                
-                val ady = twistedY - node.y
-                val adz = twistedZ - node.z
-                
-                // Extremely strong pull to the timeline X
-                node.vx += adx * 0.15f
-                // Strong pull to the twisted YZ cluster lanes to create the helix warp look
-                node.vy += ady * 0.05f
-                node.vz += adz * 0.05f
+            LayoutMode.GALAXY -> {
+                val numArms = 2
+                for (node in nodes) {
+                    val clusterRank =
+                        clustersBySize.indexOfFirst { it.key == node.clusterId }.coerceAtLeast(0)
+                    // Theme determines the arm
+                    val armIndex = clusterRank % numArms
+
+                    // Time determines the primary distance from center (older near center, newer at edges)
+                    // Importance provides a small gravitational pull towards the center
+                    val timeProgress =
+                        if (dateSpan > 0f) ((node.date - minDate) / dateSpan).coerceIn(0f, 1f) else 0.5f
+                    val importancePull = (1f - node.importance.coerceIn(0f, 1f)) * 0.15f
+
+                    val distProgress = (timeProgress * 0.85f + importancePull).coerceIn(0f, 1f)
+                    val distFromCenter = maxRingRadius * (0.05f + 0.95f * distProgress)
+
+                    val baseAngle = distFromCenter * 0.004f + (armIndex * (2 * Math.PI / numArms))
+                    val angle = baseAngle + (distProgress * 0.2f)
+
+                    val ax = centerX + (cos(angle) * distFromCenter).toFloat()
+                    val ay = centerY + (sin(angle) * distFromCenter).toFloat()
+
+                    val cx = ax - centerX
+                    val cy = ay - centerY
+                    val distC = sqrt(cx * cx + cy * cy).coerceAtLeast(1f)
+
+                    // Tangent vector
+                    val tx = (-cy - cx * 0.2f) / distC
+                    val ty = (cx - cy * 0.2f) / distC
+
+                    // Deterministic spread into the arm based on node ID
+                    val hash = (node.entryId * 2654435761L % 1000) / 1000f
+                    val spread = hash - 0.5f
+                    val armThickness = distFromCenter * 0.25f // Tighter arm thickness
+
+                    val targetX = ax + tx * spread * armThickness
+                    val targetY = ay + ty * spread * armThickness
+
+                    val hashZ = (node.entryId * 12345L % 1000) / 1000f
+                    val targetZ = centerZ + ((hashZ * 2 - 1) * distFromCenter * 0.05f)
+
+                    // Stronger pull to keep them in the arm against repulsion
+                    node.vx += (targetX - node.x) * 0.06f
+                    node.vy += (targetY - node.y) * 0.06f
+                    node.vz += (targetZ - node.z) * 0.1f
+
+                    // Weak pull to absolute center to keep the galaxy cohesive
+                    val gdx = centerX - node.x
+                    val gdy = centerY - node.y
+                    val gdz = centerZ - node.z
+                    node.vx += gdx * 0.005f
+                    node.vy += gdy * 0.005f
+                    node.vz += gdz * 0.005f
+                }
+            }
+            else -> {
+                // TIME WARP: X = chronological date, YZ = twisted cluster lanes
+                val timelineWidth = width * 2.0f
+
+                for (node in nodes) {
+                    val anchor = clusterAnchors[node.clusterId] ?: Triple(centerX, centerY, centerZ)
+
+                    val dateProgress = (node.date - minDate).toFloat() / dateSpan
+                    val targetX = (centerX - timelineWidth / 2f) + (dateProgress * timelineWidth)
+
+                    val adx = targetX - node.x
+
+                    // Twist the tunnel! Rotate the YZ anchor around the center based on time progress.
+                    val twistAngle = dateProgress * Math.PI * 4.0 // 2 full twists from start to end
+                    val cosT = cos(twistAngle).toFloat()
+                    val sinT = sin(twistAngle).toFloat()
+
+                    val relY = anchor.second - centerY
+                    val relZ = anchor.third - centerZ
+
+                    val twistedY = centerY + (relY * cosT - relZ * sinT)
+                    val twistedZ = centerZ + (relY * sinT + relZ * cosT)
+
+                    val ady = twistedY - node.y
+                    val adz = twistedZ - node.z
+
+                    // Extremely strong pull to the timeline X
+                    node.vx += adx * 0.15f
+                    // Strong pull to the twisted YZ cluster lanes to create the helix warp look
+                    node.vy += ady * 0.05f
+                    node.vz += adz * 0.05f
+                }
             }
         }
         
@@ -476,8 +535,8 @@ class GraphEngine {
             node.y += node.vy
             node.z += node.vz
             
-            // Soft radial clamp for Galaxy mode
-            if (layoutMode == LayoutMode.CLUSTERS) {
+            // Soft radial clamp for Galaxy/Clusters mode
+            if (layoutMode == LayoutMode.CLUSTERS || layoutMode == LayoutMode.GALAXY) {
                 val dxc = node.x - centerX
                 val dyc = node.y - centerY
                 val dzc = node.z - centerZ
