@@ -11,34 +11,8 @@ import kotlin.math.sqrt
 import kotlin.math.abs
 import kotlin.math.exp
 
-enum class LayoutMode { CLUSTERS, TIME_WARP }
-
-data class GraphNode(
-    val entryId: Long,
-    var x: Float,
-    var y: Float,
-    var z: Float,
-    var vx: Float = 0f,
-    var vy: Float = 0f,
-    var vz: Float = 0f,
-    val date: Long,
-    val theme: String,
-    val moodScore: Double,
-    val content: String,
-    var clusterId: Int = -1,
-    var clusterName: String = "Uncharted Thoughts",
-    var importance: Float = 0f
-)
-
-data class GraphEdge(
-    val source: GraphNode,
-    val target: GraphNode,
-    val weight: Float
-)
-
-class GraphEngine {
+class GraphTestEngine {
     
-    var layoutMode: LayoutMode = LayoutMode.CLUSTERS
     private var minDate: Long = 0L
     private var maxDate: Long = 0L
     
@@ -308,40 +282,9 @@ class GraphEngine {
         
         val clustersBySize = clusterCounts.entries.sortedByDescending { it.value }
         val numClusters = clustersBySize.size.coerceAtLeast(1)
-        val maxRingRadius = maxRadius * 1.5f // Expand the galaxy to give arms more room
+        val maxRingRadius = 1200f // Hardcoded to match the procedural stars distance
         
         val clusterAnchors = mutableMapOf<Int, Triple<Float, Float, Float>>()
-        
-        if (layoutMode == LayoutMode.CLUSTERS) {
-            clustersBySize.forEachIndexed { index, entry ->
-                val cId = entry.key
-                val goldenRatio = 1.61803398875
-                val angle = index * goldenRatio * Math.PI * 2.0
-                
-                val radiusFraction = index.toFloat() / numClusters.coerceAtLeast(2).toFloat()
-                val r = maxRingRadius * (0.30f + 0.70f * radiusFraction)
-                
-                val ax = centerX + (cos(angle) * r).toFloat()
-                val ay = centerY + (sin(angle) * r).toFloat()
-                val az = centerZ + ((index % 2 * 2 - 1) * r * 0.2f)
-                
-                clusterAnchors[cId] = Triple(ax, ay, az)
-            }
-        } else {
-            // TIME WARP: Flatten clusters onto YZ plane, creating parallel lanes
-            clustersBySize.forEachIndexed { index, entry ->
-                val cId = entry.key
-                val angle = index * 2.0 * Math.PI / numClusters
-                // Tighter ring so they don't drift too far off-screen vertically
-                val r = maxRingRadius * 0.6f 
-                
-                val ay = centerY + (cos(angle) * r).toFloat()
-                val az = centerZ + (sin(angle) * r).toFloat()
-                
-                // X anchor doesn't matter here, it's overridden per node
-                clusterAnchors[cId] = Triple(centerX, ay, az)
-            }
-        }
         
         // --- Pairwise Physics: Repulsion & Theme Gravity ---
         val repulsionCutoffSq = (idealSpacing * 3f) * (idealSpacing * 3f)
@@ -402,59 +345,56 @@ class GraphEngine {
         // --- Gravity & Anchoring ---
         val dateSpan = (maxDate - minDate).coerceAtLeast(1L).toFloat()
         
-        if (layoutMode == LayoutMode.CLUSTERS) {
-            for (node in nodes) {
-                val anchor = clusterAnchors[node.clusterId] ?: Triple(centerX, centerY, centerZ)
-                
-                // Deterministic spread to give the cluster volume
-                val hashX = ((node.entryId * 31337L) % 1000) / 500f - 1f
-                val hashY = ((node.entryId * 2654435761L) % 1000) / 500f - 1f
-                val hashZ = ((node.entryId * 179424673L) % 1000) / 500f - 1f
-                
-                // Important nodes sit near the exact core of the cluster, others float on the outskirts
-                val spreadRadius = 250f * (1f - node.importance.coerceIn(0f, 1f))
-                
-                val targetX = anchor.first + hashX * spreadRadius
-                val targetY = anchor.second + hashY * spreadRadius
-                val targetZ = anchor.third + hashZ * spreadRadius
-                
-                // Strong gravitational pull to its cluster core
-                node.vx += (targetX - node.x) * 0.08f
-                node.vy += (targetY - node.y) * 0.08f
-                node.vz += (targetZ - node.z) * 0.08f
-            }
-        } else {
-            // TIME WARP: X = chronological date, YZ = twisted cluster lanes
-            val timelineWidth = width * 2.0f
+        val numArms = 2
+        for (node in nodes) {
+            // Theme determines the arm
+            val armIndex = Math.abs(node.clusterId) % numArms
             
-            for (node in nodes) {
-                val anchor = clusterAnchors[node.clusterId] ?: Triple(centerX, centerY, centerZ)
-                
-                val dateProgress = (node.date - minDate).toFloat() / dateSpan
-                val targetX = (centerX - timelineWidth / 2f) + (dateProgress * timelineWidth)
-                
-                val adx = targetX - node.x
-                
-                // Twist the tunnel! Rotate the YZ anchor around the center based on time progress.
-                val twistAngle = dateProgress * Math.PI * 4.0 // 2 full twists from start to end
-                val cosT = cos(twistAngle).toFloat()
-                val sinT = sin(twistAngle).toFloat()
-                
-                val relY = anchor.second - centerY
-                val relZ = anchor.third - centerZ
-                
-                val twistedY = centerY + (relY * cosT - relZ * sinT)
-                val twistedZ = centerZ + (relY * sinT + relZ * cosT)
-                
-                val ady = twistedY - node.y
-                val adz = twistedZ - node.z
-                
-                // Extremely strong pull to the timeline X
-                node.vx += adx * 0.15f
-                // Strong pull to the twisted YZ cluster lanes to create the helix warp look
-                node.vy += ady * 0.05f
-                node.vz += adz * 0.05f
-            }
+            // Importance determines distance from center
+            // 1.0 (High impact) -> distProgress 0.0 (center)
+            // 0.0 (Normal) -> distProgress 1.0 (tails)
+            val rawDistProgress = 1f - node.importance.coerceIn(0f, 1f)
+            // Square it so that even medium importance nodes are pulled closer to the center gravity well
+            val distProgress = rawDistProgress * rawDistProgress * rawDistProgress
+            val distFromCenter = maxRingRadius * (0.05f + 0.95f * distProgress)
+            
+            val baseAngle = distFromCenter * 0.004f + (armIndex * (2 * Math.PI / numArms))
+            val angle = baseAngle + (distProgress * 0.2f)
+            
+            val ax = centerX + (cos(angle) * distFromCenter).toFloat()
+            val ay = centerY + (sin(angle) * distFromCenter).toFloat()
+            
+            val cx = ax - centerX
+            val cy = ay - centerY
+            val distC = sqrt(cx * cx + cy * cy).coerceAtLeast(1f)
+            
+            // Tangent vector
+            val tx = (-cy - cx * 0.2f) / distC
+            val ty = (cx - cy * 0.2f) / distC
+            
+            // Deterministic spread into the arm based on node ID
+            val hash = (node.entryId * 2654435761L % 1000) / 1000f
+            val spread = hash - 0.5f
+            val armThickness = distFromCenter * 0.25f // Tighter arm thickness
+            
+            val targetX = ax + tx * spread * armThickness
+            val targetY = ay + ty * spread * armThickness
+            
+            val hashZ = (node.entryId * 12345L % 1000) / 1000f
+            val targetZ = centerZ + ((hashZ * 2 - 1) * distFromCenter * 0.05f)
+            
+            // Stronger pull to keep them in the arm against repulsion
+            node.vx += (targetX - node.x) * 0.06f
+            node.vy += (targetY - node.y) * 0.06f
+            node.vz += (targetZ - node.z) * 0.1f
+            
+            // Weak pull to absolute center to keep the galaxy cohesive
+            val gdx = centerX - node.x
+            val gdy = centerY - node.y
+            val gdz = centerZ - node.z
+            node.vx += gdx * 0.005f
+            node.vy += gdy * 0.005f
+            node.vz += gdz * 0.005f
         }
         
         // --- Apply velocities with damping ---
@@ -477,17 +417,15 @@ class GraphEngine {
             node.z += node.vz
             
             // Soft radial clamp for Galaxy mode
-            if (layoutMode == LayoutMode.CLUSTERS) {
-                val dxc = node.x - centerX
-                val dyc = node.y - centerY
-                val dzc = node.z - centerZ
-                val distc = sqrt(dxc * dxc + dyc * dyc + dzc * dzc)
-                if (distc > maxRadius) {
-                    val excess = distc - maxRadius
-                    node.vx -= (dxc / distc) * excess * 0.15f
-                    node.vy -= (dyc / distc) * excess * 0.15f
-                    node.vz -= (dzc / distc) * excess * 0.15f
-                }
+            val dxc = node.x - centerX
+            val dyc = node.y - centerY
+            val dzc = node.z - centerZ
+            val distc = sqrt(dxc * dxc + dyc * dyc + dzc * dzc)
+            if (distc > maxRadius) {
+                val excess = distc - maxRadius
+                node.vx -= (dxc / distc) * excess * 0.15f
+                node.vy -= (dyc / distc) * excess * 0.15f
+                node.vz -= (dzc / distc) * excess * 0.15f
             }
         }
     }
