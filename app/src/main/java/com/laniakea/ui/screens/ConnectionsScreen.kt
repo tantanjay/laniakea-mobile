@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,24 +56,16 @@ import kotlin.time.Duration.Companion.milliseconds
 import androidx.compose.ui.platform.LocalLocale
 import com.laniakea.engine.LayoutMode
 
-val communityColors = listOf(
-    Color(0xFFE91E63), // Pink
-    Color(0xFF9C27B0), // Purple
-    Color(0xFF3F51B5), // Indigo
-    Color(0xFF00BCD4), // Cyan
-    Color(0xFF4CAF50), // Green
-    Color(0xFFFFC107), // Amber
-    Color(0xFFFF5722), // Deep Orange
-    Color(0xFF795548), // Brown
-    Color(0xFF607D8B), // Blue Grey
-    Color(0xFF8BC34A)  // Light Green
-)
-
 enum class ColorMode { MOOD, COMMUNITY }
 
-fun getCommunityColor(clusterId: Int): Color {
-    if (clusterId < 0) return Color.Gray
-    return communityColors[clusterId % communityColors.size]
+fun getCommunityColor(clusterName: String): Color {
+    if (clusterName == "Unknown" || clusterName.isBlank()) return Color.Gray
+    // Stable hash ensures the same theme always gets the exact same color
+    val hash = kotlin.math.abs(clusterName.hashCode())
+    val hue = (hash * 137.508f) % 360f
+    // 85% saturation for vibrancy, 100% value for brightness
+    val hsvColor = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.85f, 1.0f))
+    return Color(hsvColor)
 }
 
 @Composable
@@ -82,7 +75,7 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val isEngineLoading = vm.isEngineLoading
 
     var colorMode by remember { mutableStateOf(ColorMode.MOOD) }
-    var layoutMode by remember { mutableStateOf(LayoutMode.GALAXY) }
+    var layoutMode by remember { mutableStateOf(LayoutMode.CLUSTERS) }
 
     var allNodes by remember { mutableStateOf<List<GraphNode>>(emptyList()) }
     var allEdges by remember { mutableStateOf<List<GraphEdge>>(emptyList()) }
@@ -99,7 +92,8 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     var layoutHeight by remember { mutableFloatStateOf(0f) }
     
     var yaw by remember { mutableFloatStateOf(0f) }
-    var pitch by remember { mutableFloatStateOf(0f) }
+    var pitch by remember { mutableFloatStateOf(-0.6f) }
+    var roll by remember { mutableFloatStateOf(0f) }
     var cameraX by remember { mutableFloatStateOf(0f) }
     var cameraY by remember { mutableFloatStateOf(0f) }
     var cameraZ by remember { mutableFloatStateOf(800f) }
@@ -153,12 +147,13 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             val vectorsToProcess = vectors.filter { it.entryId in entriesIds }
             
             val (initialNodes, initialEdges) = withContext(Dispatchers.Default) {
-                graphEngine.buildInitialGraph(
+                graphEngine.buildGraph(
                     entries = entriesToProcess,
                     vectors = vectorsToProcess,
                     similarityThreshold = 0.55f,
                     width = layoutWidth,
-                    height = layoutHeight
+                    height = layoutHeight,
+                    securityManager = securityManager
                 )
             }
             allNodes = initialNodes.sortedBy { it.date }
@@ -192,19 +187,35 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         }
     }
     
-    // Replay: just reveal nodes one by one at their settled positions
+    // Replay: reveal nodes, then transition into a continuous animation
     LaunchedEffect(isReplaying) {
         if (isReplaying) {
             replayProgress = 0
             // Small delay before starting
             delay(300L.milliseconds)
-            while (replayProgress < allNodes.size) {
+            while (replayProgress < allNodes.size && isReplaying) {
                 replayProgress++
                 // Faster for large graphs, slower for small
                 val delayMs = if (allNodes.size > 30) 60L else 200L
                 delay(delayMs.milliseconds)
             }
-            isReplaying = false
+            
+            // Post-replay continuous animation
+            var animTime = 0f
+            while (isReplaying) {
+                delay(16L.milliseconds) // ~60fps
+                animTime += 0.016f
+                
+                if (layoutMode == LayoutMode.CLUSTERS) {
+                    // Spin the galaxy like a disk using the new roll axis
+                    roll -= 0.003f
+                } else {
+                    // Warpy time tunnel animation: fly forward with a gentle warp wobble
+                    cameraZ -= 3f
+                    yaw = kotlin.math.sin(animTime * 0.5f) * 0.05f
+                    pitch = -0.6f + kotlin.math.cos(animTime * 0.3f) * 0.05f
+                }
+            }
         }
     }
     
@@ -303,7 +314,7 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                             if (isIsolateMode) {
                                 val center = Offset(layoutWidth / 2f, layoutHeight / 2f)
                                 val projectedNodes = currentVisibleNodes.map { node ->
-                                    node to projectPoint(node.x, node.y, node.z, center, yaw, pitch, cameraX, cameraY, cameraZ)
+                                    node to projectPoint(node.x, node.y, node.z, center, yaw, pitch, roll, cameraX, cameraY, cameraZ)
                                 }.sortedByDescending { it.second.z }
                                 
                                 val clicked = projectedNodes.findLast { (_, p) ->
@@ -321,7 +332,7 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         onTap = { tapOffset ->
                             val center = Offset(layoutWidth / 2f, layoutHeight / 2f)
                             val projectedNodes = currentVisibleNodes.map { node ->
-                                node to projectPoint(node.x, node.y, node.z, center, yaw, pitch, cameraX, cameraY, cameraZ)
+                                node to projectPoint(node.x, node.y, node.z, center, yaw, pitch, roll, cameraX, cameraY, cameraZ)
                             }.sortedByDescending { it.second.z }
                             
                             val clicked = projectedNodes.findLast { (_, p) ->
@@ -341,8 +352,8 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             
             // Draw Edges
             visibleEdges.forEach { edge ->
-                val p1 = projectPoint(edge.source.x, edge.source.y, edge.source.z, canvasCenter, yaw, pitch, cameraX, cameraY, cameraZ)
-                val p2 = projectPoint(edge.target.x, edge.target.y, edge.target.z, canvasCenter, yaw, pitch, cameraX, cameraY, cameraZ)
+                val p1 = projectPoint(edge.source.x, edge.source.y, edge.source.z, canvasCenter, yaw, pitch, roll, cameraX, cameraY, cameraZ)
+                val p2 = projectPoint(edge.target.x, edge.target.y, edge.target.z, canvasCenter, yaw, pitch, roll, cameraX, cameraY, cameraZ)
                 
                 if (p1.z + cameraZ > 0 && p2.z + cameraZ > 0) {
                     val normalizedWeight = ((edge.weight - 0.55f) / 0.45f).coerceIn(0f, 1f)
@@ -362,7 +373,7 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                             else -> Color(0xFFFF5252)
                         }
                     } else {
-                        if (edge.source.clusterId == edge.target.clusterId) getCommunityColor(edge.source.clusterId) else Color.Gray.copy(alpha = 0.3f)
+                        if (edge.source.clusterName == edge.target.clusterName) getCommunityColor(edge.source.clusterName) else Color.Gray.copy(alpha = 0.3f)
                     }
                     
                     drawLine(
@@ -377,13 +388,13 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             
             // Draw Nodes
             val projectedNodes = visibleNodes.map { node ->
-                node to projectPoint(node.x, node.y, node.z, canvasCenter, yaw, pitch, cameraX, cameraY, cameraZ)
+                node to projectPoint(node.x, node.y, node.z, canvasCenter, yaw, pitch, roll, cameraX, cameraY, cameraZ)
             }.sortedByDescending { it.second.z } // Distant nodes first
             
             projectedNodes.forEach { (node, p) ->
                 if (p.z + cameraZ > 0) {
                     val isSelected = node == selectedNode
-                    val nodeColor = if (colorMode == ColorMode.MOOD) getMoodNodeColor(node.moodScore) else getCommunityColor(node.clusterId)
+                    val nodeColor = if (colorMode == ColorMode.MOOD) getMoodNodeColor(node.moodScore) else getCommunityColor(node.clusterName)
 
                     val drawScale = p.scale.coerceAtMost(3f)
                     // Shrink nodes faster when zoomed out so they look like tiny stars
@@ -531,7 +542,7 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         val dateProgress = (tickTime - minDate).toFloat() / dateSpan.toFloat()
                         val targetX = (layoutWidth / 2f - timelineWidth / 2f) + (dateProgress * timelineWidth)
                         
-                        val p = projectPoint(targetX, timelineY, timelineZ, canvasCenter, yaw, pitch, cameraX, cameraY, cameraZ)
+                        val p = projectPoint(targetX, timelineY, timelineZ, canvasCenter, yaw, pitch, roll, cameraX, cameraY, cameraZ)
                         
                         if (p.z + cameraZ > 0 && p.scale > 0.1f) {
                             val label = formatter.format(Date(tickTime))
@@ -727,32 +738,34 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Layout Mode Toggle (Galaxy | Time Warp)
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier
-                        .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                        .padding(4.dp)
-                ) {
+                // Layout Mode Dropdown
+                var layoutDropdownExpanded by remember { mutableStateOf(false) }
+                Box {
                     TextButton(
-                        onClick = { layoutMode = LayoutMode.GALAXY },
-                        colors = ButtonDefaults.textButtonColors(
-                            containerColor = if (layoutMode == LayoutMode.GALAXY) Color.White.copy(alpha=0.2f) else Color.Transparent
-                        ),
+                        onClick = { layoutDropdownExpanded = true },
+                        colors = ButtonDefaults.textButtonColors(containerColor = Color.White.copy(alpha=0.1f)),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                         modifier = Modifier.height(32.dp)
                     ) {
-                        Text("Galaxy", color = Color.White, fontSize = 12.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (layoutMode == LayoutMode.CLUSTERS) "Clusters" else "Time Warp", color = Color.White, fontSize = 12.sp)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Select layout", tint = Color.White, modifier = Modifier.size(16.dp))
+                        }
                     }
-                    TextButton(
-                        onClick = { layoutMode = LayoutMode.TIME_WARP },
-                        colors = ButtonDefaults.textButtonColors(
-                            containerColor = if (layoutMode == LayoutMode.TIME_WARP) Color.White.copy(alpha=0.2f) else Color.Transparent
-                        ),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier.height(32.dp)
+                    DropdownMenu(
+                        expanded = layoutDropdownExpanded,
+                        onDismissRequest = { layoutDropdownExpanded = false },
+                        containerColor = Color(0xFF1E1E2C)
                     ) {
-                        Text("Time Warp", color = Color.White, fontSize = 12.sp)
+                        DropdownMenuItem(
+                            text = { Text("Clusters", color = Color.White) },
+                            onClick = { layoutMode = LayoutMode.CLUSTERS; layoutDropdownExpanded = false }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Time Warp", color = Color.White) },
+                            onClick = { layoutMode = LayoutMode.TIME_WARP; layoutDropdownExpanded = false }
+                        )
                     }
                 }
                 
@@ -832,6 +845,12 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         onClick = { 
                             isReplaying = false
                             replayProgress = allNodes.size
+                            yaw = 0f
+                            pitch = -0.6f
+                            roll = 0f
+                            cameraX = 0f
+                            cameraY = 0f
+                            cameraZ = 800f
                         },
                         containerColor = Color(0xFF2D1B1B),
                         contentColor = Color(0xFFFF5252)
@@ -852,7 +871,8 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     FloatingActionButton(
                         onClick = { 
                             yaw = 0f
-                            pitch = 0f
+                            pitch = -0.6f
+                            roll = 0f
                             cameraX = 0f
                             cameraY = 0f
                             cameraZ = 800f
@@ -989,19 +1009,27 @@ private fun getMoodNodeColor(moodScore: Double): Color {
 
 data class ProjectedPoint(val x: Float, val y: Float, val z: Float, val scale: Float)
 
-fun projectPoint(nodeX: Float, nodeY: Float, nodeZ: Float, canvasCenter: Offset, yaw: Float, pitch: Float, cameraX: Float, cameraY: Float, cameraZ: Float): ProjectedPoint {
+fun projectPoint(nodeX: Float, nodeY: Float, nodeZ: Float, canvasCenter: Offset, yaw: Float, pitch: Float, roll: Float, cameraX: Float, cameraY: Float, cameraZ: Float): ProjectedPoint {
     val relX = nodeX - canvasCenter.x - cameraX
     val relY = nodeY - canvasCenter.y - cameraY
 
+    // 1. Roll (rotate around Z axis)
+    val cosRoll = kotlin.math.cos(roll.toDouble()).toFloat()
+    val sinRoll = kotlin.math.sin(roll.toDouble()).toFloat()
+    val xr = relX * cosRoll - relY * sinRoll
+    val yr = relX * sinRoll + relY * cosRoll
+
+    // 2. Yaw (rotate around Y axis)
     val cosYaw = kotlin.math.cos(yaw.toDouble()).toFloat()
     val sinYaw = kotlin.math.sin(yaw.toDouble()).toFloat()
-    val x1 = relX * cosYaw - nodeZ * sinYaw
-    val z1 = relX * sinYaw + nodeZ * cosYaw
+    val x1 = xr * cosYaw - nodeZ * sinYaw
+    val z1 = xr * sinYaw + nodeZ * cosYaw
     
+    // 3. Pitch (rotate around X axis)
     val cosPitch = kotlin.math.cos(pitch.toDouble()).toFloat()
     val sinPitch = kotlin.math.sin(pitch.toDouble()).toFloat()
-    val y2 = relY * cosPitch - z1 * sinPitch
-    val z2 = relY * sinPitch + z1 * cosPitch
+    val y2 = yr * cosPitch - z1 * sinPitch
+    val z2 = yr * sinPitch + z1 * cosPitch
 
     val focalLength = 800f
     val depth = (z2 + cameraZ).coerceAtLeast(10f)

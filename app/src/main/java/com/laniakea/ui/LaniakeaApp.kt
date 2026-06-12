@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Polyline
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.*
@@ -26,6 +27,7 @@ enum class AppDestinations(
     MAP("Map", Icons.Default.Polyline),
     INSIGHTS("Insights", Icons.Default.Info),
     PROFILE("Profile", Icons.Default.AccountBox),
+    GALAXY_TEST("Galaxy", Icons.Default.Star)
 }
 
 @Composable
@@ -53,6 +55,7 @@ fun LaniakeaApp(vm: LaniakeaViewModel = viewModel()) {
                 AppDestinations.MAP -> ConnectionsScreen(paddingValues, vm)
                 AppDestinations.INSIGHTS -> InsightScreen(paddingValues, vm)
                 AppDestinations.PROFILE -> ProfileScreen(paddingValues, vm)
+                AppDestinations.GALAXY_TEST -> GalaxyTestScreen(paddingValues, vm)
             }
         }
     }

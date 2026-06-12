@@ -11,7 +11,7 @@ import kotlin.math.sqrt
 import kotlin.math.abs
 import kotlin.math.exp
 
-enum class LayoutMode { GALAXY, TIME_WARP }
+enum class LayoutMode { CLUSTERS, TIME_WARP }
 
 data class GraphNode(
     val entryId: Long,
@@ -38,16 +38,17 @@ data class GraphEdge(
 
 class GraphEngine {
     
-    var layoutMode: LayoutMode = LayoutMode.GALAXY
+    var layoutMode: LayoutMode = LayoutMode.CLUSTERS
     private var minDate: Long = 0L
     private var maxDate: Long = 0L
     
-    fun buildInitialGraph(
+    fun buildGraph(
         entries: List<DiaryEntry>,
         vectors: List<ObjectBoxSentenceVector>,
         similarityThreshold: Float = 0.55f,
         width: Float,
-        height: Float
+        height: Float,
+        securityManager: com.laniakea.manager.SecurityManager? = null
     ): Pair<List<GraphNode>, List<GraphEdge>> {
         val vectorMap = vectors.associateBy { it.entryId }
         val validEntries = entries.filter { vectorMap.containsKey(it.id) }
@@ -99,8 +100,8 @@ class GraphEngine {
                     
                     // Filter by raw semantic similarity first to drop unrelated thoughts
                     if (rawSim >= similarityThreshold) {
-                        val daysApart = kotlin.math.abs(e1.dateTime - e2.dateTime).toDouble() / (24L * 60 * 60 * 1000).toDouble()
-                        val temporalFactor = kotlin.math.exp(-daysApart / 90.0).toFloat()
+                        val daysApart = abs(e1.dateTime - e2.dateTime).toDouble() / (24L * 60 * 60 * 1000).toDouble()
+                        val temporalFactor = exp(-daysApart / 90.0).toFloat()
                         
                         // Hybrid Score: Topic + Era
                         val hybridScore = rawSim * temporalFactor
@@ -158,7 +159,7 @@ class GraphEngine {
         }
         
         // Run Community Detection BEFORE settling layout so physics can use clusters
-        detectCommunities(nodes, edges)
+        detectCommunities(nodes, edges, securityManager)
         
         // Pre-settle the layout so it appears stable immediately
         settleLayout(nodes, edges, width, height)
@@ -170,7 +171,11 @@ class GraphEngine {
      * Label Propagation Algorithm (LPA) for unsupervised community detection.
      * Iteratively groups nodes based on edge weights and dynamically names clusters.
      */
-    private fun detectCommunities(nodes: List<GraphNode>, edges: List<GraphEdge>) {
+    private fun detectCommunities(
+        nodes: List<GraphNode>, 
+        edges: List<GraphEdge>,
+        securityManager: com.laniakea.manager.SecurityManager?
+    ) {
         if (nodes.isEmpty()) return
         
         // 1. Initialize labels
@@ -210,7 +215,7 @@ class GraphEngine {
         
         // 3. Dynamic Cluster Naming
         val clusters = nodes.groupBy { it.clusterId }
-        for ((clusterId, clusterNodes) in clusters) {
+        for ((_, clusterNodes) in clusters) {
             // Find most frequent theme, ignoring Unknown
             val validThemes = clusterNodes.map { it.theme }.filter { it != "Unknown" && it.isNotBlank() }
             val dominantTheme = validThemes.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
@@ -219,8 +224,14 @@ class GraphEngine {
                 dominantTheme
             } else {
                 // Fallback: extract most common word > 4 chars if no theme
-                val words = clusterNodes.flatMap { it.content.lowercase().split(Regex("[^a-z]+")) }
-                    .filter { it.length > 4 }
+                val words = clusterNodes.flatMap { node ->
+                    val text = try {
+                        securityManager?.decrypt(node.content) ?: node.content
+                    } catch (e: Exception) {
+                        node.content
+                    }
+                    text.lowercase().split(Regex("[^a-z]+"))
+                }.filter { it.length > 4 }
                 val topWord = words.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
                 if (topWord != null) topWord.replaceFirstChar { it.uppercase() } + " Thoughts" else "Uncharted Thoughts"
             }
@@ -241,6 +252,7 @@ class GraphEngine {
         maxIterations: Int = 250
     ) {
         if (nodes.size < 2) return
+        
         for (step in 0 until maxIterations) {
             applyLayoutStep(nodes, edges, width, height, step, maxIterations)
         }
@@ -300,18 +312,18 @@ class GraphEngine {
         
         val clusterAnchors = mutableMapOf<Int, Triple<Float, Float, Float>>()
         
-        if (layoutMode == LayoutMode.GALAXY) {
+        if (layoutMode == LayoutMode.CLUSTERS) {
             clustersBySize.forEachIndexed { index, entry ->
                 val cId = entry.key
                 val goldenRatio = 1.61803398875
                 val angle = index * goldenRatio * Math.PI * 2.0
                 
                 val radiusFraction = index.toFloat() / numClusters.coerceAtLeast(2).toFloat()
-                val r = maxRingRadius * (0.15f + 0.85f * radiusFraction)
+                val r = maxRingRadius * (0.30f + 0.70f * radiusFraction)
                 
-                val ax = centerX + (kotlin.math.cos(angle) * r).toFloat()
-                val ay = centerY + (kotlin.math.sin(angle) * r).toFloat()
-                val az = centerZ + ((index % 2 * 2 - 1) * r * 0.3f)
+                val ax = centerX + (cos(angle) * r).toFloat()
+                val ay = centerY + (sin(angle) * r).toFloat()
+                val az = centerZ + ((index % 2 * 2 - 1) * r * 0.2f)
                 
                 clusterAnchors[cId] = Triple(ax, ay, az)
             }
@@ -320,11 +332,11 @@ class GraphEngine {
             clustersBySize.forEachIndexed { index, entry ->
                 val cId = entry.key
                 val angle = index * 2.0 * Math.PI / numClusters
-                // Tighter ring so they don't drift too far off screen vertically
+                // Tighter ring so they don't drift too far off-screen vertically
                 val r = maxRingRadius * 0.6f 
                 
-                val ay = centerY + (kotlin.math.cos(angle) * r).toFloat()
-                val az = centerZ + (kotlin.math.sin(angle) * r).toFloat()
+                val ay = centerY + (cos(angle) * r).toFloat()
+                val az = centerZ + (sin(angle) * r).toFloat()
                 
                 // X anchor doesn't matter here, it's overridden per node
                 clusterAnchors[cId] = Triple(centerX, ay, az)
@@ -387,32 +399,37 @@ class GraphEngine {
             b.vz += uz * cappedForce
         }
         
-        // --- Gravity & Timeline Lock ---
+        // --- Gravity & Anchoring ---
         val dateSpan = (maxDate - minDate).coerceAtLeast(1L).toFloat()
-        val timelineWidth = width * 2.0f // Stretch the timeline out for the "tunnel" effect
         
-        for (node in nodes) {
-            val anchor = clusterAnchors[node.clusterId] ?: Triple(centerX, centerY, centerZ)
-            
-            if (layoutMode == LayoutMode.GALAXY) {
-                // Strong pull to their specific cluster anchor
-                val adx = anchor.first - node.x
-                val ady = anchor.second - node.y
-                val adz = anchor.third - node.z
-                node.vx += adx * 0.035f
-                node.vy += ady * 0.035f
-                node.vz += adz * 0.035f
+        if (layoutMode == LayoutMode.CLUSTERS) {
+            for (node in nodes) {
+                val anchor = clusterAnchors[node.clusterId] ?: Triple(centerX, centerY, centerZ)
                 
-                // Very weak pull to absolute center to keep the galaxy intact
-                val gdx = centerX - node.x
-                val gdy = centerY - node.y
-                val gdz = centerZ - node.z
-                node.vx += gdx * 0.005f
-                node.vy += gdy * 0.005f
-                node.vz += gdz * 0.005f
-            } else {
-                // TIME WARP
-                // X is strongly locked to chronological date
+                // Deterministic spread to give the cluster volume
+                val hashX = ((node.entryId * 31337L) % 1000) / 500f - 1f
+                val hashY = ((node.entryId * 2654435761L) % 1000) / 500f - 1f
+                val hashZ = ((node.entryId * 179424673L) % 1000) / 500f - 1f
+                
+                // Important nodes sit near the exact core of the cluster, others float on the outskirts
+                val spreadRadius = 250f * (1f - node.importance.coerceIn(0f, 1f))
+                
+                val targetX = anchor.first + hashX * spreadRadius
+                val targetY = anchor.second + hashY * spreadRadius
+                val targetZ = anchor.third + hashZ * spreadRadius
+                
+                // Strong gravitational pull to its cluster core
+                node.vx += (targetX - node.x) * 0.08f
+                node.vy += (targetY - node.y) * 0.08f
+                node.vz += (targetZ - node.z) * 0.08f
+            }
+        } else {
+            // TIME WARP: X = chronological date, YZ = twisted cluster lanes
+            val timelineWidth = width * 2.0f
+            
+            for (node in nodes) {
+                val anchor = clusterAnchors[node.clusterId] ?: Triple(centerX, centerY, centerZ)
+                
                 val dateProgress = (node.date - minDate).toFloat() / dateSpan
                 val targetX = (centerX - timelineWidth / 2f) + (dateProgress * timelineWidth)
                 
@@ -420,8 +437,8 @@ class GraphEngine {
                 
                 // Twist the tunnel! Rotate the YZ anchor around the center based on time progress.
                 val twistAngle = dateProgress * Math.PI * 4.0 // 2 full twists from start to end
-                val cosT = kotlin.math.cos(twistAngle).toFloat()
-                val sinT = kotlin.math.sin(twistAngle).toFloat()
+                val cosT = cos(twistAngle).toFloat()
+                val sinT = sin(twistAngle).toFloat()
                 
                 val relY = anchor.second - centerY
                 val relZ = anchor.third - centerZ
@@ -433,7 +450,7 @@ class GraphEngine {
                 val adz = twistedZ - node.z
                 
                 // Extremely strong pull to the timeline X
-                node.vx += adx * 0.15f 
+                node.vx += adx * 0.15f
                 // Strong pull to the twisted YZ cluster lanes to create the helix warp look
                 node.vy += ady * 0.05f
                 node.vz += adz * 0.05f
@@ -459,16 +476,14 @@ class GraphEngine {
             node.y += node.vy
             node.z += node.vz
             
-            // Soft radial clamp for Galaxy mode ONLY
-            if (layoutMode == LayoutMode.GALAXY) {
+            // Soft radial clamp for Galaxy mode
+            if (layoutMode == LayoutMode.CLUSTERS) {
                 val dxc = node.x - centerX
                 val dyc = node.y - centerY
                 val dzc = node.z - centerZ
                 val distc = sqrt(dxc * dxc + dyc * dyc + dzc * dzc)
                 if (distc > maxRadius) {
                     val excess = distc - maxRadius
-                    // Apply a strong elastic force pushing them back inside the sphere
-                    // instead of a hard teleport, so they can naturally sort themselves into the spiral
                     node.vx -= (dxc / distc) * excess * 0.15f
                     node.vy -= (dyc / distc) * excess * 0.15f
                     node.vz -= (dzc / distc) * excess * 0.15f
