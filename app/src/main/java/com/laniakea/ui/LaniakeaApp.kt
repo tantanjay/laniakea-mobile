@@ -26,8 +26,7 @@ enum class AppDestinations(
     JOURNAL("Journal", Icons.Default.Book),
     MAP("Map", Icons.Default.Polyline),
     INSIGHTS("Insights", Icons.Default.Info),
-    PROFILE("Profile", Icons.Default.AccountBox),
-    GALAXY_TEST("Galaxy", Icons.Default.Star)
+    PROFILE("Profile", Icons.Default.AccountBox)
 }
 
 @Composable
@@ -52,10 +51,9 @@ fun LaniakeaApp(vm: LaniakeaViewModel = viewModel()) {
             when (currentDestination) {
                 AppDestinations.HOME -> HomeScreen(paddingValues, vm)
                 AppDestinations.JOURNAL -> JournalScreen(paddingValues, vm)
-                AppDestinations.MAP -> ConnectionsScreen(paddingValues, vm)
+                AppDestinations.MAP -> MapScreen(paddingValues, vm)
                 AppDestinations.INSIGHTS -> InsightScreen(paddingValues, vm)
                 AppDestinations.PROFILE -> ProfileScreen(paddingValues, vm)
-                AppDestinations.GALAXY_TEST -> GalaxyTestScreen(paddingValues, vm)
             }
         }
     }
