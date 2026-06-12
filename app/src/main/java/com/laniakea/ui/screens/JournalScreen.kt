@@ -105,7 +105,7 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             value = searchQuery,
             onValueChange = { searchQuery = it },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Search entries by meaning...") },
+            placeholder = { Text("Search entries...") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
             trailingIcon = {
                 if (searchQuery.isNotEmpty()) {
