@@ -7,6 +7,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -77,6 +79,7 @@ fun getCommunityColor(clusterId: Int): Color {
 fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val allEntries by vm.allEntries.collectAsState()
     val isEngineActive = vm.isEngineActive
+    val isEngineLoading = vm.isEngineLoading
 
     var colorMode by remember { mutableStateOf(ColorMode.MOOD) }
     var layoutMode by remember { mutableStateOf(LayoutMode.GALAXY) }
@@ -105,6 +108,7 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     var selectedNode by remember { mutableStateOf<GraphNode?>(null) }
     var isIsolateMode by remember { mutableStateOf(false) }
     var showConnectionsFor by remember { mutableStateOf<GraphNode?>(null) }
+    var showDetailPanelInFocusMode by remember { mutableStateOf(false) }
     
     var vectorsFetched by remember { mutableStateOf(false) }
     var vectors by remember { mutableStateOf<List<ObjectBoxSentenceVector>>(emptyList()) }
@@ -213,13 +217,32 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         if (!isEngineActive || isBuildingGraph) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Color(0xFF64FFDA), strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        if (!isEngineActive) "Warming up the Vector Engine..." else "Building your constellation...",
-                        color = Color.White.copy(alpha = 0.7f),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                    if (!isEngineActive && !isEngineLoading) {
+                        Icon(Icons.Default.Stop, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(48.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "Core Offline",
+                            color = Color.White.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = { vm.initializeEngine() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF64FFDA), contentColor = Color.Black)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Initialize Engine")
+                        }
+                    } else {
+                        CircularProgressIndicator(color = Color(0xFF64FFDA), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            if (!isEngineActive) "Warming up the Vector Engine..." else "Building your constellation...",
+                            color = Color.White.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
             }
             Canvas(modifier = Modifier.fillMaxSize()) {
@@ -275,20 +298,41 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     }
                 }
                 .pointerInput(Unit) {
-                    detectTapGestures { tapOffset ->
-                        val center = Offset(layoutWidth / 2f, layoutHeight / 2f)
-                        val projectedNodes = currentVisibleNodes.map { node ->
-                            node to projectPoint(node.x, node.y, node.z, center, yaw, pitch, cameraX, cameraY, cameraZ)
-                        }.sortedByDescending { it.second.z }
-                        
-                        val clicked = projectedNodes.findLast { (_, p) ->
-                            val dx = p.x - tapOffset.x
-                            val dy = p.y - tapOffset.y
-                            val hitScale = p.scale.coerceAtMost(3f)
-                            (dx * dx + dy * dy) < (2500f * hitScale)
-                        }?.first
-                        selectedNode = clicked
-                    }
+                    detectTapGestures(
+                        onDoubleTap = { tapOffset ->
+                            if (isIsolateMode) {
+                                val center = Offset(layoutWidth / 2f, layoutHeight / 2f)
+                                val projectedNodes = currentVisibleNodes.map { node ->
+                                    node to projectPoint(node.x, node.y, node.z, center, yaw, pitch, cameraX, cameraY, cameraZ)
+                                }.sortedByDescending { it.second.z }
+                                
+                                val clicked = projectedNodes.findLast { (_, p) ->
+                                    val dx = p.x - tapOffset.x
+                                    val dy = p.y - tapOffset.y
+                                    val hitScale = p.scale.coerceAtMost(3f)
+                                    (dx * dx + dy * dy) < (2500f * hitScale)
+                                }?.first
+                                if (clicked != null) {
+                                    selectedNode = clicked
+                                    showDetailPanelInFocusMode = true
+                                }
+                            }
+                        },
+                        onTap = { tapOffset ->
+                            val center = Offset(layoutWidth / 2f, layoutHeight / 2f)
+                            val projectedNodes = currentVisibleNodes.map { node ->
+                                node to projectPoint(node.x, node.y, node.z, center, yaw, pitch, cameraX, cameraY, cameraZ)
+                            }.sortedByDescending { it.second.z }
+                            
+                            val clicked = projectedNodes.findLast { (_, p) ->
+                                val dx = p.x - tapOffset.x
+                                val dy = p.y - tapOffset.y
+                                val hitScale = p.scale.coerceAtMost(3f)
+                                (dx * dx + dy * dy) < (2500f * hitScale)
+                            }?.first
+                            selectedNode = clicked
+                        }
+                    )
                 }
         ) {
             layoutWidth = size.width
@@ -542,20 +586,22 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         }
         
         // Node detail panel
-        if (selectedNode != null && !isIsolateMode) {
-            val decryptedContent = remember(selectedNode) {
+        val showPanel = (!isIsolateMode && selectedNode != null) || (isIsolateMode && showDetailPanelInFocusMode && selectedNode != null)
+        if (showPanel) {
+            val nodeToShow = selectedNode!!
+            val decryptedContent = remember(nodeToShow) {
                 try {
-                    securityManager.decrypt(selectedNode!!.content)
+                    securityManager.decrypt(nodeToShow.content)
                 } catch (_: Exception) {
-                    selectedNode!!.content
+                    nodeToShow.content
                 }
             }
-            val nodeColor = getMoodNodeColor(selectedNode!!.moodScore)
+            val nodeColor = getMoodNodeColor(nodeToShow.moodScore)
             val moodLabel = when {
-                selectedNode!!.moodScore > 1.5 -> "🤩 Awesome"
-                selectedNode!!.moodScore > 0.5 -> "🙂 Good"
-                selectedNode!!.moodScore > -0.5 -> "😐 Fine"
-                selectedNode!!.moodScore > -1.5 -> "🙁 Bad"
+                nodeToShow.moodScore > 1.5 -> "🤩 Awesome"
+                nodeToShow.moodScore > 0.5 -> "🙂 Good"
+                nodeToShow.moodScore > -0.5 -> "😐 Fine"
+                nodeToShow.moodScore > -1.5 -> "🙁 Bad"
                 else -> "😫 Terrible"
             }
             
@@ -580,22 +626,24 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                                 drawCircle(color = nodeColor, radius = size.minDimension / 2f)
                             }
                             Spacer(modifier = Modifier.width(8.dp))
-                            if (selectedNode!!.theme != "Unknown") {
+                            if (nodeToShow.theme != "Unknown") {
                                 Text(
-                                    text = selectedNode!!.theme,
+                                    text = nodeToShow.theme,
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
                                 )
                             }
                         }
-                        IconButton(onClick = { selectedNode = null }) {
+                        IconButton(onClick = { 
+                            if (isIsolateMode) showDetailPanelInFocusMode = false else selectedNode = null 
+                        }) {
                             Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White.copy(alpha = 0.6f))
                         }
                     }
                     
                     val nodeConnections = visibleEdges.count {
-                        it.source.entryId == selectedNode!!.entryId || it.target.entryId == selectedNode!!.entryId
+                        it.source.entryId == nodeToShow.entryId || it.target.entryId == nodeToShow.entryId
                     }
                     
                     Spacer(modifier = Modifier.height(4.dp))
@@ -609,20 +657,25 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         Row {
                             if (nodeConnections > 0) {
                                 TextButton(
-                                    onClick = { showConnectionsFor = selectedNode },
+                                    onClick = { showConnectionsFor = nodeToShow },
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                                     modifier = Modifier.height(24.dp)
                                 ) {
                                     Text("View All", style = MaterialTheme.typography.labelSmall, color = Color(0xFF82B1FF))
                                 }
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            TextButton(
-                                onClick = { isIsolateMode = true },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(24.dp)
-                            ) {
-                                Text("Focus", style = MaterialTheme.typography.labelSmall, color = Color(0xFF64FFDA))
+                            if (!isIsolateMode) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                TextButton(
+                                    onClick = { 
+                                        isIsolateMode = true
+                                        showDetailPanelInFocusMode = false 
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(24.dp)
+                                ) {
+                                    Text("Focus", style = MaterialTheme.typography.labelSmall, color = Color(0xFF64FFDA))
+                                }
                             }
                         }
                     }
@@ -640,10 +693,13 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         color = Color.White.copy(alpha = 0.05f)
                     ) {
                         Text(
-                            text = decryptedContent.take(200) + if (decryptedContent.length > 200) "..." else "",
+                            text = decryptedContent,
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.White.copy(alpha = 0.85f),
-                            modifier = Modifier.padding(12.dp)
+                            modifier = Modifier
+                                .padding(12.dp)
+                                .heightIn(max = 150.dp)
+                                .verticalScroll(rememberScrollState())
                         )
                     }
                 }
@@ -751,7 +807,10 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         // Floating Controls (Bottom Right)
         if (isIsolateMode) {
             FloatingActionButton(
-                onClick = { isIsolateMode = false },
+                onClick = { 
+                    isIsolateMode = false 
+                    showDetailPanelInFocusMode = false
+                },
                 containerColor = Color.White.copy(alpha = 0.1f),
                 contentColor = Color(0xFF64FFDA),
                 modifier = Modifier
@@ -904,6 +963,7 @@ fun ConnectionsScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 textContentColor = Color.White
             )
         }
+        
     }
 }
 

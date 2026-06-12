@@ -100,7 +100,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var isThemesInitialized by mutableStateOf(false)
         private set
     var autoLoadEnabled by mutableStateOf(false)
-    var vibeYear by mutableStateOf("2025")
+    var vibeYear by mutableStateOf("2026")
     var tagline by mutableStateOf("Analyzing your cosmic vibes...")
 
     // Processing State
@@ -445,7 +445,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 val currentTime = System.currentTimeMillis()
                 
                 // Flush to DB and UI every 10 items OR if 5 seconds have passed, whichever comes first
-                if (processedCount % 10 == 0 || (currentTime - lastRefreshTime) > 5000) {
+                if (processedCount >= 10 || (currentTime - lastRefreshTime) > 5000) {
                     if (updatedEntriesBatch.isNotEmpty()) {
                         dao.updateEntries(updatedEntriesBatch)
                         ObjectBoxManager.vectorBox.put(vectorBatch)
@@ -454,6 +454,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     }
                     refreshProcessingStats()
                     lastRefreshTime = currentTime
+                    processedCount = 0
                 }
             }
             
