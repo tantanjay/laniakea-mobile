@@ -55,8 +55,8 @@ fun ConstellationCanvas(
     onNodeDoubleTap: (GraphNode) -> Unit,
     onLayoutSize: (Float, Float) -> Unit,
     glowPulse: Float,
-    showDecorations: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showDecorations: Boolean = true
 ) {
     val textMeasurer = rememberTextMeasurer()
     var activePointers by remember { mutableIntStateOf(0) }
@@ -170,7 +170,7 @@ fun ConstellationCanvas(
         if (showDecorations && layoutMode == LayoutMode.CLUSTERS && projectedNodes.isNotEmpty()) {
             val clusters = projectedNodes.groupBy { it.first.clusterName }
             for ((clusterName, nodesInCluster) in clusters) {
-                if (clusterName == "Unknown" || nodesInCluster.size < 3) continue
+                if (clusterName == "Unknown" || clusterName.endsWith(" Thought") || nodesInCluster.size < 3) continue
                 
                 val avgX = nodesInCluster.map { it.second.x }.average().toFloat()
                 val avgY = nodesInCluster.map { it.second.y }.average().toFloat()
@@ -187,7 +187,7 @@ fun ConstellationCanvas(
                     
                     drawCircle(
                         brush = androidx.compose.ui.graphics.Brush.radialGradient(
-                            colors = listOf(clusterColor.copy(alpha = 0.2f), Color.Transparent),
+                            colors = listOf(clusterColor.copy(alpha = 0.08f), Color.Transparent),
                             center = Offset(avgX, avgY),
                             radius = drawRadius
                         ),
@@ -209,8 +209,8 @@ fun ConstellationCanvas(
                 val p2 = n2.second
                 
                 if (p1.z + camera.cameraZ > 0 && p2.z + camera.cameraZ > 0) {
-                    val c1 = getCommunityColor(n1.first.clusterName, n1.first.themeDistances)
-                    val c2 = getCommunityColor(n2.first.clusterName, n2.first.themeDistances)
+                    val c1 = getMixedCommunityColor(n1.first.clusterName, n1.first.themeDistances)
+                    val c2 = getMixedCommunityColor(n2.first.clusterName, n2.first.themeDistances)
                     
                     val avgScale = (p1.scale + p2.scale) / 2f
                     val drawScale = avgScale.coerceAtMost(3f)
@@ -224,7 +224,7 @@ fun ConstellationCanvas(
                         ),
                         start = Offset(p1.x, p1.y),
                         end = Offset(p2.x, p2.y),
-                        strokeWidth = 3.5f * drawScale,
+                        strokeWidth = 1.5f * drawScale,
                         cap = StrokeCap.Round
                     )
                 }
@@ -259,7 +259,7 @@ fun ConstellationCanvas(
                             else -> Color(0xFFFF5252)
                         }
                     } else {
-                        if (sourceNode.clusterName == targetNode.clusterName) getCommunityColor(sourceNode.clusterName, sourceNode.themeDistances) else Color.Gray.copy(alpha = 0.3f)
+                        if (sourceNode.clusterName == targetNode.clusterName) getCommunityColor(sourceNode.clusterName) else Color.Gray.copy(alpha = 0.3f)
                     }
 
                     drawLine(
@@ -278,7 +278,8 @@ fun ConstellationCanvas(
         projectedNodes.forEach { (node, p) ->
             if (p.z + camera.cameraZ > 0) {
                 val isSelected = node == selectedNode
-                val nodeColor = if (colorMode == ColorMode.MOOD) getMoodNodeColor(node.moodScore) else getCommunityColor(node.clusterName, node.themeDistances)
+                val nodeColor = if (colorMode == ColorMode.MOOD) getMoodNodeColor(node.moodScore) else getCommunityColor(node.clusterName)
+                val glowColor = if (colorMode == ColorMode.MOOD) nodeColor else getMixedCommunityColor(node.clusterName, node.themeDistances)
 
                 val drawScale = p.scale.coerceAtMost(3f)
                 // Shrink nodes faster when zoomed out so they look like tiny stars
@@ -296,14 +297,14 @@ fun ConstellationCanvas(
 
                 // Outer glow
                 drawCircle(
-                    color = nodeColor.copy(alpha = (if (isSelected) 0.5f else glowPulse * 0.3f) * alphaFactor),
+                    color = glowColor.copy(alpha = (if (isSelected) 0.5f else glowPulse * 0.3f) * alphaFactor),
                     radius = if (isSelected) glowRadius * 1.5f else glowRadius,
                     center = Offset(p.x, p.y)
                 )
 
                 // Mid-glow
                 drawCircle(
-                    color = nodeColor.copy(alpha = (if (isSelected) 0.4f else 0.15f) * alphaFactor),
+                    color = glowColor.copy(alpha = (if (isSelected) 0.4f else 0.15f) * alphaFactor),
                     radius = if (isSelected) baseRadius * 1.8f else baseRadius * 1.4f,
                     center = Offset(p.x, p.y)
                 )
