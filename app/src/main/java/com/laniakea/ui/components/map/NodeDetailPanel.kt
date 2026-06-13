@@ -49,14 +49,19 @@ fun MapNodeDetailPanel(
                         drawCircle(color = nodeColor, radius = size.minDimension / 2f)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    if (nodeToShow.theme != "Unknown") {
-                        Text(
-                            text = nodeToShow.theme,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
+                    
+                    val displayTheme = if (nodeToShow.theme != "Unknown" && nodeToShow.theme.isNotBlank()) {
+                        nodeToShow.theme
+                    } else {
+                        extractTopicFromText(decryptedContent)
                     }
+                    
+                    Text(
+                        text = displayTheme,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
                 }
                 IconButton(onClick = onClose) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White.copy(alpha = 0.6f))
@@ -119,3 +124,4 @@ fun MapNodeDetailPanel(
         }
     }
 }
+

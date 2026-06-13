@@ -73,13 +73,25 @@ class GraphEngine {
             val ny = r * sin(theta) * sin(phi)
             val nz = r * cos(theta)
             
+            val rawTheme = v.semanticTheme ?: "Unknown"
+            val finalTheme = if (rawTheme == "Unknown" || rawTheme.isBlank()) {
+                val decryptedContent = try {
+                    securityManager?.decrypt(entry.content) ?: entry.content
+                } catch (_: Exception) {
+                    entry.content
+                }
+                com.laniakea.ui.components.map.extractTopicFromText(decryptedContent)
+            } else {
+                rawTheme
+            }
+            
             GraphNode(
                 entryId = entry.id,
                 x = centerX + nx.toFloat(),
                 y = centerY + ny.toFloat(),
                 z = centerZ + nz.toFloat(),
                 date = entry.dateTime,
-                theme = v.semanticTheme ?: "Unknown",
+                theme = finalTheme,
                 moodScore = entry.numericMood,
                 content = entry.content
             )
