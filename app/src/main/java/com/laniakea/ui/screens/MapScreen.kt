@@ -8,10 +8,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -47,7 +50,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
-import androidx.compose.ui.platform.LocalLocale
 import com.laniakea.engine.LayoutMode
 import com.laniakea.ui.components.map.getCommunityColor
 import com.laniakea.ui.components.map.getMoodNodeColor
@@ -57,6 +59,7 @@ import com.laniakea.ui.components.map.MapLegend
 import com.laniakea.ui.components.map.MapNodeDetailPanel
 import com.laniakea.ui.components.map.MapStatsBadge
 import com.laniakea.ui.components.map.MapConnectionsDialog
+import kotlinx.coroutines.launch
 
 enum class ColorMode { MOOD, COMMUNITY }
 
@@ -119,6 +122,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     
     // Settle button re-runs live physics briefly
     var isSettling by remember { mutableStateOf(false) }
+    var showInfoDialog by remember { mutableStateOf(false) }
     
     val graphEngine = remember { GraphEngine() }
     var layoutWidth by remember { mutableFloatStateOf(0f) }
@@ -134,6 +138,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     
     var selectedNode by remember { mutableStateOf<GraphNode?>(null) }
     var isIsolateMode by remember { mutableStateOf(false) }
+    var lockedFocusNode by remember { mutableStateOf<GraphNode?>(null) }
     var showConnectionsFor by remember { mutableStateOf<GraphNode?>(null) }
     var showDetailPanelInFocusMode by remember { mutableStateOf(false) }
     
@@ -226,11 +231,13 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             replayProgress = 0
             // Small delay before starting
             delay(300L.milliseconds)
-            while (replayProgress < allNodes.size && isReplaying) {
-                replayProgress++
-                // Faster for large graphs, slower for small
-                val delayMs = if (allNodes.size > 30) 60L else 200L
-                delay(delayMs.milliseconds)
+            launch {
+                while (replayProgress < allNodes.size && isReplaying) {
+                    replayProgress++
+                    // Faster for large graphs, slower for small
+                    val delayMs = if (allNodes.size > 30) 60L else 200L
+                    delay(delayMs.milliseconds)
+                }
             }
             
             // Post-replay continuous animation
@@ -243,23 +250,28 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     // Spin the clusters slowly like a disk
                     roll -= 0.003f
                 } else if (layoutMode == LayoutMode.TIME_WARP) {
-                    // Warpy time tunnel animation: fly forward with a gentle warp wobble
-                    cameraZ -= 3f
-                    yaw = kotlin.math.sin(animTime * 0.5f) * 0.05f
-                    pitch = -0.6f + kotlin.math.cos(animTime * 0.3f) * 0.05f
+                    // Warpy time tunnel animation: physically flow the nodes along the tube
+                    graphEngine.warpTimeOffset += 0.0015f
+                    graphEngine.applyLiveStep(allNodes, allEdges, layoutWidth, layoutHeight)
+                    allNodes = allNodes.toList() // trigger recomposition
                 }
+            }
+        } else {
+            if (layoutMode == LayoutMode.TIME_WARP && graphEngine.warpTimeOffset > 0f) {
+                graphEngine.warpTimeOffset = 0f
+                isSettling = true
             }
         }
     }
     
-    // Continuous Galaxy Rotation
+    // Continuous Background Animations
     LaunchedEffect(layoutMode) {
-        if (layoutMode == LayoutMode.GALAXY) {
-            var t = 0f
-            while (true) {
-                delay(16L.milliseconds)
-                t += 0.016f
-                if (selectedNode == null && !showDetailPanelInFocusMode) {
+        var t = 0f
+        while (true) {
+            delay(16L.milliseconds)
+            t += 0.016f
+            if (selectedNode == null && !showDetailPanelInFocusMode && !isReplaying) {
+                if (layoutMode == LayoutMode.GALAXY) {
                     roll -= 0.002f // Spin around the galaxy's center
                     yaw = kotlin.math.cos(t * 0.1f) * 0.1f
                 }
@@ -312,18 +324,20 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         }
 
         val baseVisibleNodes = allNodes.take(replayProgress)
-        val visibleNodes = if (isIsolateMode && selectedNode != null) {
-            val connectedIds = allEdges.filter { it.source.entryId == selectedNode!!.entryId || it.target.entryId == selectedNode!!.entryId }
+        val focusCenter = if (isIsolateMode) (lockedFocusNode ?: selectedNode) else null
+        
+        val visibleNodes = if (focusCenter != null) {
+            val connectedIds = allEdges.filter { it.source.entryId == focusCenter.entryId || it.target.entryId == focusCenter.entryId }
                 .flatMap { listOf(it.source.entryId, it.target.entryId) }
                 .toSet()
-            baseVisibleNodes.filter { it.entryId == selectedNode!!.entryId || it.entryId in connectedIds }
+            baseVisibleNodes.filter { it.entryId == focusCenter.entryId || it.entryId in connectedIds }
         } else {
             baseVisibleNodes
         }
 
         val visibleIds = visibleNodes.map { it.entryId }.toSet()
-        val visibleEdges = if (isIsolateMode && selectedNode != null) {
-            allEdges.filter { (it.source.entryId == selectedNode!!.entryId || it.target.entryId == selectedNode!!.entryId) && 
+        val visibleEdges = if (focusCenter != null) {
+            allEdges.filter { (it.source.entryId == focusCenter.entryId || it.target.entryId == focusCenter.entryId) && 
                               it.source.entryId in visibleIds && it.target.entryId in visibleIds }
         } else {
             allEdges.filter { it.source.entryId in visibleIds && it.target.entryId in visibleIds }
@@ -602,7 +616,8 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 while (calendar.timeInMillis <= maxDate) {
                     val tickTime = calendar.timeInMillis
                     if (tickTime >= minDate) {
-                        val dateProgress = (tickTime - minDate).toFloat() / dateSpan.toFloat()
+                        val rawProgress = (tickTime - minDate).toFloat() / dateSpan.toFloat()
+                        val dateProgress = (rawProgress + graphEngine.warpTimeOffset) % 1.0f
                         val targetX = (layoutWidth / 2f - timelineWidth / 2f) + (dateProgress * timelineWidth)
                         
                         val p = projectPoint(targetX, timelineY, timelineZ, canvasCenter, yaw, pitch, roll, cameraX, cameraY, cameraZ)
@@ -675,6 +690,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 onViewAll = { showConnectionsFor = nodeToShow },
                 onFocus = {
                     isIsolateMode = true
+                    lockedFocusNode = nodeToShow
                     showDetailPanelInFocusMode = false
                 },
                 modifier = Modifier.align(Alignment.BottomCenter)
@@ -712,20 +728,60 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             }
         }
         
+        // Helper Label (Bottom Left)
+        if (isIsolateMode && !showDetailPanelInFocusMode) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(16.dp),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                color = Color(0xFF64FFDA).copy(alpha = 0.15f)
+            ) {
+                Text(
+                    "Double-tap a node to view details",
+                    color = Color(0xFF64FFDA),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
+        }
+        
         // Floating Controls (Bottom Right)
         if (isIsolateMode) {
-            FloatingActionButton(
-                onClick = { 
-                    isIsolateMode = false 
-                    showDetailPanelInFocusMode = false
-                },
-                containerColor = Color.White.copy(alpha = 0.1f),
-                contentColor = Color(0xFF64FFDA),
+            val isLocked = lockedFocusNode != null
+            Row(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(16.dp)
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Icon(Icons.Default.Close, contentDescription = "Exit Focus Mode")
+                FloatingActionButton(
+                    onClick = {
+                        lockedFocusNode = if (isLocked) {
+                            null
+                        } else {
+                            selectedNode
+                        }
+                    },
+                    containerColor = Color.White.copy(alpha = 0.1f),
+                    contentColor = if (isLocked) Color(0xFFFF5252) else Color(0xFF64FFDA)
+                ) {
+                    Icon(
+                        if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                        contentDescription = "Lock Focus"
+                    )
+                }
+                FloatingActionButton(
+                    onClick = { 
+                        isIsolateMode = false 
+                        lockedFocusNode = null
+                        showDetailPanelInFocusMode = false
+                    },
+                    containerColor = Color.White.copy(alpha = 0.1f),
+                    contentColor = Color(0xFF64FFDA)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Exit Focus Mode")
+                }
             }
         } else {
             val fabBottomOffset = if (selectedNode != null) 220.dp else 16.dp
@@ -760,6 +816,14 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = "Replay Timeline")
                     }
+                }
+                
+                FloatingActionButton(
+                    onClick = { showInfoDialog = true },
+                    containerColor = Color.White.copy(alpha = 0.1f),
+                    contentColor = Color.White.copy(alpha = 0.8f)
+                ) {
+                    Icon(Icons.Default.Info, contentDescription = "Layout Info")
                 }
                 
                 if (!isSettling && !isReplaying) {
@@ -810,5 +874,11 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             )
         }
         
+        if (showInfoDialog) {
+            com.laniakea.ui.components.map.MapInfoDialog(
+                layoutMode = layoutMode,
+                onDismiss = { showInfoDialog = false }
+            )
+        }
     }
 }

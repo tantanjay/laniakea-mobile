@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.laniakea.engine.GraphNode
+import androidx.compose.ui.platform.LocalLocale
 
 @Composable
 fun MapNodeDetailPanel(
@@ -74,7 +75,11 @@ fun MapNodeDetailPanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(moodLabel, style = MaterialTheme.typography.bodySmall, color = nodeColor)
+                Column {
+                    Text(moodLabel, style = MaterialTheme.typography.bodySmall, color = nodeColor)
+                    val dateString = java.text.SimpleDateFormat("MMM dd, yyyy • hh:mm a", LocalLocale.current.platformLocale).format(java.util.Date(nodeToShow.date))
+                    Text(dateString, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.5f))
+                }
                 
                 Row {
                     if (nodeConnections > 0) {
