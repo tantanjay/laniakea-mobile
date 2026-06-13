@@ -21,7 +21,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.laniakea.data.ObjectBoxSentenceVector
 import com.laniakea.engine.GraphEdge
@@ -88,6 +87,9 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     }
     var layoutMode by remember { 
         mutableStateOf(LayoutMode.valueOf(prefs.getString("layout_mode", LayoutMode.CLUSTERS.name) ?: LayoutMode.CLUSTERS.name)) 
+    }
+    var showDecorations by remember { 
+        mutableStateOf(prefs.getBoolean("show_decorations", true)) 
     }
 
     val backgroundStars = remember {
@@ -205,6 +207,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             val vectorsToProcess = vectors.filter { it.entryId in entriesIds }
             
             val (initialNodes, initialEdges) = withContext(Dispatchers.Default) {
+                graphEngine.layoutMode = layoutMode // Sync layout mode before building
                 graphEngine.buildGraph(
                     entries = entriesToProcess,
                     vectors = vectorsToProcess,
@@ -227,9 +230,9 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             graphEngine.layoutMode = layoutMode
             graphEngine.startLiveSimulation()
             var steps = 0
-            while (isSettling && steps < 200) {
+            while (isSettling && steps < 150) { // Reduced steps to 150 for faster propagation
                 delay(16L.milliseconds)
-                graphEngine.applyLiveStep(allNodes, allEdges, nodeMap, layoutWidth, layoutHeight)
+                graphEngine.applyLiveStep(allNodes, allEdges, nodeMap, layoutWidth, layoutHeight, 150)
                 allNodes = allNodes.toList() // trigger recomposition
                 steps++
             }
@@ -241,6 +244,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     LaunchedEffect(layoutMode) {
         if (hasBuiltGraph && !isReplaying) {
             isSettling = true
+            camera = camera.reset()
         }
     }
     
@@ -380,7 +384,6 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             visibleNodes = visibleNodes,
             visibleEdges = visibleEdges,
             allNodes = allNodes,
-            nodeMap = nodeMap,
             backgroundStars = backgroundStars,
             layoutMode = layoutMode,
             colorMode = colorMode,
@@ -398,7 +401,8 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 layoutWidth = w
                 layoutHeight = h
             },
-            glowPulse = glowPulse
+            glowPulse = glowPulse,
+            showDecorations = showDecorations
         )
 
         // Stats badge
@@ -429,7 +433,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     nodeToShow.content
                 }
             }
-            val nodeColor = getMoodNodeColor(nodeToShow.moodScore)
+            val nodeColor = if (colorMode == ColorMode.MOOD) getMoodNodeColor(nodeToShow.moodScore) else getCommunityColor(nodeToShow.clusterName)
             val moodLabel = getMoodLabel(nodeToShow.moodScore)
             
             MapNodeDetailPanel(
@@ -477,7 +481,13 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 onColorModeChange = { 
                     colorMode = it
                     prefs.edit { putString("color_mode", it.name) }
-                }
+                },
+                showDecorations = showDecorations,
+                onToggleDecorations = { 
+                    showDecorations = !showDecorations 
+                    prefs.edit { putBoolean("show_decorations", showDecorations) }
+                },
+                isSettling = isSettling
             )
             
             // Legend

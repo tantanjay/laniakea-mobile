@@ -20,12 +20,19 @@ import androidx.compose.ui.unit.sp
 import com.laniakea.engine.LayoutMode
 import com.laniakea.ui.screens.ColorMode
 
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+
 @Composable
 fun MapControls(
     layoutMode: LayoutMode,
     onLayoutModeChange: (LayoutMode) -> Unit,
     colorMode: ColorMode,
-    onColorModeChange: (ColorMode) -> Unit
+    onColorModeChange: (ColorMode) -> Unit,
+    showDecorations: Boolean,
+    onToggleDecorations: () -> Unit,
+    isSettling: Boolean = false
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -45,7 +52,8 @@ fun MapControls(
                 onClick = { layoutDropdownExpanded = true },
                 colors = ButtonDefaults.textButtonColors(containerColor = Color.White.copy(alpha=0.1f)),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                modifier = Modifier.height(32.dp)
+                modifier = Modifier.height(32.dp),
+                enabled = !isSettling
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -91,7 +99,6 @@ fun MapControls(
         }
         
         // Color Mode Toggle (Mood / Themes)
-        val colorModeIcon = if (colorMode == ColorMode.MOOD) Icons.Default.Face else Icons.Default.List
         val colorModeText = if (colorMode == ColorMode.MOOD) "Mood" else "Themes"
         
         TextButton(
@@ -104,18 +111,35 @@ fun MapControls(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = colorModeIcon,
-                    contentDescription = null,
+                    imageVector = Icons.Default.Palette,
+                    contentDescription = "Color Mode",
                     tint = Color.White,
                     modifier = Modifier.size(14.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "Color: $colorModeText",
+                    text = colorModeText,
                     color = Color.White, 
                     fontSize = 12.sp
                 )
             }
+        }
+        
+        // Decoration Toggle
+        val decorationIcon = if (showDecorations) Icons.Default.Visibility else Icons.Default.VisibilityOff
+        
+        TextButton(
+            onClick = onToggleDecorations,
+            colors = ButtonDefaults.textButtonColors(containerColor = Color.White.copy(alpha=0.1f)),
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                imageVector = decorationIcon,
+                contentDescription = "Toggle decorations",
+                tint = Color.White,
+                modifier = Modifier.size(16.dp)
+            )
         }
     }
 }

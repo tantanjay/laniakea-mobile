@@ -3,10 +3,40 @@ package com.laniakea.util
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 
-fun getCommunityColor(clusterName: String): Color {
-    if (clusterName == "Unknown" || clusterName.isBlank()) return Color.Gray
+fun getCommunityColor(clusterName: String, themeDistances: Map<String, Float> = emptyMap()): Color {
+    if (themeDistances.isNotEmpty()) {
+        val topThemes = themeDistances.entries
+            .map { it.key to kotlin.math.max(0f, 1.0f - it.value) }
+            .sortedByDescending { it.second }
+            .take(2)
+        
+        if (topThemes.size == 2) {
+            val totalWeight = topThemes[0].second + topThemes[1].second
+            if (totalWeight > 0f) {
+                val ratio1 = topThemes[0].second / totalWeight
+                val ratio2 = topThemes[1].second / totalWeight
+                
+                val c1 = getBaseThemeColor(topThemes[0].first)
+                val c2 = getBaseThemeColor(topThemes[1].first)
+                
+                return Color(
+                    red = c1.red * ratio1 + c2.red * ratio2,
+                    green = c1.green * ratio1 + c2.green * ratio2,
+                    blue = c1.blue * ratio1 + c2.blue * ratio2,
+                    alpha = 1f
+                )
+            }
+        } else if (topThemes.size == 1) {
+            return getBaseThemeColor(topThemes[0].first)
+        }
+    }
+    return getBaseThemeColor(clusterName)
+}
+
+private fun getBaseThemeColor(themeName: String): Color {
+    if (themeName == "Unknown" || themeName.isBlank()) return Color.Gray
     // Stable hash ensures the same theme always gets the exact same color
-    val hash = kotlin.math.abs(clusterName.hashCode())
+    val hash = kotlin.math.abs(themeName.hashCode())
     val hue = (hash * 137.508f) % 360f
     // 85% saturation for vibrancy, 100% value for brightness
     val hsvColor = android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.85f, 1.0f))
@@ -14,12 +44,31 @@ fun getCommunityColor(clusterName: String): Color {
 }
 
 fun getMoodNodeColor(moodScore: Double): Color {
+    val score = moodScore.coerceIn(-1.0, 1.0).toFloat()
+    
+    // Define color stops
+    val veryNegative = Color(0xFFFF5252) // Red (-1.0)
+    val negative = Color(0xFFFFAB40)     // Orange (-0.3)
+    val neutral = Color(0xFF82B1FF)      // Blue (0.0)
+    val positive = Color(0xFF64FFDA)     // Cyan (0.5)
+    val veryPositive = Color(0xFF69F0AE) // Green (1.0)
+    
     return when {
-        moodScore >= 0.5 -> Color(0xFF64FFDA)
-        moodScore >= -0.2 -> Color(0xFF82B1FF)
-        moodScore >= -0.6 -> Color(0xFFFFAB40)
-        else -> Color(0xFFFF5252)
+        score < -0.3f -> lerpColor(veryNegative, negative, (score + 1.0f) / 0.7f)
+        score < 0.0f -> lerpColor(negative, neutral, (score + 0.3f) / 0.3f)
+        score < 0.5f -> lerpColor(neutral, positive, score / 0.5f)
+        else -> lerpColor(positive, veryPositive, (score - 0.5f) / 0.5f)
     }
+}
+
+private fun lerpColor(c1: Color, c2: Color, fraction: Float): Color {
+    val f = fraction.coerceIn(0f, 1f)
+    return Color(
+        red = c1.red + (c2.red - c1.red) * f,
+        green = c1.green + (c2.green - c1.green) * f,
+        blue = c1.blue + (c2.blue - c1.blue) * f,
+        alpha = 1f
+    )
 }
 
 data class ProjectedPoint(val x: Float, val y: Float, val z: Float, val scale: Float)
