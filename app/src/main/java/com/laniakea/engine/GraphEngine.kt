@@ -2,6 +2,7 @@ package com.laniakea.engine
 
 import com.laniakea.data.DiaryEntry
 import com.laniakea.data.ObjectBoxSentenceVector
+import com.laniakea.util.*
 import kotlin.math.acos
 import kotlin.math.cbrt
 import kotlin.math.cos
@@ -12,6 +13,23 @@ import kotlin.math.abs
 import kotlin.math.exp
 
 enum class LayoutMode { CLUSTERS, GALAXY, TIME_WARP }
+
+/**
+ * Centralised tuning constants for the graph engine.
+ * Every magic number that was previously scattered across the codebase lives here.
+ */
+data class GraphConfig(
+    val similarityThreshold: Float = 0.55f,
+    val temporalDecayDays: Double = 90.0,
+    val maxEdgesPerNode: Int = 4,
+    val clusterSpreadRadius: Float = 250f,
+    val clusterGravityStrength: Float = 0.08f,
+    val lpaMaxIterations: Int = 15,
+    val settleMaxIterations: Int = 250,
+    val recencyHalfLifeDays: Float = 90f,
+    val importanceHighMoodThreshold: Float = 1.2f,
+    val importanceDeepThoughtLengthThreshold: Float = 0.8f,
+)
 
 data class GraphNode(
     val entryId: Long,
@@ -30,25 +48,40 @@ data class GraphNode(
     var importance: Float = 0f
 )
 
+/**
+ * An edge between two graph nodes, identified by their entry IDs rather than
+ * mutable node references.  This keeps equals/hashCode stable across physics steps.
+ */
 data class GraphEdge(
-    val source: GraphNode,
-    val target: GraphNode,
+    val sourceId: Long,
+    val targetId: Long,
     val weight: Float
 )
+
+/**
+ * Mutable state that the engine accumulates during and after graph construction.
+ * Passed explicitly rather than stored as instance fields so that the engine
+ * remains safe for potential concurrent use.
+ */
+class GraphState {
+    var minDate: Long = 0L
+    var maxDate: Long = 0L
+    var warpTimeOffset: Float = 0f
+    var liveStep: Int = 0
+}
 
 class GraphEngine {
     
     var layoutMode: LayoutMode = LayoutMode.CLUSTERS
-    private var minDate: Long = 0L
-    private var maxDate: Long = 0L
+    val config: GraphConfig = GraphConfig()
+    val state: GraphState = GraphState()
     
     fun buildGraph(
         entries: List<DiaryEntry>,
         vectors: List<ObjectBoxSentenceVector>,
-        similarityThreshold: Float = 0.55f,
         width: Float,
         height: Float,
-        securityManager: com.laniakea.manager.SecurityManager? = null
+        contentDecryptor: (String) -> String = { it }
     ): Pair<List<GraphNode>, List<GraphEdge>> {
         val vectorMap = vectors.associateBy { it.entryId }
         val validEntries = entries.filter { vectorMap.containsKey(it.id) }
@@ -58,7 +91,7 @@ class GraphEngine {
         val centerZ = 0f
         val initRadius = min(width, height) * 0.18f
         
-        val nodes = validEntries.mapIndexed { _, entry ->
+        val nodes = validEntries.map { entry ->
             val v = vectorMap[entry.id]!!
             
             // Distribute randomly but deterministically based on entry.id
@@ -76,11 +109,11 @@ class GraphEngine {
             val rawTheme = v.semanticTheme ?: "Unknown"
             val finalTheme = if (rawTheme == "Unknown" || rawTheme.isBlank()) {
                 val decryptedContent = try {
-                    securityManager?.decrypt(entry.content) ?: entry.content
+                    contentDecryptor(entry.content)
                 } catch (_: Exception) {
                     entry.content
                 }
-                com.laniakea.ui.components.map.extractTopicFromText(decryptedContent)
+                extractTopicFromText(decryptedContent)
             } else {
                 rawTheme
             }
@@ -111,40 +144,39 @@ class GraphEngine {
                     val rawSim = cosineSimilarity(v1, v2)
                     
                     // Filter by raw semantic similarity first to drop unrelated thoughts
-                    if (rawSim >= similarityThreshold) {
+                    if (rawSim >= config.similarityThreshold) {
                         val daysApart = abs(e1.dateTime - e2.dateTime).toDouble() / (24L * 60 * 60 * 1000).toDouble()
-                        val temporalFactor = exp(-daysApart / 90.0).toFloat()
+                        val temporalFactor = exp(-daysApart / config.temporalDecayDays).toFloat()
                         
                         // Hybrid Score: Topic + Era
                         val hybridScore = rawSim * temporalFactor
                         
-                        edgeCandidates.add(GraphEdge(nodeMap[e1.id]!!, nodeMap[e2.id]!!, hybridScore))
+                        edgeCandidates.add(GraphEdge(e1.id, e2.id, hybridScore))
                     }
                 }
             }
         }
         
         // Limit edges to top K connections per node to keep graph sparse and physics extremely fast
-        val maxEdgesPerNode = 4
         val edgesByNode = mutableMapOf<Long, MutableList<GraphEdge>>()
         for (node in nodes) { edgesByNode[node.entryId] = mutableListOf() }
         
         for (edge in edgeCandidates) {
-            edgesByNode[edge.source.entryId]!!.add(edge)
-            edgesByNode[edge.target.entryId]!!.add(edge)
+            edgesByNode[edge.sourceId]!!.add(edge)
+            edgesByNode[edge.targetId]!!.add(edge)
         }
         
         val edgesSet = mutableSetOf<GraphEdge>()
         for (node in nodes) {
             val nodeEdges = edgesByNode[node.entryId]!!
             nodeEdges.sortByDescending { it.weight }
-            nodeEdges.take(maxEdgesPerNode).forEach { edgesSet.add(it) }
+            nodeEdges.take(config.maxEdgesPerNode).forEach { edgesSet.add(it) }
         }
         val edges = edgesSet.toList()
         
         if (nodes.isNotEmpty()) {
-            minDate = nodes.minOf { it.date }
-            maxDate = nodes.maxOf { it.date }
+            state.minDate = nodes.minOf { it.date }
+            state.maxDate = nodes.maxOf { it.date }
         }
         
         // --- Calculate Importance Score ---
@@ -152,7 +184,7 @@ class GraphEngine {
         var maxRawImportance = 0.001f
         for (node in nodes) {
             val daysAgo = (now - node.date) / (1000f * 60f * 60f * 24f)
-            val recencyBoost = exp(-daysAgo / 90.0f) // 90-day half-life for recency
+            val recencyBoost = exp(-daysAgo / config.recencyHalfLifeDays)
             
             val connectionCount = edgesByNode[node.entryId]?.size ?: 0
             val moodIntensity = abs(node.moodScore.toFloat())
@@ -164,11 +196,11 @@ class GraphEngine {
             var rawImportance = moodIntensity + connectionScore + recencyBoost + lengthFactor
             
             // Bonus for highly intense emotional entries (rare/intense)
-            if (moodIntensity > 1.2f) {
+            if (moodIntensity > config.importanceHighMoodThreshold) {
                 rawImportance += 1.0f // Significant bump for intense feelings
             }
             // Bonus for long, isolated "deep thoughts" (rare/profound)
-            if (connectionCount <= 1 && lengthFactor > 0.8f) {
+            if (connectionCount <= 1 && lengthFactor > config.importanceDeepThoughtLengthThreshold) {
                 rawImportance += 0.8f 
             }
             
@@ -184,10 +216,10 @@ class GraphEngine {
         }
         
         // Run Community Detection BEFORE settling layout so physics can use clusters
-        detectCommunities(nodes, edges, securityManager)
+        detectCommunities(nodes, edges, nodeMap, contentDecryptor)
         
         // Pre-settle the layout so it appears stable immediately
-        settleLayout(nodes, edges, width, height)
+        settleLayout(nodes, edges, nodeMap, width, height)
         
         return Pair(nodes, edges)
     }
@@ -195,11 +227,13 @@ class GraphEngine {
     /**
      * Label Propagation Algorithm (LPA) for unsupervised community detection.
      * Iteratively groups nodes based on edge weights and dynamically names clusters.
+     * Uses a seeded shuffle for deterministic results across rebuilds.
      */
     private fun detectCommunities(
         nodes: List<GraphNode>, 
         edges: List<GraphEdge>,
-        securityManager: com.laniakea.manager.SecurityManager?
+        nodeMap: Map<Long, GraphNode>,
+        contentDecryptor: (String) -> String
     ) {
         if (nodes.isEmpty()) return
         
@@ -209,23 +243,25 @@ class GraphEngine {
         val adj = mutableMapOf<Long, MutableList<GraphEdge>>()
         nodes.forEach { adj[it.entryId] = mutableListOf() }
         edges.forEach {
-            adj[it.source.entryId]!!.add(it)
-            adj[it.target.entryId]!!.add(it)
+            adj[it.sourceId]!!.add(it)
+            adj[it.targetId]!!.add(it)
         }
         
-        // 2. Propagate labels
+        // 2. Propagate labels (deterministic shuffle for stable clustering)
+        val rng = java.util.Random(42)
         var changed = true
         var iterations = 0
-        while (changed && iterations < 15) {
+        while (changed && iterations < config.lpaMaxIterations) {
             changed = false
-            val shuffledNodes = nodes.shuffled()
+            val shuffledNodes = nodes.shuffled(rng)
             for (node in shuffledNodes) {
                 val neighborEdges = adj[node.entryId]!!
                 if (neighborEdges.isEmpty()) continue
                 
                 val labelWeights = mutableMapOf<Int, Float>()
                 for (edge in neighborEdges) {
-                    val neighbor = if (edge.source.entryId == node.entryId) edge.target else edge.source
+                    val neighborId = if (edge.sourceId == node.entryId) edge.targetId else edge.sourceId
+                    val neighbor = nodeMap[neighborId] ?: continue
                     labelWeights[neighbor.clusterId] = (labelWeights[neighbor.clusterId] ?: 0f) + edge.weight
                 }
                 
@@ -251,7 +287,7 @@ class GraphEngine {
                 // Fallback: extract most common word > 4 chars if no theme
                 val words = clusterNodes.flatMap { node ->
                     val text = try {
-                        securityManager?.decrypt(node.content) ?: node.content
+                        contentDecryptor(node.content)
                     } catch (_: Exception) {
                         node.content
                     }
@@ -272,14 +308,14 @@ class GraphEngine {
     private fun settleLayout(
         nodes: List<GraphNode>,
         edges: List<GraphEdge>,
+        nodeMap: Map<Long, GraphNode>,
         width: Float,
-        height: Float,
-        maxIterations: Int = 250
+        height: Float
     ) {
         if (nodes.size < 2) return
         
-        for (step in 0 until maxIterations) {
-            applyLayoutStep(nodes, edges, width, height, step, maxIterations)
+        for (step in 0 until config.settleMaxIterations) {
+            applyLayoutStep(nodes, edges, nodeMap, width, height, step, config.settleMaxIterations)
         }
         // Zero out residual velocity
         nodes.forEach { it.vx = 0f; it.vy = 0f; it.vz = 0f }
@@ -289,24 +325,23 @@ class GraphEngine {
      * A single physics step. Can be called live for the "settle" button
      * or in a batch loop for pre-settling.
      */
-    private var liveStep = 0
-    var warpTimeOffset = 0f
-    
-    fun startLiveSimulation() { liveStep = 0 }
+    fun startLiveSimulation() { state.liveStep = 0 }
     
     fun applyLiveStep(
         nodes: List<GraphNode>,
         edges: List<GraphEdge>,
+        nodeMap: Map<Long, GraphNode>,
         width: Float,
         height: Float
     ) {
-        liveStep++
-        applyLayoutStep(nodes, edges, width, height, liveStep, 200)
+        state.liveStep++
+        applyLayoutStep(nodes, edges, nodeMap, width, height, state.liveStep, 200)
     }
     
     private fun applyLayoutStep(
         nodes: List<GraphNode>,
         edges: List<GraphEdge>,
+        nodeMap: Map<Long, GraphNode>,
         width: Float,
         height: Float,
         step: Int,
@@ -406,8 +441,8 @@ class GraphEngine {
         
         // --- Edge springs: pull connected nodes to ~idealSpacing apart ---
         for (edge in edges) {
-            val a = edge.source
-            val b = edge.target
+            val a = nodeMap[edge.sourceId] ?: continue
+            val b = nodeMap[edge.targetId] ?: continue
             val dx = a.x - b.x
             val dy = a.y - b.y
             val dz = a.z - b.z
@@ -430,7 +465,7 @@ class GraphEngine {
         }
         
         // --- Gravity & Anchoring ---
-        val dateSpan = (maxDate - minDate).coerceAtLeast(1L).toFloat()
+        val dateSpan = (state.maxDate - state.minDate).coerceAtLeast(1L).toFloat()
 
         when (layoutMode) {
             LayoutMode.CLUSTERS -> {
@@ -443,16 +478,16 @@ class GraphEngine {
                     val hashZ = ((node.entryId * 179424673L) % 1000) / 500f - 1f
 
                     // Important nodes sit near the exact core of the cluster, others float on the outskirts
-                    val spreadRadius = 250f * (1f - node.importance.coerceIn(0f, 1f))
+                    val spreadRadius = config.clusterSpreadRadius * (1f - node.importance.coerceIn(0f, 1f))
 
                     val targetX = anchor.first + hashX * spreadRadius
                     val targetY = anchor.second + hashY * spreadRadius
                     val targetZ = anchor.third + hashZ * spreadRadius
 
                     // Strong gravitational pull to its cluster core
-                    node.vx += (targetX - node.x) * 0.08f
-                    node.vy += (targetY - node.y) * 0.08f
-                    node.vz += (targetZ - node.z) * 0.08f
+                    node.vx += (targetX - node.x) * config.clusterGravityStrength
+                    node.vy += (targetY - node.y) * config.clusterGravityStrength
+                    node.vz += (targetZ - node.z) * config.clusterGravityStrength
                 }
             }
             LayoutMode.GALAXY -> {
@@ -466,7 +501,7 @@ class GraphEngine {
                     // Time determines the primary distance from center (older near center, newer at edges)
                     // Importance provides a small gravitational pull towards the center
                     val timeProgress =
-                        if (dateSpan > 0f) ((node.date - minDate) / dateSpan).coerceIn(0f, 1f) else 0.5f
+                        if (dateSpan > 0f) ((node.date - state.minDate) / dateSpan).coerceIn(0f, 1f) else 0.5f
                     val importancePull = (1f - node.importance.coerceIn(0f, 1f)) * 0.15f
 
                     val distProgress = (timeProgress * 0.85f + importancePull).coerceIn(0f, 1f)
@@ -518,8 +553,8 @@ class GraphEngine {
                 for (node in nodes) {
                     val anchor = clusterAnchors[node.clusterId] ?: Triple(centerX, centerY, centerZ)
 
-                    val rawProgress = (node.date - minDate).toFloat() / dateSpan
-                    val dateProgress = (rawProgress + warpTimeOffset) % 1.0f
+                    val rawProgress = (node.date - state.minDate).toFloat() / dateSpan
+                    val dateProgress = (rawProgress + state.warpTimeOffset) % 1.0f
                     val targetX = (centerX - timelineWidth / 2f) + (dateProgress * timelineWidth)
 
                     val adx = targetX - node.x
@@ -602,6 +637,6 @@ class GraphEngine {
             norm2 += v2[i] * v2[i]
         }
         if (norm1 == 0f || norm2 == 0f) return 0f
-        return dot / (sqrt(norm1.toDouble()) * sqrt(norm2.toDouble())).toFloat()
+        return (dot / (sqrt(norm1.toDouble()) * sqrt(norm2.toDouble()))).toFloat()
     }
 }
