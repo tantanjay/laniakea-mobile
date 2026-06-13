@@ -10,6 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -52,10 +53,12 @@ fun ConstellationLoader(
                     tint = accentColor.copy(alpha = 0.6f - (i * 0.15f)),
                     modifier = Modifier
                         .size(16.dp)
-                        .offset(
-                            x = (24 * kotlin.math.cos((rotation + orbitOffset) * Math.PI / 180)).toFloat().dp,
-                            y = (24 * kotlin.math.sin((rotation + orbitOffset) * Math.PI / 180)).toFloat().dp
-                        )
+                        .offset {
+                            IntOffset(
+                                x = (24 * kotlin.math.cos((rotation + orbitOffset) * Math.PI / 180)).toFloat().dp.roundToPx(),
+                                y = (24 * kotlin.math.sin((rotation + orbitOffset) * Math.PI / 180)).toFloat().dp.roundToPx()
+                            )
+                        }
                         .graphicsLayer(rotationZ = rotation * 2f)
                 )
             }
