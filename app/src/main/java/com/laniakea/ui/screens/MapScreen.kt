@@ -345,7 +345,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 .pointerInput(Unit) {
                     detectTransformGestures { _, pan, zoom, _ ->
                         if (zoom != 1f) {
-                            cameraZ = (cameraZ / zoom).coerceIn(50f, 4000f)
+                            cameraZ = (cameraZ / zoom).coerceIn(50f, 1800f)
                         }
                         if (activePointers >= 3) {
                             cameraX -= pan.x * 1.5f
