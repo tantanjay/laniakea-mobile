@@ -83,6 +83,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         currentAnomalyAlert = null
     }
     var userName by mutableStateOf("Traveller")
+    var profilePicture by mutableStateOf("Person")
     var theme by mutableStateOf("PURPLE")
     var selectedThemes by mutableStateOf<List<String>>(emptyList())
     
@@ -178,6 +179,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 settings?.let {
                     autoLoadEnabled = it.autoLoadEngine
                     userName = it.userName.takeIf { name -> name.isNotEmpty() } ?: "Traveller"
+                    profilePicture = it.profilePicture.takeIf { pic -> pic.isNotEmpty() } ?: "Person"
                     theme = it.theme
                     selectedThemes = it.selectedThemes.split(",").filter { s -> s.isNotBlank() }
 
@@ -300,6 +302,13 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val currentSettings = db.diaryDao().getSettings() ?: AppSettings()
             db.diaryDao().saveSettings(currentSettings.copy(theme = newTheme))
+        }
+    }
+
+    fun updateProfile(newName: String, newPicture: String) {
+        viewModelScope.launch {
+            val currentSettings = db.diaryDao().getSettings() ?: AppSettings()
+            db.diaryDao().saveSettings(currentSettings.copy(userName = newName, profilePicture = newPicture))
         }
     }
 

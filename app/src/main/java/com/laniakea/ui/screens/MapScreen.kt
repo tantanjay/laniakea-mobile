@@ -35,12 +35,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
 import com.laniakea.ui.components.map.ConstellationCanvas
+import com.laniakea.ui.components.map.ConstellationLoader
 import com.laniakea.ui.components.map.MapControls
 import com.laniakea.ui.components.map.MapLegend
 import com.laniakea.ui.components.map.MapNodeDetailPanel
 import com.laniakea.ui.components.map.MapStatsBadge
 import com.laniakea.ui.components.map.MapConnectionsDialog
 import kotlinx.coroutines.launch
+import androidx.core.content.edit
 
 enum class ColorMode { MOOD, COMMUNITY }
 
@@ -294,11 +296,25 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         }
     }
     
+    val backgroundGradient = when (vm.theme) {
+        "GREEN" -> listOf(Color(0xFF0B1B0F), Color(0xFF163820), Color(0xFF122C19))
+        "ORANGE" -> listOf(Color(0xFF261304), Color(0xFF4A2508), Color(0xFF381C06))
+        "BLUE" -> listOf(Color(0xFF061524), Color(0xFF0D2A4A), Color(0xFF0A2038))
+        else -> listOf(Color(0xFF0A0E21), Color(0xFF1A1A2E), Color(0xFF16213E)) // PURPLE/Default
+    }
+    
+    val accentColor = when (vm.theme) {
+        "GREEN" -> Color(0xFF69F0AE) // Light Green accent
+        "ORANGE" -> Color(0xFFFFAB40) // Light Orange accent
+        "BLUE" -> Color(0xFF40C4FF) // Light Blue accent
+        else -> Color(0xFF64FFDA) // Teal accent for Purple theme
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding)
-            .background(Brush.verticalGradient(listOf(Color(0xFF0A0E21), Color(0xFF1A1A2E), Color(0xFF16213E))))
+            .background(Brush.verticalGradient(backgroundGradient))
     ) {
         if (!isEngineActive || isBuildingGraph) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -314,20 +330,14 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
                             onClick = { vm.initializeEngine() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF64FFDA), contentColor = Color.Black)
+                            colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = Color.Black)
                         ) {
                             Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Initialize Engine")
                         }
                     } else {
-                        CircularProgressIndicator(color = Color(0xFF64FFDA), strokeWidth = 2.dp)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            if (!isEngineActive) "Warming up the Vector Engine..." else "Building your constellation...",
-                            color = Color.White.copy(alpha = 0.7f),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                        ConstellationLoader(isEngineActive = isEngineActive, accentColor = accentColor)
                     }
                 }
             }
@@ -447,12 +457,12 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 layoutMode = layoutMode,
                 onLayoutModeChange = { 
                     layoutMode = it
-                    prefs.edit().putString("layout_mode", it.name).apply()
+                    prefs.edit { putString("layout_mode", it.name) }
                 },
                 colorMode = colorMode,
                 onColorModeChange = { 
                     colorMode = it
-                    prefs.edit().putString("color_mode", it.name).apply()
+                    prefs.edit { putString("color_mode", it.name) }
                 }
             )
             
@@ -470,11 +480,11 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     .align(Alignment.BottomStart)
                     .padding(16.dp),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
-                color = Color(0xFF64FFDA).copy(alpha = 0.15f)
+                color = accentColor.copy(alpha = 0.15f)
             ) {
                 Text(
                     "Double-tap a node to view details",
-                    color = Color(0xFF64FFDA),
+                    color = accentColor,
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                 )
@@ -499,7 +509,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         }
                     },
                     containerColor = Color.White.copy(alpha = 0.1f),
-                    contentColor = if (isLocked) Color(0xFFFF5252) else Color(0xFF64FFDA)
+                    contentColor = if (isLocked) Color(0xFFFF5252) else accentColor
                 ) {
                     Icon(
                         if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
@@ -513,7 +523,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         showDetailPanelInFocusMode = false
                     },
                     containerColor = Color.White.copy(alpha = 0.1f),
-                    contentColor = Color(0xFF64FFDA)
+                    contentColor = accentColor
                 ) {
                     Icon(Icons.Default.Close, contentDescription = "Exit Focus Mode")
                 }
@@ -541,8 +551,8 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 } else {
                     FloatingActionButton(
                         onClick = { isReplaying = true },
-                        containerColor = Color(0xFF1B2D2D),
-                        contentColor = Color(0xFF64FFDA)
+                        containerColor = accentColor.copy(alpha = 0.15f),
+                        contentColor = accentColor
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = "Replay Timeline")
                     }

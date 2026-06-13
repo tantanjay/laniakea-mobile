@@ -96,12 +96,12 @@ Phase 2 introduces powerful structural awareness to the journal, turning text in
 
 ### The Constellation Map (Entry Graph)
 Laniakea features a fully interactive **3D Semantic Visualization Map**, rendering your journal entries as a vast, interconnected galaxy of thoughts.
-- **Dual Layout Engines (Galaxy & Time Warp):** Switch seamlessly between the semantic *Galaxy* (where nodes form a sprawling radial spiral based strictly on meaning) and *Time Warp* (where the entire galaxy is physically pulled into a linear chronological tunnel, sorting thoughts into semantic "lanes" over time).
+- **Triple Layout Engines (Clusters, Galaxy & Time Warp):** Switch seamlessly between semantic *Clusters* (grouping nodes by semantic communities into stable spatial clusters), the *Galaxy* (where nodes form a sprawling radial spiral with arms based on theme and time), and *Time Warp* (where the entire map is physically pulled into a linear chronological tunnel, sorting thoughts into twisted semantic "lanes" over time).
 - **Advanced Touch Controls:** Fluidly navigate the 3D space using 1-finger drag for camera rotation, 2-finger pinch for zooming, and 3-finger drag for lateral canvas panning.
 - **Force-Directed Physics Engine:** A custom-built engine simulates gravity and spring forces, organically pulling semantically similar thoughts together to form topical clusters in 3D space.
 - **Focus Mode:** Select any specific node to isolate it. The map dims the background noise and illuminates only its direct connections, complete with dynamically scaled info cards showing themes, dates, and mood labels.
-- **Deterministic Formations:** Uses mathematically seeded algorithms to ensure your "galaxy" remains stable and familiar every time you load the map, rather than shuffling randomly.
-- **High-Performance Rendering:** Custom Jetpack Compose Canvas implementation featuring dynamic zoom scaling, exponential depth culling, and pagination (loading the most recent 300 entries at a time) to maintain a buttery smooth 60FPS experience.
+- **Deterministic Formations:** Uses mathematically seeded algorithms to ensure your constellation remains stable and familiar every time you load the map, rather than shuffling randomly.
+- **High-Performance Rendering:** Custom Jetpack Compose Canvas implementation featuring dynamic zoom scaling, exponential depth culling, and pagination (loading the most recent 1000 entries at a time) to maintain a smooth 60FPS experience.
 
 ### Journal Replay
 An animated chronological replay that redraws your constellation node-by-node from your very first entry to your latest, allowing you to visually watch how your semantic clusters formed over time.

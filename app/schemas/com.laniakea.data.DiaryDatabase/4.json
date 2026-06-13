@@ -1,0 +1,168 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 4,
+    "identityHash": "2121c52f0e38fcae6a458d9d621d4dc7",
+    "entities": [
+      {
+        "tableName": "entries",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `dateTime` INTEGER NOT NULL, `content` TEXT NOT NULL, `mood` TEXT NOT NULL, `category` TEXT NOT NULL, `weather` TEXT NOT NULL, `activities` TEXT NOT NULL, `numericMood` REAL NOT NULL, `latentVibe` REAL NOT NULL, `isVectorized` INTEGER NOT NULL, `syntacticPacing` REAL NOT NULL, `agencyScore` REAL NOT NULL, `epistemicModality` REAL NOT NULL, `processingMarkers` INTEGER NOT NULL, `temporalHorizon` REAL NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dateTime",
+            "columnName": "dateTime",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mood",
+            "columnName": "mood",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "category",
+            "columnName": "category",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weather",
+            "columnName": "weather",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activities",
+            "columnName": "activities",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "numericMood",
+            "columnName": "numericMood",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "latentVibe",
+            "columnName": "latentVibe",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isVectorized",
+            "columnName": "isVectorized",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syntacticPacing",
+            "columnName": "syntacticPacing",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "agencyScore",
+            "columnName": "agencyScore",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "epistemicModality",
+            "columnName": "epistemicModality",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "processingMarkers",
+            "columnName": "processingMarkers",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "temporalHorizon",
+            "columnName": "temporalHorizon",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "app_settings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `privacySeed` TEXT, `autoLoadEngine` INTEGER NOT NULL, `userName` TEXT NOT NULL, `theme` TEXT NOT NULL, `selectedThemes` TEXT NOT NULL, `profilePicture` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "privacySeed",
+            "columnName": "privacySeed",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "autoLoadEngine",
+            "columnName": "autoLoadEngine",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userName",
+            "columnName": "userName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "theme",
+            "columnName": "theme",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "selectedThemes",
+            "columnName": "selectedThemes",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profilePicture",
+            "columnName": "profilePicture",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2121c52f0e38fcae6a458d9d621d4dc7')"
+    ]
+  }
+}

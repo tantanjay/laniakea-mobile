@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -41,7 +42,11 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     var showImportDialog by remember { mutableStateOf(false) }
     var showXlsxValidationDialog by remember { mutableStateOf(false) }
     var showConfirmOverwriteDialog by remember { mutableStateOf(false) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
     var showCompletionDialog by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    
+    var editingUserName by remember { mutableStateOf(vm.userName) }
+    var editingProfilePicture by remember { mutableStateOf(vm.profilePicture) }
     
     var password by remember { mutableStateOf("") }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
@@ -90,6 +95,28 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         }
     }
 
+    val dynamicAvatars = remember(context) {
+        val map = mutableMapOf<String, Int>()
+        try {
+            val fields = com.laniakea.R.drawable::class.java.fields
+            for (field in fields) {
+                if (field.name.startsWith("ic_profile_")) {
+                    val name = field.name.removePrefix("ic_profile_").replaceFirstChar { it.uppercase() }
+                    map[name] = field.getInt(null)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        map
+    }
+
+    val allAvatarKeys = remember(dynamicAvatars) {
+        val keys = dynamicAvatars.keys.toMutableSet()
+        keys.remove("Person")
+        keys.sorted().toList()
+    }
+
     // Wrap the entire screen in a Box to allow overlays to be drawn on top
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -120,12 +147,23 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     color = MaterialTheme.colorScheme.primaryContainer
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.Person,
-                            contentDescription = null,
-                            modifier = Modifier.size(50.dp),
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                        val currentKey = vm.profilePicture
+                        val dynamicId = dynamicAvatars[currentKey]
+                        if (dynamicId != null) {
+                            Icon(
+                                painter = androidx.compose.ui.res.painterResource(id = dynamicId),
+                                contentDescription = null,
+                                modifier = Modifier.size(50.dp),
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.Person,
+                                contentDescription = null,
+                                modifier = Modifier.size(50.dp),
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
                     }
                 }
                 
@@ -135,6 +173,31 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         .size(116.dp)
                         .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), CircleShape)
                 )
+
+                // Edit pencil icon
+                Box(
+                    modifier = Modifier
+                        .size(116.dp),
+                    contentAlignment = Alignment.BottomEnd
+                ) {
+                    IconButton(
+                        onClick = { 
+                            editingUserName = vm.userName
+                            editingProfilePicture = vm.profilePicture
+                            showEditProfileDialog = true 
+                        },
+                        modifier = Modifier
+                            .size(32.dp)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape)
+                    ) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = "Edit Profile",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -605,6 +668,98 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { showXlsxValidationDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Edit Profile Dialog
+    if (showEditProfileDialog) {
+        AlertDialog(
+            onDismissRequest = { showEditProfileDialog = false },
+            title = { Text("Edit Profile") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    OutlinedTextField(
+                        value = editingUserName,
+                        onValueChange = { editingUserName = it },
+                        label = { Text("Name") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    
+                    Text("Select Profile Picture", style = MaterialTheme.typography.titleSmall)
+                    
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        for (i in allAvatarKeys.indices step 4) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                for (j in 0 until 4) {
+                                    if (i + j < allAvatarKeys.size) {
+                                        val key = allAvatarKeys[i + j]
+                                        val dynamicId = dynamicAvatars[key]
+                                        val isSelected = editingProfilePicture == key
+                                        Box(
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .background(
+                                                    if (isSelected) MaterialTheme.colorScheme.primaryContainer 
+                                                    else MaterialTheme.colorScheme.surfaceVariant,
+                                                    CircleShape
+                                                )
+                                                .border(
+                                                    if (isSelected) 2.dp else 0.dp,
+                                                    if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                                    CircleShape
+                                                )
+                                                .clickable { 
+                                                    if (editingProfilePicture == key) {
+                                                        editingProfilePicture = "Person"
+                                                    } else {
+                                                        editingProfilePicture = key
+                                                    }
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (dynamicId != null) {
+                                                Icon(
+                                                    painter = androidx.compose.ui.res.painterResource(id = dynamicId),
+                                                    contentDescription = null,
+                                                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Spacer(modifier = Modifier.size(48.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        vm.updateProfile(editingUserName, editingProfilePicture)
+                        showEditProfileDialog = false
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showEditProfileDialog = false }
+                ) {
                     Text("Cancel")
                 }
             }
