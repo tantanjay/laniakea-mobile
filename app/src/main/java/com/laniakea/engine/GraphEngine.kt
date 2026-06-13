@@ -11,6 +11,8 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.abs
 import kotlin.math.exp
+import kotlin.math.log2
+import kotlin.math.max
 
 enum class LayoutMode { CLUSTERS, GALAXY, TIME_WARP }
 
@@ -23,7 +25,7 @@ data class GraphConfig(
     val temporalDecayDays: Double = 90.0,
     val maxEdgesPerNode: Int = 4,
     val clusterSpreadRadius: Float = 250f,
-    val clusterGravityStrength: Float = 0.08f,
+    val clusterGravityStrength: Float = 0.16f,
     val lpaMaxIterations: Int = 15,
     val settleMaxIterations: Int = 250,
     val recencyHalfLifeDays: Float = 90f,
@@ -45,7 +47,9 @@ data class GraphNode(
     val content: String,
     var clusterId: Int = -1,
     var clusterName: String = "Uncharted Thoughts",
-    var importance: Float = 0f
+    var importance: Float = 0f,
+    val themeDistances: Map<String, Float> = emptyMap(),
+    var entropy: Float = 0f
 )
 
 /**
@@ -118,6 +122,34 @@ class GraphEngine {
                 rawTheme
             }
             
+            val themeDistances = mutableMapOf<String, Float>()
+            v.themeDistancesJson?.let { jsonStr ->
+                try {
+                    val jsonObj = org.json.JSONObject(jsonStr)
+                    val keys = jsonObj.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        themeDistances[key] = jsonObj.getDouble(key).toFloat()
+                    }
+                } catch (_: Exception) {
+                    // ignore malformed json
+                }
+            }
+            
+            var entropy = 0f
+            if (themeDistances.isNotEmpty()) {
+                val weights = themeDistances.values.map { max(0f, 1.0f - it) }
+                val totalWeight = weights.sum()
+                if (totalWeight > 0f) {
+                    val probs = weights.map { it / totalWeight }
+                    entropy = probs.sumOf { p -> 
+                        if (p > 0f) -p * log2(p.toDouble()) else 0.0
+                    }.toFloat()
+                }
+            }
+            // Max entropy for 16 themes is log2(16) = 4.0
+            val normalizedEntropy = (entropy / 4f).coerceIn(0f, 1f)
+            
             GraphNode(
                 entryId = entry.id,
                 x = centerX + nx.toFloat(),
@@ -126,7 +158,9 @@ class GraphEngine {
                 date = entry.dateTime,
                 theme = finalTheme,
                 moodScore = entry.numericMood,
-                content = entry.content
+                content = entry.content,
+                themeDistances = themeDistances,
+                entropy = normalizedEntropy
             )
         }
         
@@ -277,12 +311,22 @@ class GraphEngine {
         // 3. Dynamic Cluster Naming
         val clusters = nodes.groupBy { it.clusterId }
         for ((_, clusterNodes) in clusters) {
-            // Find most frequent theme, ignoring Unknown
-            val validThemes = clusterNodes.map { it.theme }.filter { it != "Unknown" && it.isNotBlank() }
-            val dominantTheme = validThemes.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
+            val aggregatedWeights = mutableMapOf<String, Float>()
+            for (node in clusterNodes) {
+                for ((theme, distance) in node.themeDistances) {
+                    // Invert distance to get a weight (lower distance = higher weight)
+                    val weight = max(0f, 1.0f - distance)
+                    aggregatedWeights[theme] = aggregatedWeights.getOrDefault(theme, 0f) + weight
+                }
+            }
             
-            val clusterName = if (dominantTheme != null) {
-                dominantTheme
+            val clusterName = if (aggregatedWeights.isNotEmpty()) {
+                val topThemes = aggregatedWeights.entries
+                    .sortedByDescending { it.value }
+                    .take(2)
+                    .map { it.key }
+                if (topThemes.size == 2) "${topThemes[0]} & ${topThemes[1]}"
+                else topThemes.firstOrNull() ?: "Uncharted Thoughts"
             } else {
                 // Fallback: extract most common word > 4 chars if no theme
                 val words = clusterNodes.flatMap { node ->
@@ -332,10 +376,11 @@ class GraphEngine {
         edges: List<GraphEdge>,
         nodeMap: Map<Long, GraphNode>,
         width: Float,
-        height: Float
+        height: Float,
+        totalSteps: Int = 150
     ) {
         state.liveStep++
-        applyLayoutStep(nodes, edges, nodeMap, width, height, state.liveStep, 200)
+        applyLayoutStep(nodes, edges, nodeMap, width, height, state.liveStep, totalSteps)
     }
     
     private fun applyLayoutStep(

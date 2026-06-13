@@ -43,7 +43,6 @@ fun ConstellationCanvas(
     visibleNodes: List<GraphNode>,
     visibleEdges: List<GraphEdge>,
     allNodes: List<GraphNode>,
-    nodeMap: Map<Long, GraphNode>,
     backgroundStars: List<GalaxyStar>,
     layoutMode: LayoutMode,
     colorMode: ColorMode,
@@ -56,6 +55,7 @@ fun ConstellationCanvas(
     onNodeDoubleTap: (GraphNode) -> Unit,
     onLayoutSize: (Float, Float) -> Unit,
     glowPulse: Float,
+    showDecorations: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val textMeasurer = rememberTextMeasurer()
@@ -113,7 +113,7 @@ fun ConstellationCanvas(
                                 val dx = p.x - tapOffset.x
                                 val dy = p.y - tapOffset.y
                                 val hitScale = p.scale.coerceAtMost(3f)
-                                (dx * dx + dy * dy) < (2500f * hitScale)
+                                (dx * dx + dy * dy) < (625f * hitScale) // Reduced to 25px radius (was 50px) to prevent massive glow overlapping
                             }?.first
                             if (clicked != null) {
                                 currentOnNodeDoubleTap(clicked)
@@ -132,7 +132,7 @@ fun ConstellationCanvas(
                             val dx = p.x - tapOffset.x
                             val dy = p.y - tapOffset.y
                             val hitScale = p.scale.coerceAtMost(3f)
-                            (dx * dx + dy * dy) < (2500f * hitScale)
+                            (dx * dx + dy * dy) < (625f * hitScale) // Reduced to 25px radius
                         }?.first
                         currentOnNodeTap(clicked)
                     }
@@ -143,6 +143,13 @@ fun ConstellationCanvas(
         val layoutHeight = size.height
         onLayoutSize(layoutWidth, layoutHeight)
         val canvasCenter = Offset(layoutWidth / 2f, layoutHeight / 2f)
+
+        // Pre-calculate projections for all visible nodes
+        val projectedNodes = visibleNodes.map { node ->
+            node to projectPoint(node.x, node.y, node.z, canvasCenter, camera.yaw, camera.pitch, camera.roll, camera.cameraX, camera.cameraY, camera.cameraZ)
+        }.sortedByDescending { it.second.z } // Distant nodes first
+
+        val projectedMap = projectedNodes.associateBy { it.first.entryId }
 
         // Draw Background Stars (Galaxy Mode only)
         if (layoutMode == LayoutMode.GALAXY) {
@@ -159,66 +166,133 @@ fun ConstellationCanvas(
             }
         }
 
-        // Draw Edges
-        visibleEdges.forEach { edge ->
-            val sourceNode = nodeMap[edge.sourceId] ?: return@forEach
-            val targetNode = nodeMap[edge.targetId] ?: return@forEach
-            val p1 = projectPoint(sourceNode.x, sourceNode.y, sourceNode.z, canvasCenter, camera.yaw, camera.pitch, camera.roll, camera.cameraX, camera.cameraY, camera.cameraZ)
-            val p2 = projectPoint(targetNode.x, targetNode.y, targetNode.z, canvasCenter, camera.yaw, camera.pitch, camera.roll, camera.cameraX, camera.cameraY, camera.cameraZ)
-
-            if (p1.z + camera.cameraZ > 0 && p2.z + camera.cameraZ > 0) {
-                val normalizedWeight = ((edge.weight - 0.55f) / 0.45f).coerceIn(0f, 1f)
-                val avgScale = (p1.scale + p2.scale) / 2f
-                val drawScale = avgScale.coerceAtMost(3f)
-                // Shrink even more when zooming way out
-                val visualScale = if (drawScale < 1f) drawScale * drawScale else drawScale
-                val edgeAlpha = (0.04f + normalizedWeight * 0.25f) * drawScale.coerceIn(0.05f, 1f)
-                val edgeWidth = (0.5f + normalizedWeight * 2f) * visualScale
-
-                val edgeColor = if (colorMode == ColorMode.MOOD) {
-                    val avgMood = (sourceNode.moodScore + targetNode.moodScore) / 2.0
-                    when {
-                        avgMood >= 0.5 -> Color(0xFF64FFDA)
-                        avgMood >= -0.2 -> Color(0xFF82B1FF)
-                        avgMood >= -0.6 -> Color(0xFFFFAB40)
-                        else -> Color(0xFFFF5252)
-                    }
-                } else {
-                    if (sourceNode.clusterName == targetNode.clusterName) getCommunityColor(sourceNode.clusterName) else Color.Gray.copy(alpha = 0.3f)
+        // Draw Cluster Nebulae
+        if (showDecorations && layoutMode == LayoutMode.CLUSTERS && projectedNodes.isNotEmpty()) {
+            val clusters = projectedNodes.groupBy { it.first.clusterName }
+            for ((clusterName, nodesInCluster) in clusters) {
+                if (clusterName == "Unknown" || nodesInCluster.size < 3) continue
+                
+                val avgX = nodesInCluster.map { it.second.x }.average().toFloat()
+                val avgY = nodesInCluster.map { it.second.y }.average().toFloat()
+                
+                val maxDist = nodesInCluster.maxOf { 
+                    val dx = it.second.x - avgX
+                    val dy = it.second.y - avgY
+                    kotlin.math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
                 }
+                
+                if (maxDist > 20f) {
+                    val clusterColor = getCommunityColor(clusterName)
+                    val drawRadius = maxDist * 1.5f
+                    
+                    drawCircle(
+                        brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                            colors = listOf(clusterColor.copy(alpha = 0.2f), Color.Transparent),
+                            center = Offset(avgX, avgY),
+                            radius = drawRadius
+                        ),
+                        radius = drawRadius,
+                        center = Offset(avgX, avgY)
+                    )
+                }
+            }
+        }
 
-                drawLine(
-                    color = edgeColor.copy(alpha = edgeAlpha),
-                    start = Offset(p1.x, p1.y),
-                    end = Offset(p2.x, p2.y),
-                    strokeWidth = edgeWidth,
-                    cap = StrokeCap.Round
-                )
+        // Draw Time Warp Semantic Trails
+        if (showDecorations && layoutMode == LayoutMode.TIME_WARP && projectedNodes.size >= 2) {
+            val chronologicalNodes = projectedNodes.sortedBy { it.first.date }
+            
+            for (i in 0 until chronologicalNodes.size - 1) {
+                val n1 = chronologicalNodes[i]
+                val n2 = chronologicalNodes[i+1]
+                val p1 = n1.second
+                val p2 = n2.second
+                
+                if (p1.z + camera.cameraZ > 0 && p2.z + camera.cameraZ > 0) {
+                    val c1 = getCommunityColor(n1.first.clusterName, n1.first.themeDistances)
+                    val c2 = getCommunityColor(n2.first.clusterName, n2.first.themeDistances)
+                    
+                    val avgScale = (p1.scale + p2.scale) / 2f
+                    val drawScale = avgScale.coerceAtMost(3f)
+                    val alpha = (0.25f * drawScale).coerceIn(0.1f, 0.6f)
+                    
+                    drawLine(
+                        brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                            colors = listOf(c1.copy(alpha = alpha), c2.copy(alpha = alpha)),
+                            start = Offset(p1.x, p1.y),
+                            end = Offset(p2.x, p2.y)
+                        ),
+                        start = Offset(p1.x, p1.y),
+                        end = Offset(p2.x, p2.y),
+                        strokeWidth = 3.5f * drawScale,
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
+        }
+
+        // Draw Edges
+        if (layoutMode != LayoutMode.TIME_WARP) {
+            visibleEdges.forEach { edge ->
+                    val sourceProj = projectedMap[edge.sourceId] ?: return@forEach
+                    val targetProj = projectedMap[edge.targetId] ?: return@forEach
+                    val sourceNode = sourceProj.first
+                    val targetNode = targetProj.first
+                    val p1 = sourceProj.second
+                    val p2 = targetProj.second
+
+                if (p1.z + camera.cameraZ > 0 && p2.z + camera.cameraZ > 0) {
+                    val normalizedWeight = ((edge.weight - 0.55f) / 0.45f).coerceIn(0f, 1f)
+                    val avgScale = (p1.scale + p2.scale) / 2f
+                    val drawScale = avgScale.coerceAtMost(3f)
+                    // Shrink even more when zooming way out
+                    val visualScale = if (drawScale < 1f) drawScale * drawScale else drawScale
+                    val edgeAlpha = (0.04f + normalizedWeight * 0.25f) * drawScale.coerceIn(0.05f, 1f)
+                    val edgeWidth = (0.5f + normalizedWeight * 2f) * visualScale
+
+                    val edgeColor = if (colorMode == ColorMode.MOOD) {
+                        val avgMood = (sourceNode.moodScore + targetNode.moodScore) / 2.0
+                        when {
+                            avgMood >= 0.5 -> Color(0xFF64FFDA)
+                            avgMood >= -0.2 -> Color(0xFF82B1FF)
+                            avgMood >= -0.6 -> Color(0xFFFFAB40)
+                            else -> Color(0xFFFF5252)
+                        }
+                    } else {
+                        if (sourceNode.clusterName == targetNode.clusterName) getCommunityColor(sourceNode.clusterName, sourceNode.themeDistances) else Color.Gray.copy(alpha = 0.3f)
+                    }
+
+                    drawLine(
+                        color = edgeColor.copy(alpha = edgeAlpha),
+                        start = Offset(p1.x, p1.y),
+                        end = Offset(p2.x, p2.y),
+                        strokeWidth = edgeWidth,
+                        cap = StrokeCap.Round
+                    )
+                }
             }
         }
 
         // Draw Nodes
-        val projectedNodes = visibleNodes.map { node ->
-            node to projectPoint(node.x, node.y, node.z, canvasCenter, camera.yaw, camera.pitch, camera.roll, camera.cameraX, camera.cameraY, camera.cameraZ)
-        }.sortedByDescending { it.second.z } // Distant nodes first
 
         projectedNodes.forEach { (node, p) ->
             if (p.z + camera.cameraZ > 0) {
                 val isSelected = node == selectedNode
-                val nodeColor = if (colorMode == ColorMode.MOOD) getMoodNodeColor(node.moodScore) else getCommunityColor(node.clusterName)
+                val nodeColor = if (colorMode == ColorMode.MOOD) getMoodNodeColor(node.moodScore) else getCommunityColor(node.clusterName, node.themeDistances)
 
                 val drawScale = p.scale.coerceAtMost(3f)
                 // Shrink nodes faster when zoomed out so they look like tiny stars
                 val visualScale = if (drawScale < 1f) drawScale * drawScale else drawScale
 
-                val alphaFactor = p.scale.coerceIn(0.1f, 1f)
+                val alphaFactor = p.scale.coerceIn(0.1f, 1f) * (1f - node.entropy * 0.3f)
 
                 val importanceSq = node.importance * node.importance
                 val importanceScale = 1f + (importanceSq * 1.0f) // Supernovas get up to 2x larger
+                val entropyScale = 1f + (node.entropy * 1.5f) // Mixed thoughts get larger, diffuse bodies
 
                 // Base radius doesn't double-count connection count anymore, importance handles it
-                val baseRadius = 3.5f * visualScale * importanceScale
-                val glowRadius = baseRadius * (1.8f + node.importance * 1.2f) // Glow scales linearly with importance
+                val baseRadius = 3.5f * visualScale * importanceScale * entropyScale
+                val glowRadius = baseRadius * (1.8f + node.importance * 1.2f + node.entropy * 1.5f) // Massive glow for high entropy
 
                 // Outer glow
                 drawCircle(
@@ -235,18 +309,22 @@ fun ConstellationCanvas(
                 )
 
                 // Core
+                val coreAlpha = if (node.entropy > 0.6f) 0.6f else 1.0f // Highly mixed thoughts lack a dense solid core
                 drawCircle(
-                    color = (if (isSelected) Color.White else nodeColor).copy(alpha = alphaFactor),
+                    color = (if (isSelected) Color.White else nodeColor).copy(alpha = alphaFactor * coreAlpha),
                     radius = if (isSelected) baseRadius * 1.2f else baseRadius,
                     center = Offset(p.x, p.y)
                 )
 
-                // Bright center
-                drawCircle(
-                    color = Color.White.copy(alpha = (if (isSelected) 1f else 0.8f) * alphaFactor),
-                    radius = (if (isSelected) 3f else 1.5f) * visualScale,
-                    center = Offset(p.x, p.y)
-                )
+                // Bright center - only visible for purer thoughts!
+                if (node.entropy < 0.4f || isSelected) {
+                    val brightScale = 1f - node.entropy
+                    drawCircle(
+                        color = Color.White.copy(alpha = (if (isSelected) 1f else 0.8f) * alphaFactor * brightScale),
+                        radius = (if (isSelected) 3f else 1.5f) * visualScale * brightScale,
+                        center = Offset(p.x, p.y)
+                    )
+                }
 
                 // Selection ring
                 if (isSelected) {
