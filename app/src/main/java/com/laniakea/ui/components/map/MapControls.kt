@@ -21,8 +21,7 @@ import com.laniakea.engine.LayoutMode
 import com.laniakea.ui.screens.ColorMode
 
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.AutoAwesome
 
 @Composable
 fun MapControls(
@@ -126,7 +125,8 @@ fun MapControls(
         }
         
         // Decoration Toggle
-        val decorationIcon = if (showDecorations) Icons.Default.Visibility else Icons.Default.VisibilityOff
+        val decorationIcon = Icons.Default.AutoAwesome
+        val iconTint = if (showDecorations) Color.White else Color.White.copy(alpha = 0.4f)
         
         TextButton(
             onClick = onToggleDecorations,
@@ -137,7 +137,7 @@ fun MapControls(
             Icon(
                 imageVector = decorationIcon,
                 contentDescription = "Toggle decorations",
-                tint = Color.White,
+                tint = iconTint,
                 modifier = Modifier.size(16.dp)
             )
         }

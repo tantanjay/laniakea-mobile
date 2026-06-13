@@ -238,6 +238,11 @@ class GraphEngine {
                 rawImportance += 0.8f 
             }
             
+            // Prevent Unknowns and locally-extracted fallback topics from becoming supernovas
+            if (node.theme == "Unknown" || node.theme.endsWith(" Thought")) {
+                rawImportance *= 0.1f
+            }
+            
             node.importance = rawImportance
             if (rawImportance > maxRawImportance) {
                 maxRawImportance = rawImportance

@@ -3,7 +3,11 @@ package com.laniakea.util
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 
-fun getCommunityColor(clusterName: String, themeDistances: Map<String, Float> = emptyMap()): Color {
+fun getCommunityColor(clusterName: String): Color {
+    return getBaseThemeColor(clusterName)
+}
+
+fun getMixedCommunityColor(clusterName: String, themeDistances: Map<String, Float> = emptyMap()): Color {
     if (themeDistances.isNotEmpty()) {
         val topThemes = themeDistances.entries
             .map { it.key to kotlin.math.max(0f, 1.0f - it.value) }
@@ -11,10 +15,13 @@ fun getCommunityColor(clusterName: String, themeDistances: Map<String, Float> = 
             .take(2)
         
         if (topThemes.size == 2) {
-            val totalWeight = topThemes[0].second + topThemes[1].second
+            val w1 = topThemes[0].second * topThemes[0].second * topThemes[0].second
+            val w2 = topThemes[1].second * topThemes[1].second * topThemes[1].second
+            val totalWeight = w1 + w2
+            
             if (totalWeight > 0f) {
-                val ratio1 = topThemes[0].second / totalWeight
-                val ratio2 = topThemes[1].second / totalWeight
+                val ratio1 = w1 / totalWeight
+                val ratio2 = w2 / totalWeight
                 
                 val c1 = getBaseThemeColor(topThemes[0].first)
                 val c2 = getBaseThemeColor(topThemes[1].first)

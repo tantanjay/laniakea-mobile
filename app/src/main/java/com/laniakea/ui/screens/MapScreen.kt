@@ -71,6 +71,14 @@ data class CameraState(
     }
 
     fun reset(): CameraState = CameraState()
+    
+    fun resetForMode(mode: LayoutMode): CameraState {
+        return if (mode == LayoutMode.TIME_WARP) {
+            CameraState(pitch = 0f, cameraZ = 800f) // Look straight down the barrel for Time Warp
+        } else {
+            CameraState() // Tilted -0.6f pitch for Galaxy/Clusters
+        }
+    }
 }
 
 @Composable
@@ -244,7 +252,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     LaunchedEffect(layoutMode) {
         if (hasBuiltGraph && !isReplaying) {
             isSettling = true
-            camera = camera.reset()
+            camera = camera.resetForMode(layoutMode)
         }
     }
     
