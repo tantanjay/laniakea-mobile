@@ -63,6 +63,9 @@ fun ConstellationCanvas(
     val currentVisibleNodes by rememberUpdatedState(visibleNodes)
     val currentCamera by rememberUpdatedState(camera)
     val currentOnCameraChange by rememberUpdatedState(onCameraChange)
+    val currentIsIsolateMode by rememberUpdatedState(isIsolateMode)
+    val currentOnNodeTap by rememberUpdatedState(onNodeTap)
+    val currentOnNodeDoubleTap by rememberUpdatedState(onNodeDoubleTap)
 
     Canvas(
         modifier = modifier
@@ -98,7 +101,7 @@ fun ConstellationCanvas(
             .pointerInput(Unit) {
                 detectTapGestures(
                     onDoubleTap = { tapOffset ->
-                        if (isIsolateMode) {
+                        if (currentIsIsolateMode) {
                             val layoutWidth = size.width.toFloat()
                             val layoutHeight = size.height.toFloat()
                             val center = Offset(layoutWidth / 2f, layoutHeight / 2f)
@@ -113,7 +116,7 @@ fun ConstellationCanvas(
                                 (dx * dx + dy * dy) < (2500f * hitScale)
                             }?.first
                             if (clicked != null) {
-                                onNodeDoubleTap(clicked)
+                                currentOnNodeDoubleTap(clicked)
                             }
                         }
                     },
@@ -131,7 +134,7 @@ fun ConstellationCanvas(
                             val hitScale = p.scale.coerceAtMost(3f)
                             (dx * dx + dy * dy) < (2500f * hitScale)
                         }?.first
-                        onNodeTap(clicked)
+                        currentOnNodeTap(clicked)
                     }
                 )
             }
