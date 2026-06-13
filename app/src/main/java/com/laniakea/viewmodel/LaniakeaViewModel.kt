@@ -370,6 +370,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     val vector = vectors.second
                     val aiVibe = VibeEngine.calculateVibeScore(vector)
                     val semanticTheme = semanticManager.classifyTheme(rawVector)
+                    val themeDistancesJson = semanticManager.calculateAllThemeDistancesJson(rawVector)
                     
                     val metrics = cognitiveTracker.analyze(content, vector)
                     
@@ -387,7 +388,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
                     val entryId = db.diaryDao().insertEntry(entryToSave)
                     ObjectBoxManager.vectorBox.put(
-                        ObjectBoxSentenceVector(entryId = entryId, vector = vector, semanticTheme = semanticTheme)
+                        ObjectBoxSentenceVector(entryId = entryId, vector = vector, semanticTheme = semanticTheme, themeDistancesJson = themeDistancesJson)
                     )
                     
                     // Check for anomaly
@@ -432,6 +433,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                         
                         val aiVibe = VibeEngine.calculateVibeScore(vector)
                         val semanticTheme = semanticManager.classifyTheme(rawVector)
+                        val themeDistancesJson = semanticManager.calculateAllThemeDistancesJson(rawVector)
                         
                         val metrics = cognitiveTracker.analyze(decryptedContent, vector)
                         
@@ -445,7 +447,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                             temporalHorizon = metrics.temporalHorizon
                         ))
                         vectorBatch.add(
-                            ObjectBoxSentenceVector(entryId = entry.id, vector = vector, semanticTheme = semanticTheme)
+                            ObjectBoxSentenceVector(entryId = entry.id, vector = vector, semanticTheme = semanticTheme, themeDistancesJson = themeDistancesJson)
                         )
                     }
                 } catch (e: Exception) { e.printStackTrace() }

@@ -4,6 +4,7 @@ import com.laniakea.data.DiaryDatabase
 import com.laniakea.data.DiaryEntry
 import com.laniakea.data.ObjectBoxManager
 import com.laniakea.data.ObjectBoxSentenceVector_
+import com.laniakea.data.ObjectBoxThemeCentroid
 import com.laniakea.engine.SentenceEmbedder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -188,9 +189,10 @@ class SemanticManager(
                 val themeBox = ObjectBoxManager.themeBox
                 val storedThemes = themeBox.query().build().find()
                 
+                val centroids = mutableMapOf<String, FloatArray>()
+                
                 // Attempt to load from ObjectBox
                 if (storedThemes.isNotEmpty() && storedThemes.first().version == THEME_TEMPLATE_VERSION) {
-                    val centroids = mutableMapOf<String, FloatArray>()
                     for (t in storedThemes) {
                         t.vector?.let { centroids[t.themeName] = it }
                     }
@@ -198,18 +200,21 @@ class SemanticManager(
                         cachedThemeCentroids = centroids
                         return@withContext
                     }
+                } else {
+                    // If not available or version mismatch, clear old data
+                    themeBox.removeAll()
                 }
                 
-                // If not available or version mismatch, calculate from scratch
-                themeBox.removeAll()
-                val centroids = mutableMapOf<String, FloatArray>()
+                // Calculate missing themes
                 for ((title, descriptions) in richThemes) {
+                    if (centroids.containsKey(title)) continue
+                    
                     val embeddedDesc = descriptions.mapNotNull { embedder.embedRaw(it) }
                     if (embeddedDesc.isNotEmpty()) {
                         val avg = averageVectors(embeddedDesc)
                         centroids[title] = avg
                         themeBox.put(
-                            com.laniakea.data.ObjectBoxThemeCentroid(
+                            ObjectBoxThemeCentroid(
                                 themeName = title, 
                                 vector = avg, 
                                 version = THEME_TEMPLATE_VERSION
@@ -243,6 +248,23 @@ class SemanticManager(
         }
 
         return if (minDistance < MAX_DISTANCE_THEME) bestTheme else null
+    }
+
+    suspend fun calculateAllThemeDistancesJson(rawVector: FloatArray?): String? {
+        if (rawVector == null || !isEngineActive()) return null
+        
+        if (cachedThemeCentroids == null) {
+            initializeThemes()
+        }
+        
+        val centroids = cachedThemeCentroids ?: return null
+        
+        val jsonObj = org.json.JSONObject()
+        for ((themeName, centroid) in centroids) {
+            val distance = calculateL2Distance(rawVector, centroid)
+            jsonObj.put(themeName, distance)
+        }
+        return jsonObj.toString()
     }
 
     fun isThemesInitialized(): Boolean {

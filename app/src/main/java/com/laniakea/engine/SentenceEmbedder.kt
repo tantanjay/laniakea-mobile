@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.tensorflow.lite.Interpreter
 import java.io.FileInputStream
 import java.nio.MappedByteBuffer
@@ -94,9 +95,11 @@ class SentenceEmbedder(
         }
     }
 
-    suspend fun embed(text: String): FloatArray? = mutex.withLock {
-        val base = getBaseEmbedding(text) ?: return@withLock null
-        applyPrivacyShield(base, applyNoise = true)
+    suspend fun embed(text: String): FloatArray? = withContext(Dispatchers.Default) {
+        mutex.withLock {
+            val base = getBaseEmbedding(text) ?: return@withLock null
+            applyPrivacyShield(base, applyNoise = true)
+        }
     }
 
     /**
@@ -104,17 +107,21 @@ class SentenceEmbedder(
      * but WITHOUT random noise injection. Use for internal reference vectors (theme anchors)
      * that must be compared against stored entry vectors.
      */
-    suspend fun embedRaw(text: String): FloatArray? = mutex.withLock {
-        val base = getBaseEmbedding(text) ?: return@withLock null
-        applyPrivacyShield(base, applyNoise = false)
+    suspend fun embedRaw(text: String): FloatArray? = withContext(Dispatchers.Default) {
+        mutex.withLock {
+            val base = getBaseEmbedding(text) ?: return@withLock null
+            applyPrivacyShield(base, applyNoise = false)
+        }
     }
 
-    suspend fun embedBoth(text: String): Pair<FloatArray, FloatArray>? = mutex.withLock {
-        val base = getBaseEmbedding(text) ?: return@withLock null
-        Pair(
-            applyPrivacyShield(base, applyNoise = false), // raw vector
-            applyPrivacyShield(base, applyNoise = true)   // noisy vector
-        )
+    suspend fun embedBoth(text: String): Pair<FloatArray, FloatArray>? = withContext(Dispatchers.Default) {
+        mutex.withLock {
+            val base = getBaseEmbedding(text) ?: return@withLock null
+            Pair(
+                applyPrivacyShield(base, applyNoise = false), // raw vector
+                applyPrivacyShield(base, applyNoise = true)   // noisy vector
+            )
+        }
     }
 
     private fun getBaseEmbedding(text: String): FloatArray? {

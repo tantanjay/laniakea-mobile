@@ -10,7 +10,8 @@ data class ObjectBoxSentenceVector(
     var entryId: Long = 0,
     @HnswIndex(dimensions = 768)
     var vector: FloatArray? = null,
-    var semanticTheme: String? = null
+    var semanticTheme: String? = null,
+    var themeDistancesJson: String? = null
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -22,6 +23,7 @@ data class ObjectBoxSentenceVector(
         if (entryId != other.entryId) return false
         if (!vector.contentEquals(other.vector)) return false
         if (semanticTheme != other.semanticTheme) return false
+        if (themeDistancesJson != other.themeDistancesJson) return false
 
         return true
     }
@@ -31,6 +33,7 @@ data class ObjectBoxSentenceVector(
         result = 31 * result + entryId.hashCode()
         result = 31 * result + (vector?.contentHashCode() ?: 0)
         result = 31 * result + (semanticTheme?.hashCode() ?: 0)
+        result = 31 * result + (themeDistancesJson?.hashCode() ?: 0)
         return result
     }
 }

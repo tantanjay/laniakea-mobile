@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.laniakea.data.ObjectBoxSentenceVector
 import com.laniakea.engine.GraphEdge
@@ -41,6 +42,7 @@ import com.laniakea.ui.components.map.MapLegend
 import com.laniakea.ui.components.map.MapNodeDetailPanel
 import com.laniakea.ui.components.map.MapStatsBadge
 import com.laniakea.ui.components.map.MapConnectionsDialog
+import com.laniakea.ui.components.map.MapEmptyState
 import kotlinx.coroutines.launch
 import androidx.core.content.edit
 
@@ -155,6 +157,8 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     
     var hasBuiltGraph by remember { mutableStateOf(false) }
     var isBuildingGraph by remember { mutableStateOf(false) }
+    
+    var dismissEmptyState by remember { mutableStateOf(false) }
     
     var entryLimit by remember { mutableIntStateOf(1000) }
     
@@ -403,6 +407,16 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             edgeCount = visibleEdges.size,
             modifier = Modifier.align(Alignment.TopEnd)
         )
+        
+        // Empty state / low node count visual
+        if (allNodes.size < 10 && !isBuildingGraph && vectorsFetched && (!dismissEmptyState || allNodes.isEmpty())) {
+            MapEmptyState(
+                isEmpty = allNodes.isEmpty(),
+                accentColor = accentColor,
+                glowPulse = glowPulse,
+                onClose = { dismissEmptyState = true }
+            )
+        }
         
         // Node detail panel
         val showPanel = (!isIsolateMode && selectedNode != null) || (isIsolateMode && showDetailPanelInFocusMode && selectedNode != null)
