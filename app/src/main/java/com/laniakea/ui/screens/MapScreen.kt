@@ -1,9 +1,7 @@
 package com.laniakea.ui.screens
 
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -19,41 +17,24 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.text.SpanStyle
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import androidx.compose.foundation.gestures.detectTransformGestures
 import com.laniakea.data.ObjectBoxSentenceVector
 import com.laniakea.engine.GraphEdge
 import com.laniakea.engine.GraphEngine
 import com.laniakea.engine.GraphNode
+import com.laniakea.engine.LayoutMode
+import com.laniakea.util.*
 import com.laniakea.manager.SecurityManager
 import com.laniakea.viewmodel.LaniakeaViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
-import com.laniakea.engine.LayoutMode
-import com.laniakea.ui.components.map.getCommunityColor
-import com.laniakea.ui.components.map.getMoodNodeColor
-import com.laniakea.ui.components.map.projectPoint
+import com.laniakea.ui.components.map.ConstellationCanvas
 import com.laniakea.ui.components.map.MapControls
 import com.laniakea.ui.components.map.MapLegend
 import com.laniakea.ui.components.map.MapNodeDetailPanel
@@ -64,6 +45,30 @@ import kotlinx.coroutines.launch
 enum class ColorMode { MOOD, COMMUNITY }
 
 data class GalaxyStar(val x: Float, val y: Float, val z: Float, val size: Float, val color: Color)
+
+/**
+ * Immutable camera state with a companion providing sensible defaults.
+ * Eliminates duplicated reset values that were previously scattered across the file.
+ */
+data class CameraState(
+    val yaw: Float = DEFAULT_YAW,
+    val pitch: Float = DEFAULT_PITCH,
+    val roll: Float = DEFAULT_ROLL,
+    val cameraX: Float = DEFAULT_CAMERA_X,
+    val cameraY: Float = DEFAULT_CAMERA_Y,
+    val cameraZ: Float = DEFAULT_CAMERA_Z,
+) {
+    companion object {
+        const val DEFAULT_YAW = 0f
+        const val DEFAULT_PITCH = -0.6f
+        const val DEFAULT_ROLL = 0f
+        const val DEFAULT_CAMERA_X = 0f
+        const val DEFAULT_CAMERA_Y = 0f
+        const val DEFAULT_CAMERA_Z = 800f
+    }
+
+    fun reset(): CameraState = CameraState()
+}
 
 @Composable
 fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
@@ -128,13 +133,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     var layoutWidth by remember { mutableFloatStateOf(0f) }
     var layoutHeight by remember { mutableFloatStateOf(0f) }
     
-    var yaw by remember { mutableFloatStateOf(0f) }
-    var pitch by remember { mutableFloatStateOf(-0.6f) }
-    var roll by remember { mutableFloatStateOf(0f) }
-    var cameraX by remember { mutableFloatStateOf(0f) }
-    var cameraY by remember { mutableFloatStateOf(0f) }
-    var cameraZ by remember { mutableFloatStateOf(800f) }
-    var activePointers by remember { mutableIntStateOf(0) }
+    var camera by remember { mutableStateOf(CameraState()) }
     
     var selectedNode by remember { mutableStateOf<GraphNode?>(null) }
     var isIsolateMode by remember { mutableStateOf(false) }
@@ -152,7 +151,9 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     
     val context = androidx.compose.ui.platform.LocalContext.current
     val securityManager = remember { SecurityManager(context) }
-    val textMeasurer = rememberTextMeasurer()
+    
+    // Build a node map for ID-based edge lookups
+    val nodeMap = remember(allNodes) { allNodes.associateBy { it.entryId } }
     
     // Pulsing glow animation
     val infiniteTransition = rememberInfiniteTransition(label = "glow")
@@ -165,6 +166,13 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         ),
         label = "glowPulse"
     )
+    
+    // Content decryptor lambda — passed to the engine to avoid leaking SecurityManager
+    val contentDecryptor: (String) -> String = remember(securityManager) {
+        { encrypted: String ->
+            try { securityManager.decrypt(encrypted) } catch (_: Exception) { encrypted }
+        }
+    }
     
     LaunchedEffect(isEngineActive) {
         if (isEngineActive) {
@@ -188,10 +196,9 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 graphEngine.buildGraph(
                     entries = entriesToProcess,
                     vectors = vectorsToProcess,
-                    similarityThreshold = 0.55f,
                     width = layoutWidth,
                     height = layoutHeight,
-                    securityManager = securityManager
+                    contentDecryptor = contentDecryptor
                 )
             }
             allNodes = initialNodes.sortedBy { it.date }
@@ -210,7 +217,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             var steps = 0
             while (isSettling && steps < 200) {
                 delay(16L.milliseconds)
-                graphEngine.applyLiveStep(allNodes, allEdges, layoutWidth, layoutHeight)
+                graphEngine.applyLiveStep(allNodes, allEdges, nodeMap, layoutWidth, layoutHeight)
                 allNodes = allNodes.toList() // trigger recomposition
                 steps++
             }
@@ -248,17 +255,17 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 
                 if (layoutMode == LayoutMode.CLUSTERS) {
                     // Spin the clusters slowly like a disk
-                    roll -= 0.003f
+                    camera = camera.copy(roll = camera.roll - 0.003f)
                 } else if (layoutMode == LayoutMode.TIME_WARP) {
                     // Warpy time tunnel animation: physically flow the nodes along the tube
-                    graphEngine.warpTimeOffset += 0.0015f
-                    graphEngine.applyLiveStep(allNodes, allEdges, layoutWidth, layoutHeight)
+                    graphEngine.state.warpTimeOffset += 0.0015f
+                    graphEngine.applyLiveStep(allNodes, allEdges, nodeMap, layoutWidth, layoutHeight)
                     allNodes = allNodes.toList() // trigger recomposition
                 }
             }
         } else {
-            if (layoutMode == LayoutMode.TIME_WARP && graphEngine.warpTimeOffset > 0f) {
-                graphEngine.warpTimeOffset = 0f
+            if (layoutMode == LayoutMode.TIME_WARP && graphEngine.state.warpTimeOffset > 0f) {
+                graphEngine.state.warpTimeOffset = 0f
                 isSettling = true
             }
         }
@@ -272,8 +279,10 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             t += 0.016f
             if (selectedNode == null && !showDetailPanelInFocusMode && !isReplaying) {
                 if (layoutMode == LayoutMode.GALAXY) {
-                    roll -= 0.002f // Spin around the galaxy's center
-                    yaw = kotlin.math.cos(t * 0.1f) * 0.1f
+                    camera = camera.copy(
+                        roll = camera.roll - 0.002f, // Spin around the galaxy's center
+                        yaw = kotlin.math.cos(t * 0.1f) * 0.1f
+                    )
                 }
             }
         }
@@ -316,10 +325,14 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     }
                 }
             }
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                layoutWidth = size.width
-                layoutHeight = size.height
-            }
+            // Invisible sizer to capture layout dimensions via onSizeChanged
+            Box(modifier = Modifier
+                .fillMaxSize()
+                .onSizeChanged { size ->
+                    layoutWidth = size.width.toFloat()
+                    layoutHeight = size.height.toFloat()
+                }
+            )
             return@Box
         }
 
@@ -327,8 +340,8 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         val focusCenter = if (isIsolateMode) (lockedFocusNode ?: selectedNode) else null
         
         val visibleNodes = if (focusCenter != null) {
-            val connectedIds = allEdges.filter { it.source.entryId == focusCenter.entryId || it.target.entryId == focusCenter.entryId }
-                .flatMap { listOf(it.source.entryId, it.target.entryId) }
+            val connectedIds = allEdges.filter { it.sourceId == focusCenter.entryId || it.targetId == focusCenter.entryId }
+                .flatMap { listOf(it.sourceId, it.targetId) }
                 .toSet()
             baseVisibleNodes.filter { it.entryId == focusCenter.entryId || it.entryId in connectedIds }
         } else {
@@ -337,318 +350,36 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 
         val visibleIds = visibleNodes.map { it.entryId }.toSet()
         val visibleEdges = if (focusCenter != null) {
-            allEdges.filter { (it.source.entryId == focusCenter.entryId || it.target.entryId == focusCenter.entryId) && 
-                              it.source.entryId in visibleIds && it.target.entryId in visibleIds }
+            allEdges.filter { (it.sourceId == focusCenter.entryId || it.targetId == focusCenter.entryId) && 
+                              it.sourceId in visibleIds && it.targetId in visibleIds }
         } else {
-            allEdges.filter { it.source.entryId in visibleIds && it.target.entryId in visibleIds }
+            allEdges.filter { it.sourceId in visibleIds && it.targetId in visibleIds }
         }
-        
-        val currentVisibleNodes by rememberUpdatedState(visibleNodes)
 
-        Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            activePointers = event.changes.count { it.pressed }
-                        }
-                    }
-                }
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        if (zoom != 1f) {
-                            cameraZ = (cameraZ / zoom).coerceIn(50f, 1800f)
-                        }
-                        if (activePointers >= 3) {
-                            cameraX -= pan.x * 1.5f
-                            cameraY -= pan.y * 1.5f
-                        } else {
-                            yaw += pan.x * 0.005f
-                            pitch -= pan.y * 0.005f
-                        }
-                    }
-                }
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onDoubleTap = { tapOffset ->
-                            if (isIsolateMode) {
-                                val center = Offset(layoutWidth / 2f, layoutHeight / 2f)
-                                val projectedNodes = currentVisibleNodes.map { node ->
-                                    node to projectPoint(node.x, node.y, node.z, center, yaw, pitch, roll, cameraX, cameraY, cameraZ)
-                                }.sortedByDescending { it.second.z }
-                                
-                                val clicked = projectedNodes.findLast { (_, p) ->
-                                    val dx = p.x - tapOffset.x
-                                    val dy = p.y - tapOffset.y
-                                    val hitScale = p.scale.coerceAtMost(3f)
-                                    (dx * dx + dy * dy) < (2500f * hitScale)
-                                }?.first
-                                if (clicked != null) {
-                                    selectedNode = clicked
-                                    showDetailPanelInFocusMode = true
-                                }
-                            }
-                        },
-                        onTap = { tapOffset ->
-                            val center = Offset(layoutWidth / 2f, layoutHeight / 2f)
-                            val projectedNodes = currentVisibleNodes.map { node ->
-                                node to projectPoint(node.x, node.y, node.z, center, yaw, pitch, roll, cameraX, cameraY, cameraZ)
-                            }.sortedByDescending { it.second.z }
-                            
-                            val clicked = projectedNodes.findLast { (_, p) ->
-                                val dx = p.x - tapOffset.x
-                                val dy = p.y - tapOffset.y
-                                val hitScale = p.scale.coerceAtMost(3f)
-                                (dx * dx + dy * dy) < (2500f * hitScale)
-                            }?.first
-                            selectedNode = clicked
-                        }
-                    )
-                }
-        ) {
-            layoutWidth = size.width
-            layoutHeight = size.height
-            val canvasCenter = Offset(size.width / 2f, size.height / 2f)
-            
-            // Draw Background Stars (Galaxy Mode only)
-            if (layoutMode == LayoutMode.GALAXY) {
-                backgroundStars.forEach { star ->
-                    val p = projectPoint(star.x + canvasCenter.x, star.y + canvasCenter.y, star.z, canvasCenter, yaw, pitch, roll, cameraX, cameraY, cameraZ)
-                    if (p.z + cameraZ > 0) {
-                        val visualScale = if (p.scale < 1f) p.scale * p.scale else p.scale
-                        if (visualScale > 0.05f) {
-                            val alphaFactor = visualScale.coerceIn(0.1f, 1f)
-                            drawCircle(color = star.color.copy(alpha = alphaFactor * 0.3f), radius = star.size * visualScale * 2.5f, center = Offset(p.x, p.y))
-                            drawCircle(color = star.color.copy(alpha = alphaFactor * 0.9f), radius = star.size * visualScale, center = Offset(p.x, p.y))
-                        }
-                    }
-                }
-            }
-            
-            // Draw Edges
-            visibleEdges.forEach { edge ->
-                val p1 = projectPoint(edge.source.x, edge.source.y, edge.source.z, canvasCenter, yaw, pitch, roll, cameraX, cameraY, cameraZ)
-                val p2 = projectPoint(edge.target.x, edge.target.y, edge.target.z, canvasCenter, yaw, pitch, roll, cameraX, cameraY, cameraZ)
-                
-                if (p1.z + cameraZ > 0 && p2.z + cameraZ > 0) {
-                    val normalizedWeight = ((edge.weight - 0.55f) / 0.45f).coerceIn(0f, 1f)
-                    val avgScale = (p1.scale + p2.scale) / 2f
-                    val drawScale = avgScale.coerceAtMost(3f)
-                    // Shrink even more when zooming way out
-                    val visualScale = if (drawScale < 1f) drawScale * drawScale else drawScale
-                    val edgeAlpha = (0.04f + normalizedWeight * 0.25f) * drawScale.coerceIn(0.05f, 1f)
-                    val edgeWidth = (0.5f + normalizedWeight * 2f) * visualScale
-                    
-                    val edgeColor = if (colorMode == ColorMode.MOOD) {
-                        val avgMood = (edge.source.moodScore + edge.target.moodScore) / 2.0
-                        when {
-                            avgMood >= 0.5 -> Color(0xFF64FFDA)
-                            avgMood >= -0.2 -> Color(0xFF82B1FF)
-                            avgMood >= -0.6 -> Color(0xFFFFAB40)
-                            else -> Color(0xFFFF5252)
-                        }
-                    } else {
-                        if (edge.source.clusterName == edge.target.clusterName) getCommunityColor(edge.source.clusterName) else Color.Gray.copy(alpha = 0.3f)
-                    }
-                    
-                    drawLine(
-                        color = edgeColor.copy(alpha = edgeAlpha),
-                        start = Offset(p1.x, p1.y),
-                        end = Offset(p2.x, p2.y),
-                        strokeWidth = edgeWidth,
-                        cap = StrokeCap.Round
-                    )
-                }
-            }
-            
-            // Draw Nodes
-            val projectedNodes = visibleNodes.map { node ->
-                node to projectPoint(node.x, node.y, node.z, canvasCenter, yaw, pitch, roll, cameraX, cameraY, cameraZ)
-            }.sortedByDescending { it.second.z } // Distant nodes first
-            
-            projectedNodes.forEach { (node, p) ->
-                if (p.z + cameraZ > 0) {
-                    val isSelected = node == selectedNode
-                    val nodeColor = if (colorMode == ColorMode.MOOD) getMoodNodeColor(node.moodScore) else getCommunityColor(node.clusterName)
-
-                    val drawScale = p.scale.coerceAtMost(3f)
-                    // Shrink nodes faster when zoomed out so they look like tiny stars
-                    val visualScale = if (drawScale < 1f) drawScale * drawScale else drawScale
-                    
-                    val alphaFactor = p.scale.coerceIn(0.1f, 1f)
-                    
-                    val importanceSq = node.importance * node.importance
-                    val importanceScale = 1f + (importanceSq * 1.0f) // Supernovas get up to 2x larger
-                    
-                    // Base radius doesn't double-count connection count anymore, importance handles it
-                    val baseRadius = 3.5f * visualScale * importanceScale
-                    val glowRadius = baseRadius * (1.8f + node.importance * 1.2f) // Glow scales linearly with importance
-                    
-                    // Outer glow
-                    drawCircle(
-                        color = nodeColor.copy(alpha = (if (isSelected) 0.5f else glowPulse * 0.3f) * alphaFactor),
-                        radius = if (isSelected) glowRadius * 1.5f else glowRadius,
-                        center = Offset(p.x, p.y)
-                    )
-                    
-                    // Mid-glow
-                    drawCircle(
-                        color = nodeColor.copy(alpha = (if (isSelected) 0.4f else 0.15f) * alphaFactor),
-                        radius = if (isSelected) baseRadius * 1.8f else baseRadius * 1.4f,
-                        center = Offset(p.x, p.y)
-                    )
-                    
-                    // Core
-                    drawCircle(
-                        color = (if (isSelected) Color.White else nodeColor).copy(alpha = alphaFactor),
-                        radius = if (isSelected) baseRadius * 1.2f else baseRadius,
-                        center = Offset(p.x, p.y)
-                    )
-                    
-                    // Bright center
-                    drawCircle(
-                        color = Color.White.copy(alpha = (if (isSelected) 1f else 0.8f) * alphaFactor),
-                        radius = (if (isSelected) 3f else 1.5f) * visualScale,
-                        center = Offset(p.x, p.y)
-                    )
-                    
-                    // Selection ring
-                    if (isSelected) {
-                        drawCircle(
-                            color = nodeColor,
-                            radius = 2.5f * drawScale,
-                            center = Offset(p.x, p.y),
-                            style = Stroke(width = 1.0f * drawScale)
-                        )
-                    }
-                    
-                    // Text label in focus mode OR high importance node
-                    if (isIsolateMode || (node.importance > 0.85f && node.theme != "Unknown" && drawScale > 0.3f)) {
-                        val nodeMoodLabel = when {
-                            node.moodScore > 1.5 -> "🤩 Awesome"
-                            node.moodScore > 0.5 -> "🙂 Good"
-                            node.moodScore > -0.5 -> "😐 Fine"
-                            node.moodScore > -1.5 -> "🙁 Bad"
-                            else -> "😫 Terrible"
-                        }
-                        
-                        val dateString = SimpleDateFormat("MMM dd", Locale.getDefault()).format(Date(node.date))
-                        
-                        val labelText = buildAnnotatedString {
-                            if (node.theme != "Unknown") {
-                                withStyle(SpanStyle(fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = if (isIsolateMode) 0.9f else 0.75f))) {
-                                    append(node.theme)
-                                }
-                                append("\n")
-                            }
-                            withStyle(SpanStyle(fontWeight = FontWeight.Light, color = Color.White.copy(alpha = if (isIsolateMode) 0.7f else 0.5f), fontSize = (7f * visualScale).coerceIn(5f, 9f).sp)) {
-                                append("$dateString  •  $nodeMoodLabel")
-                            }
-                        }
-
-                        val textLayoutResult = textMeasurer.measure(
-                            text = labelText,
-                            style = TextStyle(
-                                fontSize = (8f * visualScale).coerceIn(6f, 11f).sp,
-                                lineHeight = (11f * visualScale).coerceIn(8f, 14f).sp
-                            )
-                        )
-                        
-                        val padding = 6f * visualScale.coerceIn(0.5f, 1.2f)
-                        val cardWidth = textLayoutResult.size.width + padding * 2
-                        val cardHeight = textLayoutResult.size.height + padding * 2
-                        
-                        val cardOffset = Offset(
-                            p.x - cardWidth / 2f,
-                            p.y + baseRadius * 2f + 4f
-                        )
-                        
-                        // Draw background card
-                        drawRoundRect(
-                            color = Color(0xFF1E1E2E).copy(alpha = if (isIsolateMode) 0.85f else 0.45f),
-                            topLeft = cardOffset,
-                            size = Size(cardWidth, cardHeight),
-                            cornerRadius = CornerRadius(12f, 12f)
-                        )
-                        
-                        val textOffset = Offset(
-                            cardOffset.x + padding,
-                            cardOffset.y + padding
-                        )
-                        drawText(
-                            textLayoutResult = textLayoutResult,
-                            topLeft = textOffset
-                        )
-                    }
-                }
-            }
-            
-            // Time Warp HUD Labels
-            if (layoutMode == LayoutMode.TIME_WARP && allNodes.isNotEmpty()) {
-                val minDate = allNodes.minOf { it.date }
-                val maxDate = allNodes.maxOf { it.date }
-                val dateSpan = (maxDate - minDate).coerceAtLeast(1L)
-                val spanDays = dateSpan / (1000L * 60 * 60 * 24)
-                
-                val calendar = java.util.Calendar.getInstance()
-                calendar.timeInMillis = minDate
-                
-                val (calendarField, formatStr) = when {
-                    spanDays <= 365 * 3 -> java.util.Calendar.MONTH to "MMM yyyy"
-                    else -> java.util.Calendar.YEAR to "yyyy"
-                }
-                // Quarterly if > 6 months, else Monthly
-                val step = if (spanDays > 180 && spanDays <= 365 * 3) 3 else 1
-                
-                if (calendarField == java.util.Calendar.MONTH) {
-                    calendar.set(java.util.Calendar.DAY_OF_MONTH, 1)
-                } else {
-                    calendar.set(java.util.Calendar.DAY_OF_YEAR, 1)
-                }
-                
-                val formatter = SimpleDateFormat(formatStr, Locale.getDefault())
-                val timelineWidth = layoutWidth * 2.0f
-                val timelineY = layoutHeight / 2f - 600f // Floating high above the tunnel
-                val timelineZ = 0f
-                
-                while (calendar.timeInMillis <= maxDate) {
-                    val tickTime = calendar.timeInMillis
-                    if (tickTime >= minDate) {
-                        val rawProgress = (tickTime - minDate).toFloat() / dateSpan.toFloat()
-                        val dateProgress = (rawProgress + graphEngine.warpTimeOffset) % 1.0f
-                        val targetX = (layoutWidth / 2f - timelineWidth / 2f) + (dateProgress * timelineWidth)
-                        
-                        val p = projectPoint(targetX, timelineY, timelineZ, canvasCenter, yaw, pitch, roll, cameraX, cameraY, cameraZ)
-                        
-                        if (p.z + cameraZ > 0 && p.scale > 0.1f) {
-                            val label = formatter.format(Date(tickTime))
-                            val textLayoutResult = textMeasurer.measure(
-                                text = label,
-                                style = TextStyle(
-                                    color = Color.White.copy(alpha = 0.5f), 
-                                    fontSize = (12f * p.scale.coerceIn(0.5f, 2.5f)).sp, 
-                                    fontWeight = FontWeight.Bold
-                                )
-                            )
-                            drawText(
-                                textLayoutResult = textLayoutResult,
-                                topLeft = Offset(p.x - textLayoutResult.size.width / 2f, p.y - textLayoutResult.size.height / 2f)
-                            )
-                            // Draw indicator line pointing down to the timeline
-                            drawLine(
-                                color = Color.White.copy(alpha = 0.2f),
-                                start = Offset(p.x, p.y + textLayoutResult.size.height / 2f + 8f),
-                                end = Offset(p.x, p.y + textLayoutResult.size.height / 2f + 50f * p.scale),
-                                strokeWidth = 2f * p.scale
-                            )
-                        }
-                    }
-                    calendar.add(calendarField, step)
-                }
-            }
-        }
+        ConstellationCanvas(
+            visibleNodes = visibleNodes,
+            visibleEdges = visibleEdges,
+            allNodes = allNodes,
+            nodeMap = nodeMap,
+            backgroundStars = backgroundStars,
+            layoutMode = layoutMode,
+            colorMode = colorMode,
+            camera = camera,
+            onCameraChange = { camera = it },
+            graphEngine = graphEngine,
+            isIsolateMode = isIsolateMode,
+            selectedNode = selectedNode,
+            onNodeTap = { selectedNode = it },
+            onNodeDoubleTap = { clicked ->
+                selectedNode = clicked
+                showDetailPanelInFocusMode = true
+            },
+            onLayoutSize = { w, h ->
+                layoutWidth = w
+                layoutHeight = h
+            },
+            glowPulse = glowPulse
+        )
 
         // Stats badge
         MapStatsBadge(
@@ -669,20 +400,14 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 }
             }
             val nodeColor = getMoodNodeColor(nodeToShow.moodScore)
-            val moodLabel = when {
-                nodeToShow.moodScore > 1.5 -> "🤩 Awesome"
-                nodeToShow.moodScore > 0.5 -> "🙂 Good"
-                nodeToShow.moodScore > -0.5 -> "😐 Fine"
-                nodeToShow.moodScore > -1.5 -> "🙁 Bad"
-                else -> "😫 Terrible"
-            }
+            val moodLabel = getMoodLabel(nodeToShow.moodScore)
             
             MapNodeDetailPanel(
                 nodeToShow = nodeToShow,
                 decryptedContent = decryptedContent,
                 nodeColor = nodeColor,
                 moodLabel = moodLabel,
-                nodeConnections = visibleEdges.count { it.source.entryId == nodeToShow.entryId || it.target.entryId == nodeToShow.entryId },
+                nodeConnections = visibleEdges.count { it.sourceId == nodeToShow.entryId || it.targetId == nodeToShow.entryId },
                 isIsolateMode = isIsolateMode,
                 onClose = {
                     if (isIsolateMode) showDetailPanelInFocusMode = false else selectedNode = null
@@ -710,8 +435,6 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 color = Color.White.copy(alpha = 0.5f),
                 style = MaterialTheme.typography.bodyMedium
             )
-            
-            // Controls moved to BottomEnd
             
             Spacer(modifier = Modifier.height(12.dp))
             MapControls(
@@ -796,12 +519,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         onClick = { 
                             isReplaying = false
                             replayProgress = allNodes.size
-                            yaw = 0f
-                            pitch = -0.6f
-                            roll = 0f
-                            cameraX = 0f
-                            cameraY = 0f
-                            cameraZ = 800f
+                            camera = camera.reset()
                         },
                         containerColor = Color(0xFF2D1B1B),
                         contentColor = Color(0xFFFF5252)
@@ -828,14 +546,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 
                 if (!isSettling && !isReplaying) {
                     FloatingActionButton(
-                        onClick = { 
-                            yaw = 0f
-                            pitch = -0.6f
-                            roll = 0f
-                            cameraX = 0f
-                            cameraY = 0f
-                            cameraZ = 800f
-                        },
+                        onClick = { camera = camera.reset() },
                         containerColor = Color.White.copy(alpha = 0.1f),
                         contentColor = Color.White.copy(alpha = 0.8f)
                     ) {
@@ -844,8 +555,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     FloatingActionButton(
                         onClick = { 
                             isSettling = true 
-                            cameraX = 0f
-                            cameraY = 0f
+                            camera = camera.copy(cameraX = 0f, cameraY = 0f)
                         },
                         containerColor = Color.White.copy(alpha = 0.1f),
                         contentColor = Color.White.copy(alpha = 0.8f)
@@ -868,7 +578,8 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         if (showConnectionsFor != null) {
             MapConnectionsDialog(
                 targetNode = showConnectionsFor!!,
-                visibleEdges = visibleEdges,
+                allEdges = allEdges,
+                nodeMap = nodeMap,
                 securityManager = securityManager,
                 onDismiss = { showConnectionsFor = null }
             )

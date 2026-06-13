@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.laniakea.engine.GraphEdge
 import com.laniakea.engine.GraphNode
+import com.laniakea.util.getMoodNodeColor
 import com.laniakea.manager.SecurityManager
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -21,12 +22,13 @@ import java.util.Date
 @Composable
 fun MapConnectionsDialog(
     targetNode: GraphNode,
-    visibleEdges: List<GraphEdge>,
+    allEdges: List<GraphEdge>,
+    nodeMap: Map<Long, GraphNode>,
     securityManager: SecurityManager,
     onDismiss: () -> Unit
 ) {
-    val connectedEdges = visibleEdges.filter {
-        it.source.entryId == targetNode.entryId || it.target.entryId == targetNode.entryId
+    val connectedEdges = allEdges.filter {
+        it.sourceId == targetNode.entryId || it.targetId == targetNode.entryId
     }.sortedByDescending { it.weight }
     
     AlertDialog(
@@ -41,7 +43,8 @@ fun MapConnectionsDialog(
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(connectedEdges) { edge ->
-                    val relatedNode = if (edge.source.entryId == targetNode.entryId) edge.target else edge.source
+                    val relatedId = if (edge.sourceId == targetNode.entryId) edge.targetId else edge.sourceId
+                    val relatedNode = nodeMap[relatedId] ?: return@items
                     val decryptedNodeContent = try {
                         securityManager.decrypt(relatedNode.content)
                     } catch (_: Exception) {
