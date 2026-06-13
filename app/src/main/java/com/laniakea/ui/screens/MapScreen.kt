@@ -76,8 +76,15 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val isEngineActive = vm.isEngineActive
     val isEngineLoading = vm.isEngineLoading
 
-    var colorMode by remember { mutableStateOf(ColorMode.MOOD) }
-    var layoutMode by remember { mutableStateOf(LayoutMode.CLUSTERS) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val prefs = remember { context.getSharedPreferences("map_prefs", android.content.Context.MODE_PRIVATE) }
+
+    var colorMode by remember { 
+        mutableStateOf(ColorMode.valueOf(prefs.getString("color_mode", ColorMode.MOOD.name) ?: ColorMode.MOOD.name)) 
+    }
+    var layoutMode by remember { 
+        mutableStateOf(LayoutMode.valueOf(prefs.getString("layout_mode", LayoutMode.CLUSTERS.name) ?: LayoutMode.CLUSTERS.name)) 
+    }
 
     val backgroundStars = remember {
         val list = mutableListOf<GalaxyStar>()
@@ -147,9 +154,8 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     var hasBuiltGraph by remember { mutableStateOf(false) }
     var isBuildingGraph by remember { mutableStateOf(false) }
     
-    var entryLimit by remember { mutableIntStateOf(300) }
+    var entryLimit by remember { mutableIntStateOf(1000) }
     
-    val context = androidx.compose.ui.platform.LocalContext.current
     val securityManager = remember { SecurityManager(context) }
     
     // Build a node map for ID-based edge lookups
@@ -439,9 +445,15 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             Spacer(modifier = Modifier.height(12.dp))
             MapControls(
                 layoutMode = layoutMode,
-                onLayoutModeChange = { layoutMode = it },
+                onLayoutModeChange = { 
+                    layoutMode = it
+                    prefs.edit().putString("layout_mode", it.name).apply()
+                },
                 colorMode = colorMode,
-                onColorModeChange = { colorMode = it }
+                onColorModeChange = { 
+                    colorMode = it
+                    prefs.edit().putString("color_mode", it.name).apply()
+                }
             )
             
             // Legend
@@ -564,7 +576,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     }
                     if (allEntries.size > entryLimit) {
                         FloatingActionButton(
-                            onClick = { entryLimit += 300 },
+                            onClick = { entryLimit += 1000 },
                             containerColor = Color.White.copy(alpha = 0.1f),
                             contentColor = Color.White.copy(alpha = 0.8f)
                         ) {
