@@ -158,7 +158,20 @@ class GraphEngine {
             val moodIntensity = abs(node.moodScore.toFloat())
             val lengthFactor = min(node.content.length / 500f, 1f)
             
-            val rawImportance = moodIntensity + (connectionCount * 0.15f) + recencyBoost + lengthFactor
+            // Sublinear scaling for connections so generic hubs don't drown out intense thoughts
+            val connectionScore = sqrt(connectionCount.toFloat()) * 0.6f
+            
+            var rawImportance = moodIntensity + connectionScore + recencyBoost + lengthFactor
+            
+            // Bonus for highly intense emotional entries (rare/intense)
+            if (moodIntensity > 1.2f) {
+                rawImportance += 1.0f // Significant bump for intense feelings
+            }
+            // Bonus for long, isolated "deep thoughts" (rare/profound)
+            if (connectionCount <= 1 && lengthFactor > 0.8f) {
+                rawImportance += 0.8f 
+            }
+            
             node.importance = rawImportance
             if (rawImportance > maxRawImportance) {
                 maxRawImportance = rawImportance
@@ -277,6 +290,7 @@ class GraphEngine {
      * or in a batch loop for pre-settling.
      */
     private var liveStep = 0
+    var warpTimeOffset = 0f
     
     fun startLiveSimulation() { liveStep = 0 }
     
@@ -312,7 +326,11 @@ class GraphEngine {
         
         // Cooling: start hot, end cold
         val progress = step.toFloat() / totalSteps.toFloat()
-        val temperature = maxOf(0.3f, 30f * (1f - progress * progress))
+        val temperature = if (layoutMode == LayoutMode.TIME_WARP) {
+            maxOf(15f, 30f * (1f - progress * progress))
+        } else {
+            maxOf(0.3f, 30f * (1f - progress * progress))
+        }
         
         // --- Anchors ---
         val clusterCounts = mutableMapOf<Int, Int>()
@@ -500,10 +518,21 @@ class GraphEngine {
                 for (node in nodes) {
                     val anchor = clusterAnchors[node.clusterId] ?: Triple(centerX, centerY, centerZ)
 
-                    val dateProgress = (node.date - minDate).toFloat() / dateSpan
+                    val rawProgress = (node.date - minDate).toFloat() / dateSpan
+                    val dateProgress = (rawProgress + warpTimeOffset) % 1.0f
                     val targetX = (centerX - timelineWidth / 2f) + (dateProgress * timelineWidth)
 
                     val adx = targetX - node.x
+
+                    // Teleport node to other side if target wrapped around
+                    if (adx < -timelineWidth * 0.5f) {
+                        node.x -= timelineWidth
+                    } else if (adx > timelineWidth * 0.5f) {
+                        node.x += timelineWidth
+                    }
+
+                    // Recompute adx after possible teleport
+                    val finalAdx = targetX - node.x
 
                     // Twist the tunnel! Rotate the YZ anchor around the center based on time progress.
                     val twistAngle = dateProgress * Math.PI * 4.0 // 2 full twists from start to end
@@ -520,7 +549,7 @@ class GraphEngine {
                     val adz = twistedZ - node.z
 
                     // Extremely strong pull to the timeline X
-                    node.vx += adx * 0.15f
+                    node.vx += finalAdx * 0.15f
                     // Strong pull to the twisted YZ cluster lanes to create the helix warp look
                     node.vy += ady * 0.05f
                     node.vz += adz * 0.05f
