@@ -10,7 +10,8 @@ data class AppSettings(
     val autoLoadEngine: Boolean = false,
     val userName: String = "",
     val theme: String = "PURPLE",
-    val selectedThemes: String = "Relationships & Connection,Career & Purpose,Goals & Ambition,Inner Reflection,Emotional Wellbeing,Physical Wellbeing"
+    val selectedThemes: String = "Relationships & Connection,Career & Purpose,Goals & Ambition,Inner Reflection,Emotional Wellbeing,Physical Wellbeing",
+    val profilePicture: String = "Person"
 )
 
 @Entity(tableName = "entries")

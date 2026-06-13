@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
@@ -11,6 +12,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -112,6 +116,7 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SectionHeader(
                 title = "This Week's Reflections",
+                leadingIcon = Icons.Default.DateRange,
                 isExpanded = isDigestExpanded,
                 onToggle = { isDigestExpanded = !isDigestExpanded }
             )
@@ -140,6 +145,7 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SectionHeader(
                 title = "How Your Writing Has Changed",
+                leadingIcon = Icons.Default.Create,
                 isExpanded = isWritingTrendsExpanded,
                 onToggle = { isWritingTrendsExpanded = !isWritingTrendsExpanded },
                 actionButton = {
@@ -315,6 +321,7 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SectionHeader(
                 title = "Semantic Themes",
+                leadingIcon = Icons.Default.Star,
                 isExpanded = isThemesExpanded,
                 onToggle = { isThemesExpanded = !isThemesExpanded },
                 actionButton = {
@@ -519,6 +526,7 @@ private fun InfoSection(title: String, content: String) {
 @Composable
 private fun SectionHeader(
     title: String,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector,
     isExpanded: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
@@ -547,17 +555,30 @@ private fun SectionHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .defaultMinSize(minHeight = 64.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Bold,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.weight(1f)
-            )
+            ) {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = null,
+                    tint = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    modifier = Modifier.basicMarquee()
+                )
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
