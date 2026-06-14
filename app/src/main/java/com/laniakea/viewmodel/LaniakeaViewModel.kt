@@ -17,7 +17,7 @@ import com.laniakea.data.ObjectBoxManager
 import com.laniakea.data.ObjectBoxSentenceVector
 import com.laniakea.data.ObjectBoxSentenceVector_
 import com.laniakea.engine.SentenceEmbedder
-import com.laniakea.engine.VibeEngine
+import com.laniakea.manager.VibeManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -69,6 +69,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     private val analyticsManager = AnalyticsManager(db, securityManager)
     
     private val semanticManager = SemanticManager(db, embedder, securityManager) { isEngineActive }
+    private val vibeManager = VibeManager(embedder) { isEngineActive }
 
     private val digestManager = WeeklyDigestManager(db, securityManager) { isEngineActive }
     
@@ -99,6 +100,8 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var isEngineActive by mutableStateOf(false)
     var isEngineLoading by mutableStateOf(false)
     var isThemesInitialized by mutableStateOf(false)
+        private set
+    var isAxesInitialized by mutableStateOf(false)
         private set
     var autoLoadEnabled by mutableStateOf(false)
     var vibeYear by mutableStateOf("2026")
@@ -197,92 +200,20 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 isEngineActive = isReady
                 isEngineLoading = false
                 if (isReady) {
-                    val joy = embedder.embed("I feel happy, calm, and satisfied with life.")
-                    val distress = embedder.embed("I feel stressed, tired, and discouraged.")
-
-                    if (joy != null && distress != null) {
-                        VibeEngine.setAnchors(
-                            joy,
-                            distress,
-                            rotate = { it }, // already rotated by shield
-                            normalize = { it } // already normalized
-                        )
-                    }
-
                     withContext(Dispatchers.IO) { 
-                        calibrateAnchors() 
+                        vibeManager.initializeAxes() 
                         semanticManager.initializeThemes()
                     }
                     isThemesInitialized = true
+                    isAxesInitialized = true
                     refreshData()
                     loadWeeklyDigest()
                 } else {
                     isThemesInitialized = false
+                    isAxesInitialized = false
                 }
             }
         }
-    }
-
-    private suspend fun calibrateAnchors() {
-        val dao = db.diaryDao()
-        val joyIds = dao.getRecentEntryIdsByNumericMood(2.0, 20)
-        val sadIds = dao.getRecentEntryIdsByNumericMood(-2.0, 20)
-
-        if (joyIds.size >= 5 && sadIds.size >= 5) {
-            val vectorBox = ObjectBoxManager.vectorBox
-            
-            val joyFloatVectors = joyIds.mapNotNull { id -> 
-                vectorBox.query(ObjectBoxSentenceVector_.entryId.equal(id)).build().findFirst()?.vector 
-            }
-            val sadFloatVectors = sadIds.mapNotNull { id -> 
-                vectorBox.query(ObjectBoxSentenceVector_.entryId.equal(id)).build().findFirst()?.vector 
-            }
-
-            if (joyFloatVectors.size >= 5 && sadFloatVectors.size >= 5 &&
-                joyFloatVectors.all { it.size == 768 } &&
-                sadFloatVectors.all { it.size == 768 }) {
-
-                val joyAvg = calculateAverageVector(joyFloatVectors)
-                val sadAvg = calculateAverageVector(sadFloatVectors)
-
-                VibeEngine.setAnchors(
-                    joy = joyAvg,
-                    distress = sadAvg,
-                    rotate = { it },      // already rotated by embedder
-                    normalize = { it }    // already normalized
-                )
-
-                Log.i(
-                    "VibeCalibration",
-                    "Anchors updated with ${joyFloatVectors.size} Joy and ${sadFloatVectors.size} Sad vectors."
-                )
-            }
-
-        } else {
-            Log.i("VibeCalibration", "Not enough entries to calibrate anchors yet.")
-        }
-    }
-
-    private fun calculateAverageVector(vectors: List<FloatArray>): FloatArray {
-        if (vectors.isEmpty()) return FloatArray(768)
-
-        val size = 768
-        val result = FloatArray(size)
-        val count = vectors.size.toFloat()
-
-        for (vector in vectors) {
-            require(vector.size == size) { "All vectors must have the same dimension" }
-
-            for (i in 0 until size) {
-                result[i] += vector[i]
-            }
-        }
-
-        for (i in 0 until size) {
-            result[i] /= count
-        }
-
-        return result
     }
 
     fun initializeEngine() {
@@ -358,17 +289,16 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 weather = weather,
                 activities = activities,
                 numericMood = numericMood,
-                latentVibe = 0.0,
                 isVectorized = false
             )
 
-            if (isEngineActive && semanticManager.isThemesInitialized()) {
+            if (isEngineActive && semanticManager.isThemesInitialized() && vibeManager.isAxesInitialized()) {
                 val vectors = embedder.embedBoth(content)
                 
                 if (vectors != null) {
                     val rawVector = vectors.first
                     val vector = vectors.second
-                    val aiVibe = VibeEngine.calculateVibeScore(vector)
+                    val vibeScoresJson = vibeManager.calculateVibesJson(vector)
                     val semanticTheme = semanticManager.classifyTheme(rawVector)
                     val themeDistancesJson = semanticManager.calculateAllThemeDistancesJson(rawVector)
                     
@@ -376,7 +306,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     
                     val entryToSave = securityManager.encryptEntry(
                         rawEntry.copy(
-                            latentVibe = aiVibe.toDouble(), 
                             isVectorized = true,
                             syntacticPacing = metrics.syntacticPacing,
                             agencyScore = metrics.agencyScore,
@@ -388,7 +317,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
                     val entryId = db.diaryDao().insertEntry(entryToSave)
                     ObjectBoxManager.vectorBox.put(
-                        ObjectBoxSentenceVector(entryId = entryId, vector = vector, semanticTheme = semanticTheme, themeDistancesJson = themeDistancesJson)
+                        ObjectBoxSentenceVector(entryId = entryId, vector = vector, semanticTheme = semanticTheme, themeDistancesJson = themeDistancesJson, vibeScoresJson = vibeScoresJson)
                     )
                     
                     // Check for anomaly
@@ -411,7 +340,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun processMissingEntries() {
-        if (isProcessing || !isEngineActive || !semanticManager.isThemesInitialized()) return
+        if (isProcessing || !isEngineActive || !semanticManager.isThemesInitialized() || !vibeManager.isAxesInitialized()) return
         viewModelScope.launch(Dispatchers.IO) {
             isProcessing = true
             val dao = db.diaryDao()
@@ -431,14 +360,13 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                         val rawVector = vectors.first
                         val vector = vectors.second
                         
-                        val aiVibe = VibeEngine.calculateVibeScore(vector)
+                        val vibeScoresJson = vibeManager.calculateVibesJson(vector)
                         val semanticTheme = semanticManager.classifyTheme(rawVector)
                         val themeDistancesJson = semanticManager.calculateAllThemeDistancesJson(rawVector)
                         
                         val metrics = cognitiveTracker.analyze(decryptedContent, vector)
                         
                         updatedEntriesBatch.add(entry.copy(
-                            latentVibe = aiVibe.toDouble(), 
                             isVectorized = true,
                             syntacticPacing = metrics.syntacticPacing,
                             agencyScore = metrics.agencyScore,
@@ -447,7 +375,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                             temporalHorizon = metrics.temporalHorizon
                         ))
                         vectorBatch.add(
-                            ObjectBoxSentenceVector(entryId = entry.id, vector = vector, semanticTheme = semanticTheme, themeDistancesJson = themeDistancesJson)
+                            ObjectBoxSentenceVector(entryId = entry.id, vector = vector, semanticTheme = semanticTheme, themeDistancesJson = themeDistancesJson, vibeScoresJson = vibeScoresJson)
                         )
                     }
                 } catch (e: Exception) { e.printStackTrace() }
@@ -495,13 +423,29 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             refreshInsights()
             refreshProcessingStats()
             val dao = db.diaryDao()
-            if (isEngineActive) calibrateAnchors()
+            if (isEngineActive) vibeManager.initializeAxes()
 
             val scores = dao.getAllMoodScores()
 
             // --- DAILY AGGREGATE for stable trend ---
             val manualDaily = analyticsManager.aggregateByDay(scores.map { it.dateTime to it.numericMood.toFloat() })
-            val aiDaily = analyticsManager.aggregateByDay(scores.map { it.dateTime to it.latentVibe.toFloat() })
+            
+            // Extract Positivity vs Negativity for AI Daily
+            val allEntries = dao.getAllEntries()
+            val aiScores = allEntries.mapNotNull { entry ->
+                if (!entry.isVectorized) return@mapNotNull null
+                val vectorObj = ObjectBoxManager.vectorBox.query(ObjectBoxSentenceVector_.entryId.equal(entry.id)).build().findFirst()
+                val scoreJson = vectorObj?.vibeScoresJson
+                var vibeScore = 0f
+                if (scoreJson != null) {
+                    try {
+                        val json = org.json.JSONObject(scoreJson)
+                        vibeScore = json.optDouble("Positivity vs Negativity", 0.0).toFloat()
+                    } catch (e: Exception) {}
+                }
+                entry.dateTime to vibeScore
+            }
+            val aiDaily = analyticsManager.aggregateByDay(aiScores)
 
             val oldest = dao.getOldestTimestamp()
             val year = if (oldest != null) {

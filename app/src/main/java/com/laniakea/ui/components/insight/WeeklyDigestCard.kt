@@ -111,6 +111,31 @@ fun WeeklyDigestCard(digest: WeeklyDigest) {
                     )
                 }
             }
+
+            // Vibe Score (only if available)
+            if (digest.avgVibeScore != null) {
+                Column {
+                    Text(
+                        text = "Vibe Analysis:",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val vibeText = when {
+                        digest.avgVibeScore > 0.5f -> "Your writing seems to be very positive."
+                        digest.avgVibeScore > 0.1f -> "Your writing seems to be on the positive side."
+                        digest.avgVibeScore < -0.5f -> "Your writing seems to be very negative."
+                        digest.avgVibeScore < -0.1f -> "Your writing seems to be on the negative side."
+                        else -> "Your writing seems to be balanced."
+                    }
+                    Text(
+                        text = vibeText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
         }
     }
 }

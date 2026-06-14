@@ -24,7 +24,6 @@ data class DiaryEntry(
     val weather: String = "",
     val activities: String = "",
     val numericMood: Double = 0.0,
-    val latentVibe: Double = 0.0,
     val isVectorized: Boolean = false,
     val syntacticPacing: Float = 0f,
     val agencyScore: Float = 0f,

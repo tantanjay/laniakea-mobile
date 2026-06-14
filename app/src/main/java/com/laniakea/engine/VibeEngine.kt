@@ -21,53 +21,29 @@ import kotlin.math.tanh
  */
 object VibeEngine {
 
-    private var joyAnchor: FloatArray? = null
-    private var distressAnchor: FloatArray? = null
-
-    private var axis: FloatArray? = null
-    private var center: FloatArray? = null
-
-    fun setAnchors(
-        joy: FloatArray,
-        distress: FloatArray,
-        rotate: (FloatArray) -> FloatArray,
-        normalize: (FloatArray) -> FloatArray
-    ) {
-        joyAnchor = rotate(normalize(joy))
-        distressAnchor = rotate(normalize(distress))
-
-        buildAxis()
-    }
-
-    private fun buildAxis() {
-
-        val joy = joyAnchor ?: return
-        val sad = distressAnchor ?: return
-
-        val size = joy.size
-        axis = FloatArray(size)
-        center = FloatArray(size)
+    fun calculateAxisAndCenter(pos: FloatArray, neg: FloatArray): Pair<FloatArray, FloatArray> {
+        val size = pos.size
+        val axis = FloatArray(size)
+        val center = FloatArray(size)
 
         for (i in 0 until size) {
-            axis!![i] = joy[i] - sad[i]
-            center!![i] = (joy[i] + sad[i]) * 0.5f
+            axis[i] = pos[i] - neg[i]
+            center[i] = (pos[i] + neg[i]) * 0.5f
         }
 
         // normalize axis
         var norm = 0f
-        for (v in axis!!) norm += v * v
+        for (v in axis) norm += v * v
         norm = kotlin.math.sqrt(norm)
 
-        for (i in axis!!.indices) {
-            axis!![i] /= (norm + 1e-9f)
+        for (i in axis.indices) {
+            axis[i] /= (norm + 1e-9f)
         }
+
+        return Pair(axis, center)
     }
 
-    fun calculateVibeScore(embedding: FloatArray): Float {
-
-        val axisVec = axis ?: return 0f
-        val centerVec = center ?: return 0f
-
+    fun calculateVibeScore(embedding: FloatArray, axisVec: FloatArray, centerVec: FloatArray): Float {
         var score = 0f
 
         for (i in embedding.indices) {

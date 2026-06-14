@@ -167,7 +167,7 @@ fun ConstellationCanvas(
         }
 
         // Draw Cluster Nebulae
-        if (showDecorations && layoutMode == LayoutMode.CLUSTERS && projectedNodes.isNotEmpty()) {
+        if (showDecorations && (layoutMode == LayoutMode.CLUSTERS || layoutMode == LayoutMode.GALAXY) && projectedNodes.isNotEmpty()) {
             val clusters = projectedNodes.groupBy { it.first.clusterName }
             for ((clusterName, nodesInCluster) in clusters) {
                 if (clusterName == "Unknown" || clusterName.endsWith(" Thought") || nodesInCluster.size < 3) continue

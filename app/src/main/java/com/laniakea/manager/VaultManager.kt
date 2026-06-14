@@ -75,7 +75,6 @@ class VaultManager(
                 writer.name("weather").value(decryptedEntry.weather)
                 writer.name("activities").value(decryptedEntry.activities)
                 writer.name("numericMood").value(entry.numericMood)
-                writer.name("latentVibe").value(entry.latentVibe)
                 writer.name("isVectorized").value(entry.isVectorized)
                 writer.endObject()
                 withContext(Dispatchers.Main) { onProgress(index + 1, totalCount) }
@@ -170,7 +169,6 @@ class VaultManager(
                             var weather = ""
                             var activities = ""
                             var numericMood = 0.0
-                            var latentVibe = 0.0
                             var isVectorized = false
 
                             while (reader.hasNext()) {
@@ -183,7 +181,6 @@ class VaultManager(
                                     "weather" -> weather = reader.nextString()
                                     "activities" -> activities = reader.nextString()
                                     "numericMood" -> numericMood = reader.nextDouble()
-                                    "latentVibe" -> latentVibe = reader.nextDouble()
                                     "isVectorized" -> isVectorized = reader.nextBoolean()
                                     else -> reader.skipValue()
                                 }
@@ -197,7 +194,6 @@ class VaultManager(
                                 weather = weather,
                                 activities = activities,
                                 numericMood = numericMood,
-                                latentVibe = latentVibe,
                                 isVectorized = isVectorized
                             )
                             val entryToSave = securityManager.encryptEntry(rawEntry)
@@ -314,7 +310,6 @@ class VaultManager(
                         weather = weather,
                         activities = activity,
                         numericMood = numericMood,
-                        latentVibe = 0.0,
                         isVectorized = false
                     )
                     dao.insertEntry(securityManager.encryptEntry(rawEntry))
