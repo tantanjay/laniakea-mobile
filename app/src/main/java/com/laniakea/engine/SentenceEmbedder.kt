@@ -42,6 +42,9 @@ class SentenceEmbedder(
     private val mutex = Mutex()
     private val _ready = MutableSharedFlow<Boolean>(replay = 1)
     private var cachedPermutation: IntArray? = null
+    private var cachedInputMapping: List<Int>? = null
+    private var cachedOutShape: IntArray? = null
+    private val reusableTokenTypeIds = Array(1) { IntArray(maxLen) }
 
     val ready: SharedFlow<Boolean> get() = _ready
 
@@ -138,60 +141,99 @@ class SentenceEmbedder(
         return try {
             val tokens = activeTokenizer.tokenize(text, maxLen)
             val inputIds = Array(1) { tokens }
-            val attentionMask = Array(1) { tokens.map { if (it > 0) 1 else 0 }.toIntArray() }
-            val tokenTypeIds = Array(1) { IntArray(maxLen) }
-            val output = Array(1) { Array(maxLen) { FloatArray(hiddenDim) } }
+            val attentionMask = Array(1) { IntArray(tokens.size) { i -> if (tokens[i] > 0) 1 else 0 } }
 
-            val inputs = Array<Any>(activeInterpreter.inputTensorCount) { arrayOf<IntArray>() }
+            // 1. Dynamic Input Mapping (Cached Regex Index Sorting supporting 1, 2, or 3 inputs)
+            val inputs = arrayOfNulls<Any>(activeInterpreter.inputTensorCount)
             
-            // Extract numerical IDs from opaque names like "serving_default_input_19:0"
-            // HuggingFace standard graph creation order is: input_ids, attention_mask, token_type_ids
-            val tensorInfo = mutableListOf<Pair<Int, Int>>() // Pair(tensorIndex, extractedNodeId)
-            for (i in 0 until activeInterpreter.inputTensorCount) {
-                val name = activeInterpreter.getInputTensor(i).name()
-                val match = Regex("\\d+").find(name)
-                val nodeId = match?.value?.toInt() ?: i
-                tensorInfo.add(Pair(i, nodeId))
+            if (cachedInputMapping == null) {
+                val tensorInfo = mutableListOf<Pair<Int, Int>>()
+                for (i in 0 until activeInterpreter.inputTensorCount) {
+                    val name = activeInterpreter.getInputTensor(i).name()
+                    val match = Regex("\\d+").find(name)
+                    val nodeId = match?.value?.toInt() ?: i
+                    tensorInfo.add(Pair(i, nodeId))
+                }
+                tensorInfo.sortBy { it.second }
+                cachedInputMapping = tensorInfo.map { it.first }
             }
             
-            // Sort by node ID to restore creation order
-            tensorInfo.sortBy { it.second }
-            
-            if (tensorInfo.size >= 3) {
-                inputs[tensorInfo[0].first] = inputIds
-                inputs[tensorInfo[1].first] = attentionMask
-                inputs[tensorInfo[2].first] = tokenTypeIds
-            } else if (tensorInfo.size == 2) {
-                inputs[tensorInfo[0].first] = inputIds
-                inputs[tensorInfo[1].first] = attentionMask
-            } else if (tensorInfo.size == 1) {
-                inputs[0] = inputIds
+            val mapping = cachedInputMapping!!
+            when (mapping.size) {
+                0 -> { /* Just in case it's 0, safe default fallback */ }
+                1 -> {
+                    inputs[mapping[0]] = inputIds
+                }
+                2 -> {
+                    inputs[mapping[0]] = inputIds
+                    inputs[mapping[1]] = attentionMask
+                }
+                else -> { // 3 or more inputs
+                    inputs[mapping[0]] = inputIds
+                    inputs[mapping[1]] = attentionMask
+                    inputs[mapping[2]] = reusableTokenTypeIds
+                }
             }
 
-            try {
-                activeInterpreter.runForMultipleInputsOutputs(inputs, mapOf(0 to output))
-            } catch (e: Exception) {
-                Log.e("SentenceEmbedder", "Dynamic tensor mapping crashed!", e)
-                // Fallback just in case
-                activeInterpreter.runForMultipleInputsOutputs(arrayOf(inputIds, attentionMask), mapOf(0 to output))
-            }
-
+            // 2. Dynamic Output Handling (Smart Shape Checking for Pooling Efficiency)
+            val outShape = cachedOutShape ?: activeInterpreter.getOutputTensor(0).shape().also { cachedOutShape = it }
             val sentenceEmbedding = FloatArray(hiddenDim)
-            for (i in 0 until hiddenDim) {
-                var sum = 0f
-                var count = 0
-                for (j in 0 until maxLen) {
-                    if (attentionMask[0][j] == 1) {
-                        sum += output[0][j][i]
-                        count++
+
+            if (outShape.size !in 2..3 || outShape.last() != hiddenDim) {
+                Log.e("SentenceEmbedder", "Unexpected output tensor signature shape: ${outShape.contentToString()}")
+                return null
+            }
+
+            when (outShape.size) {
+                2 -> {
+                    // CASE A: Model already pooled the output matrix into a flat 2D vector [1, hiddenDim]
+                    val output = Array(1) { FloatArray(hiddenDim) }
+                    try {
+                        activeInterpreter.runForMultipleInputsOutputs(inputs, mapOf(0 to output))
+                    } catch (e: Exception) {
+                        Log.e("SentenceEmbedder", "Primary tensor mapping failed, attempting fallback", e)
+                        val fallbackInputs = when (activeInterpreter.inputTensorCount) {
+                            1 -> arrayOf<Any>(inputIds)
+                            2 -> arrayOf<Any>(inputIds, attentionMask)
+                            else -> arrayOf<Any>(inputIds, attentionMask, reusableTokenTypeIds)
+                        }
+                        activeInterpreter.runForMultipleInputsOutputs(fallbackInputs, mapOf(0 to output))
+                    }
+                    System.arraycopy(output[0], 0, sentenceEmbedding, 0, hiddenDim)
+                }
+                3 -> {
+                    // CASE B: Manual mean-pooling required over the 3D token matrix [1, maxLen, hiddenDim]
+                    val output = Array(1) { Array(maxLen) { FloatArray(hiddenDim) } }
+                    try {
+                        activeInterpreter.runForMultipleInputsOutputs(inputs, mapOf(0 to output))
+                    } catch (e: Exception) {
+                        Log.e("SentenceEmbedder", "Primary tensor mapping failed, attempting fallback", e)
+                        val fallbackInputs = when (activeInterpreter.inputTensorCount) {
+                            1 -> arrayOf<Any>(inputIds)
+                            2 -> arrayOf<Any>(inputIds, attentionMask)
+                            else -> arrayOf<Any>(inputIds, attentionMask, reusableTokenTypeIds)
+                        }
+                        activeInterpreter.runForMultipleInputsOutputs(fallbackInputs, mapOf(0 to output))
+                    }
+
+                    // Perform manual mean-pooling on the sequence output tokens
+                    for (i in 0 until hiddenDim) {
+                        var sum = 0f
+                        var count = 0
+                        for (j in 0 until maxLen) {
+                            if (attentionMask[0][j] == 1) {
+                                sum += output[0][j][i]
+                                count++
+                            }
+                        }
+                        sentenceEmbedding[i] = if (count > 0) sum / count else 0f
                     }
                 }
-                sentenceEmbedding[i] = if (count > 0) sum / count else 0f
             }
 
             sentenceEmbedding
         } catch (e: Exception) {
-            Log.e("SentenceEmbedder", "Embedding failed", e)
+            Log.e("SentenceEmbedder", "Embedding processing failed critically", e)
             null
         }
     }
