@@ -8,39 +8,16 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import androidx.room.migration.Migration
 
 @Database(
     entities = [DiaryEntry::class, AppSettings::class],
-    version = 4,
+    version = 2,
     exportSchema = true
 )
 abstract class DiaryDatabase : RoomDatabase() {
     abstract fun diaryDao(): DiaryDao
 
     companion object {
-        val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE app_settings ADD COLUMN selectedThemes TEXT NOT NULL DEFAULT 'Relationships & Connection,Career & Purpose,Goals & Ambition,Inner Reflection,Emotional Wellbeing,Physical Wellbeing'")
-            }
-        }
-
-        val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE entries ADD COLUMN syntacticPacing REAL NOT NULL DEFAULT 0.0")
-                db.execSQL("ALTER TABLE entries ADD COLUMN agencyScore REAL NOT NULL DEFAULT 0.0")
-                db.execSQL("ALTER TABLE entries ADD COLUMN epistemicModality REAL NOT NULL DEFAULT 0.0")
-                db.execSQL("ALTER TABLE entries ADD COLUMN processingMarkers INTEGER NOT NULL DEFAULT 0")
-                db.execSQL("ALTER TABLE entries ADD COLUMN temporalHorizon REAL NOT NULL DEFAULT 0.0")
-            }
-        }
-
-        val MIGRATION_3_4 = object : Migration(3, 4) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE app_settings ADD COLUMN profilePicture TEXT NOT NULL DEFAULT 'Person'")
-            }
-        }
-
         @Volatile
         private var INSTANCE: DiaryDatabase? = null
 
@@ -50,7 +27,7 @@ abstract class DiaryDatabase : RoomDatabase() {
                     context.applicationContext,
                     DiaryDatabase::class.java,
                     "laniakea_db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                ).fallbackToDestructiveMigration(true)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)

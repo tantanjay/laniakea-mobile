@@ -705,7 +705,7 @@ fun AnalysisStatusCard(vm: LaniakeaViewModel) {
 
                         Button(
                             onClick = { vm.processMissingEntries() },
-                            enabled = vm.isEngineActive && vm.isThemesInitialized && !vm.isProcessing,
+                            enabled = vm.isEngineActive && vm.isThemesInitialized && vm.isAxesInitialized && !vm.isProcessing,
                             shape = RoundedCornerShape(12.dp),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
                             modifier = Modifier.height(36.dp)
@@ -722,6 +722,8 @@ fun AnalysisStatusCard(vm: LaniakeaViewModel) {
                                 Text("Core Offline", fontSize = 12.sp)
                             } else if (!vm.isThemesInitialized) {
                                 Text("Loading Themes...", fontSize = 12.sp)
+                            } else if (!vm.isAxesInitialized) {
+                                Text("Loading Axis...", fontSize = 12.sp)
                             } else {
                                 Text("Process", fontSize = 12.sp)
                             }

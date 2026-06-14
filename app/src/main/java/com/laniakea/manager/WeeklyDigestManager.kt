@@ -46,11 +46,19 @@ class WeeklyDigestManager(
             val thisWeekMetrics = calculateMetrics(thisWeekEntries)
             val priorWeekMetrics = if (priorWeekEntries.isNotEmpty()) calculateMetrics(priorWeekEntries) else null
 
-            // 3. Dominant Themes (only if engine is active)
-            val dominantThemes = if (isEngineActive()) {
-                calculateDominantThemes(thisWeekEntriesRaw.map { it.id }, selectedThemes)
+            // 3. Dominant Themes and Vibes (only if engine is active)
+            val dominantThemes: List<String>
+            val thisWeekVibe: Float?
+            val priorWeekVibe: Float?
+
+            if (isEngineActive()) {
+                dominantThemes = calculateDominantThemes(thisWeekEntriesRaw.map { it.id }, selectedThemes)
+                thisWeekVibe = calculateAverageVibe(thisWeekEntriesRaw.map { it.id })
+                priorWeekVibe = calculateAverageVibe(priorWeekEntriesRaw.map { it.id })
             } else {
-                emptyList()
+                dominantThemes = emptyList()
+                thisWeekVibe = null
+                priorWeekVibe = null
             }
 
             WeeklyDigest(
@@ -64,7 +72,9 @@ class WeeklyDigestManager(
                 vocabularyDiversity = thisWeekMetrics.vocabDiversity,
                 vocabularyDiversityPrior = priorWeekMetrics?.vocabDiversity,
                 questionRatio = thisWeekMetrics.questionRatio,
-                questionRatioPrior = priorWeekMetrics?.questionRatio
+                questionRatioPrior = priorWeekMetrics?.questionRatio,
+                avgVibeScore = thisWeekVibe,
+                avgVibeScorePrior = priorWeekVibe
             )
         }
     }
@@ -133,5 +143,26 @@ class WeeklyDigestManager(
 
         // Return up to 3 themes sorted by the number of entries matching them
         return themeCounts.entries.sortedByDescending { it.value }.take(3).map { it.key }
+    }
+
+    private fun calculateAverageVibe(entryIds: List<Long>): Float? {
+        if (entryIds.isEmpty()) return null
+        var totalVibe = 0f
+        var count = 0
+
+        val vectorBox = ObjectBoxManager.vectorBox
+        for (id in entryIds) {
+            val vObj = vectorBox.query(com.laniakea.data.ObjectBoxSentenceVector_.entryId.equal(id)).build().findFirst()
+            val scoreJson = vObj?.vibeScoresJson
+            if (scoreJson != null) {
+                try {
+                    val json = org.json.JSONObject(scoreJson)
+                    totalVibe += json.optDouble("Positivity vs Negativity", 0.0).toFloat()
+                    count++
+                } catch (_: Exception) {}
+            }
+        }
+
+        return if (count > 0) totalVibe / count else null
     }
 }

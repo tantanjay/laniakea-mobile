@@ -720,11 +720,11 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                                                     if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
                                                     CircleShape
                                                 )
-                                                .clickable { 
-                                                    if (editingProfilePicture == key) {
-                                                        editingProfilePicture = "Person"
+                                                .clickable {
+                                                    editingProfilePicture = if (editingProfilePicture == key) {
+                                                        "Person"
                                                     } else {
-                                                        editingProfilePicture = key
+                                                        key
                                                     }
                                                 },
                                             contentAlignment = Alignment.Center

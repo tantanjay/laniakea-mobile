@@ -11,5 +11,7 @@ data class WeeklyDigest(
     val vocabularyDiversity: Float,
     val vocabularyDiversityPrior: Float?,
     val questionRatio: Float,
-    val questionRatioPrior: Float?
+    val questionRatioPrior: Float?,
+    val avgVibeScore: Float? = null,
+    val avgVibeScorePrior: Float? = null
 )

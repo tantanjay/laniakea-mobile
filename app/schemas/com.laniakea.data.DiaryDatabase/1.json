@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "be0b868ad11e8639dd685b0a436c7221",
+    "identityHash": "758389b95d50fcae2d9326e5c3add339",
     "entities": [
       {
         "tableName": "entries",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `dateTime` INTEGER NOT NULL, `content` TEXT NOT NULL, `mood` TEXT NOT NULL, `category` TEXT NOT NULL, `weather` TEXT NOT NULL, `activities` TEXT NOT NULL, `numericMood` REAL NOT NULL, `latentVibe` REAL NOT NULL, `isVectorized` INTEGER NOT NULL)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `dateTime` INTEGER NOT NULL, `content` TEXT NOT NULL, `mood` TEXT NOT NULL, `category` TEXT NOT NULL, `weather` TEXT NOT NULL, `activities` TEXT NOT NULL, `numericMood` REAL NOT NULL, `isVectorized` INTEGER NOT NULL, `syntacticPacing` REAL NOT NULL, `agencyScore` REAL NOT NULL, `epistemicModality` REAL NOT NULL, `processingMarkers` INTEGER NOT NULL, `temporalHorizon` REAL NOT NULL)",
         "fields": [
           {
             "fieldPath": "id",
@@ -57,15 +57,39 @@
             "notNull": true
           },
           {
-            "fieldPath": "latentVibe",
-            "columnName": "latentVibe",
+            "fieldPath": "isVectorized",
+            "columnName": "isVectorized",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syntacticPacing",
+            "columnName": "syntacticPacing",
             "affinity": "REAL",
             "notNull": true
           },
           {
-            "fieldPath": "isVectorized",
-            "columnName": "isVectorized",
+            "fieldPath": "agencyScore",
+            "columnName": "agencyScore",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "epistemicModality",
+            "columnName": "epistemicModality",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "processingMarkers",
+            "columnName": "processingMarkers",
             "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "temporalHorizon",
+            "columnName": "temporalHorizon",
+            "affinity": "REAL",
             "notNull": true
           }
         ],
@@ -78,7 +102,7 @@
       },
       {
         "tableName": "app_settings",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `privacySeed` TEXT, `autoLoadEngine` INTEGER NOT NULL, `userName` TEXT NOT NULL, `theme` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `privacySeed` TEXT, `autoLoadEngine` INTEGER NOT NULL, `userName` TEXT NOT NULL, `theme` TEXT NOT NULL, `selectedThemes` TEXT NOT NULL, `profilePicture` TEXT NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -108,6 +132,18 @@
             "columnName": "theme",
             "affinity": "TEXT",
             "notNull": true
+          },
+          {
+            "fieldPath": "selectedThemes",
+            "columnName": "selectedThemes",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profilePicture",
+            "columnName": "profilePicture",
+            "affinity": "TEXT",
+            "notNull": true
           }
         ],
         "primaryKey": {
@@ -120,7 +156,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'be0b868ad11e8639dd685b0a436c7221')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '758389b95d50fcae2d9326e5c3add339')"
     ]
   }
 }
