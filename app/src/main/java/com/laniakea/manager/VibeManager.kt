@@ -125,9 +125,23 @@ class VibeManager(
         for (axis in axes) {
             val axisVec = axis.axisVector
             val centerVec = axis.centerVector
-            if (axisVec != null && centerVec != null) {
+            val rightCentroid = axis.rightCentroid
+            val leftCentroid = axis.leftCentroid
+            
+            if (axisVec != null && centerVec != null && rightCentroid != null && leftCentroid != null) {
                 val score = VibeEngine.calculateVibeScore(vector, axisVec, centerVec)
-                jsonObj.put(axis.axisName, score)
+                val rightDist = VibeEngine.calculateDistance(vector, rightCentroid)
+                val leftDist = VibeEngine.calculateDistance(vector, leftCentroid)
+                
+                val axisObj = JSONObject()
+                axisObj.put("right", rightDist.toDouble())
+                axisObj.put("left", leftDist.toDouble())
+                axisObj.put("score", score.toDouble())
+                
+                jsonObj.put(axis.axisName, axisObj)
+            } else if (axisVec != null && centerVec != null) {
+                val score = VibeEngine.calculateVibeScore(vector, axisVec, centerVec)
+                jsonObj.put(axis.axisName, score.toDouble())
             }
         }
 

@@ -4,9 +4,8 @@ import com.laniakea.data.DiaryDatabase
 import com.laniakea.data.TaglineTemplates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.util.Calendar
 
-data class WritingMetrics(
+    data class WritingMetrics(
     val entryLengths: List<Pair<Long, Float>>,
     val vocabularyDiversity: List<Pair<Long, Float>>,
     val questionFrequency: List<Pair<Long, Float>>,
@@ -108,70 +107,6 @@ class AnalyticsManager(
                 temporalHorizon = temporalHorizon
             )
         }
-    }
-
-    fun aggregateByDay(values: List<Pair<Long, Float>>): List<Float> {
-        val cal = Calendar.getInstance()
-        return values.groupBy { (timestamp, _) ->
-            cal.timeInMillis = timestamp
-            "${cal.get(Calendar.YEAR)}-${cal.get(Calendar.MONTH)}-${cal.get(Calendar.DAY_OF_MONTH)}"
-        }.map { (_, dayValues) ->
-            dayValues.map { it.second }.average().toFloat()
-        }
-    }
-
-    fun calculateMomentum(
-        values: List<Float>,
-        span: Int,
-        outlierMultiplier: Float,
-        statusMap: Map<Float, String>
-    ): Triple<Float, String, List<Float>> {
-
-        if (values.size < 2) return Triple(0f, "STABLE", emptyList())
-
-        // 1️⃣ Compute deltas
-        val deltas = mutableListOf(0f)
-        for (i in 1 until values.size) deltas.add(values[i] - values[i - 1])
-
-        // 2️⃣ Median and MAD for outlier detection
-        val sortedDeltas = deltas.sorted()
-        val median = sortedDeltas[sortedDeltas.size / 2]
-        val mad = sortedDeltas.map { kotlin.math.abs(it - median) }
-            .sorted()[sortedDeltas.size / 2]
-            .coerceAtLeast(0.001f)
-
-        // 3️⃣ Outlier suppression
-        val filteredDeltas = deltas.map { delta ->
-            val deviation = delta - median
-            if (kotlin.math.abs(deviation) > outlierMultiplier * mad) {
-                median + deviation.coerceIn(-1.5f * mad, 1.5f * mad)
-            } else delta
-        }
-
-        // 4️⃣ Volatility normalization
-        val sensitivityFloor = 1.0f // Unified for manual and AI (-2..2 scale)
-        val rawVolatility = (filteredDeltas.maxOrNull() ?: 0f) - (filteredDeltas.minOrNull() ?: 0f)
-        val volatility = rawVolatility.coerceAtLeast(sensitivityFloor)
-        val normalizedDeltas = filteredDeltas.map { it / volatility }
-
-        // 5️⃣ EMA smoothing
-        val alpha = 2f / (span + 1f)
-        val trend = mutableListOf<Float>()
-        var ema = normalizedDeltas[0]
-        trend.add(ema)
-        for (i in 1 until normalizedDeltas.size) {
-            ema = normalizedDeltas[i] * alpha + ema * (1f - alpha)
-            trend.add(ema)
-        }
-
-        // 6️⃣ Map EMA to -100..100
-        val score = (ema * 100f).coerceIn(-100f, 100f)
-
-        // 7️⃣ Status mapping (pre-sorted for efficiency)
-        val sortedStatusMap = statusMap.entries.sortedBy { it.key }
-        val status = sortedStatusMap.firstOrNull { score < it.key }?.value ?: "UNKNOWN"
-
-        return Triple(score, status, trend)
     }
 
     fun generateTagline(year: String): String {

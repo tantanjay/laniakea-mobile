@@ -10,6 +10,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Info
 import com.laniakea.data.WeeklyDigest
 import java.time.Instant
 import java.time.ZoneId
@@ -112,28 +115,76 @@ fun WeeklyDigestCard(digest: WeeklyDigest) {
                 }
             }
 
-            // Vibe Score (only if available)
+            // Vibe Score & Manual Mood Analysis (only if available)
             if (digest.avgVibeScore != null) {
-                Column {
-                    Text(
-                        text = "Vibe Analysis:",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    val vibeText = when {
-                        digest.avgVibeScore > 0.5f -> "Your writing seems to be very positive."
-                        digest.avgVibeScore > 0.1f -> "Your writing seems to be on the positive side."
-                        digest.avgVibeScore < -0.5f -> "Your writing seems to be very negative."
-                        digest.avgVibeScore < -0.1f -> "Your writing seems to be on the negative side."
-                        else -> "Your writing seems to be balanced."
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .padding(16.dp)
+                ) {
+                    if (digest.avgManualMood != null) {
+                        val drift = kotlin.math.abs(digest.avgVibeScore - digest.avgManualMood)
+                        
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (drift < 0.5f) Icons.Rounded.CheckCircle else Icons.Rounded.Info,
+                                contentDescription = null,
+                                tint = if (drift < 0.5f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "Vibe Alignment",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        val vibeText = when {
+                            drift < 0.3f -> "Your manual mood and your writing vibes are strongly aligned."
+                            drift < 0.8f -> "Your writing vibes gently reflect your reported mood."
+                            digest.avgVibeScore > digest.avgManualMood -> "Your writing expresses a more positive vibe than your reported mood, suggesting underlying optimism."
+                            else -> "Your writing carries a heavier vibe than your reported mood, suggesting deeper emotional weight."
+                        }
+                        
+                        Text(
+                            text = vibeText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Normal,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 20.sp
+                        )
+                    } else {
+                        Text(
+                            text = "Vibe Analysis",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val vibeText = when {
+                            digest.avgVibeScore > 0.5f -> "Your writing reflects a strong positive outlook."
+                            digest.avgVibeScore > 0.1f -> "Your writing carries a generally positive tone."
+                            digest.avgVibeScore < -0.5f -> "Your writing reflects significant emotional depth and weight."
+                            digest.avgVibeScore < -0.1f -> "Your writing carries a somewhat heavier tone."
+                            else -> "Your writing maintains a balanced emotional tone."
+                        }
+                        Text(
+                            text = vibeText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Normal,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 20.sp
+                        )
                     }
-                    Text(
-                        text = vibeText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
                 }
             }
         }

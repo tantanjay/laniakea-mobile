@@ -28,6 +28,8 @@ import com.laniakea.ui.components.insight.WeeklyDigestCard
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.style.TextOverflow
+import com.laniakea.data.DiaryEntry
+import com.laniakea.manager.SemanticManager
 
 @Composable
 fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
@@ -393,25 +395,8 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 
 @Composable
 fun ThemeSelectionDialog(vm: LaniakeaViewModel, onDismiss: () -> Unit) {
-    val allThemes = listOf(
-        "Relationships & Connection",
-        "Career & Purpose",
-        "Goals & Ambition",
-        "Inner Reflection",
-        "Emotional Wellbeing",
-        "Physical Wellbeing",
-        "Stress & Anxiety",
-        "Learning & Curiosity",
-        "Creativity & Expression",
-        "Uncertainty & Waiting",
-        "Gratitude & Joy",
-        "Challenges & Resilience",
-        "Leisure & Recreation",
-        "Travel & Exploration",
-        "Food & Dining",
-        "Daily Routine & Chores"
-    )
-
+    
+    val allThemes = SemanticManager.richThemes.keys.toList()
     var selectedThemes by remember { mutableStateOf(vm.selectedThemes.toSet()) }
 
     AlertDialog(
@@ -475,7 +460,7 @@ fun ThemeSelectionDialog(vm: LaniakeaViewModel, onDismiss: () -> Unit) {
 }
 
 @Composable
-fun ThemeClusterCard(theme: String, entries: List<com.laniakea.data.DiaryEntry>) {
+fun ThemeClusterCard(theme: String, entries: List<DiaryEntry>) {
     val windowInfo = LocalWindowInfo.current
     val density = LocalDensity.current
     val isTablet = with(density) { windowInfo.containerSize.width.toDp() > 600.dp }

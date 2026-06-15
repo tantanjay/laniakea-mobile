@@ -3,6 +3,7 @@ package com.laniakea.manager
 import com.laniakea.data.DiaryDatabase
 import com.laniakea.data.DiaryEntry
 import com.laniakea.data.ObjectBoxManager
+import com.laniakea.data.ObjectBoxSentenceVector_
 import com.laniakea.data.WeeklyDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -61,6 +62,9 @@ class WeeklyDigestManager(
                 priorWeekVibe = null
             }
 
+            val thisWeekManualMood = calculateAverageManualMood(thisWeekEntriesRaw)
+            val priorWeekManualMood = calculateAverageManualMood(priorWeekEntriesRaw)
+
             WeeklyDigest(
                 weekStart = weekStart,
                 weekEnd = anchorTimeMillis,
@@ -74,7 +78,9 @@ class WeeklyDigestManager(
                 questionRatio = thisWeekMetrics.questionRatio,
                 questionRatioPrior = priorWeekMetrics?.questionRatio,
                 avgVibeScore = thisWeekVibe,
-                avgVibeScorePrior = priorWeekVibe
+                avgVibeScorePrior = priorWeekVibe,
+                avgManualMood = thisWeekManualMood,
+                avgManualMoodPrior = priorWeekManualMood
             )
         }
     }
@@ -134,7 +140,7 @@ class WeeklyDigestManager(
         val themeCounts = mutableMapOf<String, Int>()
 
         for (id in entryIdSet) {
-            val vObj = vectorBox.query(com.laniakea.data.ObjectBoxSentenceVector_.entryId.equal(id)).build().findFirst()
+            val vObj = vectorBox.query(ObjectBoxSentenceVector_.entryId.equal(id)).build().findFirst()
             val theme = vObj?.semanticTheme
             if (theme != null && selectedThemes.contains(theme)) {
                 themeCounts[theme] = themeCounts.getOrDefault(theme, 0) + 1
@@ -152,17 +158,30 @@ class WeeklyDigestManager(
 
         val vectorBox = ObjectBoxManager.vectorBox
         for (id in entryIds) {
-            val vObj = vectorBox.query(com.laniakea.data.ObjectBoxSentenceVector_.entryId.equal(id)).build().findFirst()
+            val vObj = vectorBox.query(ObjectBoxSentenceVector_.entryId.equal(id)).build().findFirst()
             val scoreJson = vObj?.vibeScoresJson
             if (scoreJson != null) {
                 try {
                     val json = org.json.JSONObject(scoreJson)
-                    totalVibe += json.optDouble("Positivity vs Negativity", 0.0).toFloat()
+                    val axisObj = json.optJSONObject("Positivity vs Negativity")
+                    totalVibe += axisObj?.optDouble("score", 0.0)?.toFloat()
+                        ?: json.optDouble("Positivity vs Negativity", 0.0).toFloat()
                     count++
                 } catch (_: Exception) {}
             }
         }
 
         return if (count > 0) totalVibe / count else null
+    }
+
+    private fun calculateAverageManualMood(entries: List<DiaryEntry>): Float? {
+        if (entries.isEmpty()) return null
+        var totalMood = 0f
+        var count = 0
+        for (entry in entries) {
+            totalMood += entry.numericMood.toFloat()
+            count++
+        }
+        return if (count > 0) totalMood / count else null
     }
 }

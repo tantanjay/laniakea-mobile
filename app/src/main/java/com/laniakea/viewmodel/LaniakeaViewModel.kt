@@ -15,7 +15,6 @@ import com.laniakea.data.DiaryDatabase
 import com.laniakea.data.DiaryEntry
 import com.laniakea.data.ObjectBoxManager
 import com.laniakea.data.ObjectBoxSentenceVector
-import com.laniakea.data.ObjectBoxSentenceVector_
 import com.laniakea.engine.SentenceEmbedder
 import com.laniakea.manager.VibeManager
 import kotlinx.coroutines.Dispatchers
@@ -80,16 +79,10 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var currentAnomalyAlert by mutableStateOf<Pair<DiaryEntry, Float>?>(null)
         private set
 
-    fun dismissAnomalyAlert() {
-        currentAnomalyAlert = null
-    }
     var userName by mutableStateOf("Traveller")
     var profilePicture by mutableStateOf("Person")
     var theme by mutableStateOf("PURPLE")
     var selectedThemes by mutableStateOf<List<String>>(emptyList())
-    
-    var manualMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
-    var aiMomentum by mutableStateOf(Triple(0f, "STABLE", emptyList<Float>()))
 
     // Vault states
     var isVaultRestoring by mutableStateOf(false)
@@ -160,6 +153,10 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         observeSettings()
         observeEngineStatus()
         refreshData()
+    }
+
+    fun dismissAnomalyAlert() {
+        currentAnomalyAlert = null
     }
 
     fun setSelectedDateRange(start: Long?, end: Long?) {
@@ -425,28 +422,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             val dao = db.diaryDao()
             if (isEngineActive) vibeManager.initializeAxes()
 
-            val scores = dao.getAllMoodScores()
-
-            // --- DAILY AGGREGATE for stable trend ---
-            val manualDaily = analyticsManager.aggregateByDay(scores.map { it.dateTime to it.numericMood.toFloat() })
-            
-            // Extract Positivity vs Negativity for AI Daily
-            val allEntries = dao.getAllEntries()
-            val aiScores = allEntries.mapNotNull { entry ->
-                if (!entry.isVectorized) return@mapNotNull null
-                val vectorObj = ObjectBoxManager.vectorBox.query(ObjectBoxSentenceVector_.entryId.equal(entry.id)).build().findFirst()
-                val scoreJson = vectorObj?.vibeScoresJson
-                var vibeScore = 0f
-                if (scoreJson != null) {
-                    try {
-                        val json = org.json.JSONObject(scoreJson)
-                        vibeScore = json.optDouble("Positivity vs Negativity", 0.0).toFloat()
-                    } catch (e: Exception) {}
-                }
-                entry.dateTime to vibeScore
-            }
-            val aiDaily = analyticsManager.aggregateByDay(aiScores)
-
             val oldest = dao.getOldestTimestamp()
             val year = if (oldest != null) {
                 val cal = Calendar.getInstance()
@@ -455,30 +430,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
             } else LocalDate.now().year.toString()
 
             withContext(Dispatchers.Main) {
-                val span = 7
-                val statusMap = mapOf(
-                    -10f to "SHARP DECLINE",
-                    -5f to "DECLINING",
-                    5f to "STABLE",
-                    10f to "IMPROVING",
-                    Float.MAX_VALUE to "STRONG UPTURN"
-                )
-
-                val manual = analyticsManager.calculateMomentum(manualDaily, span, 3f, statusMap)
-                val ai = analyticsManager.calculateMomentum(aiDaily, span, 3f, statusMap)
-
-                manualMomentum = Triple(
-                    manual.first,
-                    manual.second,
-                    manual.third.takeLast(30)
-                )
-
-                aiMomentum = Triple(
-                    ai.first,
-                    ai.second,
-                    ai.third.takeLast(30)
-                )
-
                 vibeYear = year
                 if (tagline == "Analyzing your cosmic vibes...") {
                     tagline = analyticsManager.generateTagline(year)

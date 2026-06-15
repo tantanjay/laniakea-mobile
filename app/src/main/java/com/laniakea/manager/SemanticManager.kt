@@ -22,90 +22,90 @@ class SemanticManager(
     private var cachedThemeCentroids: Map<String, FloatArray>? = null
     private val initMutex = Mutex()
 
-    private val richThemes = mapOf(
-        "Relationships & Connection" to listOf(
-            "Relationships with family, friends, romance, and coworkers.",
-            "Feeling connected, social interactions, belonging, and community.",
-            "Conflict with people, arguments, disagreements, and loneliness."
-        ),
-        "Career & Purpose" to listOf(
-            "Career, professional life, work projects, and job responsibilities.",
-            "Productivity, achieving success, promotions, and planning ahead.",
-            "Finding meaning and purpose through work and profession."
-        ),
-        "Goals & Ambition" to listOf(
-            "Goal setting, ambition, milestones, and personal targets.",
-            "Determination, drive, discipline, and pushing boundaries.",
-            "Building the future, succeeding, and working hard toward objectives."
-        ),
-        "Inner Reflection" to listOf(
-            "Self-observation, contemplation, mindfulness, and solitude.",
-            "Understanding my own mind, introspection, and self-awareness.",
-            "Quiet reflection, journaling about thoughts, and inner dialogue."
-        ),
-        "Emotional Wellbeing" to listOf(
-            "Feelings, moods, mental health, and emotional processing.",
-            "Emotional sensitivity, vulnerability, and being open with feelings.",
-            "Emotional highs and lows, inner peace, and mood regulation."
-        ),
-        "Physical Wellbeing" to listOf(
-            "Body, health, exercise, fitness, diet, and sleep quality.",
-            "Fatigue, lacking energy, physical exhaustion, and body aches.",
-            "Physical sensations, resting, recovering, and medical health."
-        ),
-        "Stress & Anxiety" to listOf(
-            "Feeling overwhelmed, anxious, worried, and stressed out.",
-            "Deadline pressure, being overloaded, and mental tension.",
-            "Panic, nervousness, restlessness, and racing thoughts."
-        ),
-        "Learning & Curiosity" to listOf(
-            "Education, studying, reading books, and discovering new ideas.",
-            "Curiosity, acquiring new skills, and intellectual growth.",
-            "Research, fascination with how things work, and knowledge seeking."
-        ),
-        "Creativity & Expression" to listOf(
-            "Art, music, writing, drawing, coding, and creative work.",
-            "Creative projects, self-expression, and making things.",
-            "Imagination, artistic inspiration, and creative flow."
-        ),
-        "Uncertainty & Waiting" to listOf(
-            "Not knowing the future, feeling stuck, and ambiguity.",
-            "Doubt, indecision, waiting for results, and being unsure.",
-            "Feeling lost, confused about direction, and lacking clarity."
-        ),
-        "Gratitude & Joy" to listOf(
-            "Thankfulness, appreciation, and moments of happiness.",
-            "Counting blessings, joy, and positive experiences.",
-            "Feeling grateful, contentment, and savoring good moments."
-        ),
-        "Challenges & Resilience" to listOf(
-            "Facing difficult times, overcoming obstacles, and resilience.",
-            "Struggling through hardship, endurance, and perseverance.",
-            "Staying strong during a crisis, bouncing back, and coping."
-        ),
-        "Leisure & Recreation" to listOf(
-            "Playing games, hobbies, entertainment, and unwinding.",
-            "Watching movies, playing video games, and relaxing activities.",
-            "Having fun, enjoying free time, and recreational pastimes."
-        ),
-        "Travel & Exploration" to listOf(
-            "Vacations, flights, traveling, sightseeing, and tourism.",
-            "Exploring new places, trips, and souvenir hunting.",
-            "Being away from home, commuting, and navigating new areas."
-        ),
-        "Food & Dining" to listOf(
-            "Eating meals, restaurants, cooking, and food cravings.",
-            "Dining out, enjoying food, cafes, and discovering new dishes.",
-            "Snacks, drinks, meals, and culinary experiences."
-        ),
-        "Daily Routine & Chores" to listOf(
-            "Everyday tasks, running errands, chores, and household work.",
-            "Daily habits, regular routines, and mundane activities.",
-            "Grocery shopping, cleaning, and doing standard day-to-day things."
-        )
-    )
-    
     companion object {
+        val richThemes = mapOf(
+            "Relationships & Connection" to listOf(
+                "Relationships with family, friends, romance, and coworkers.",
+                "Feeling connected, social interactions, belonging, and community.",
+                "Conflict with people, arguments, disagreements, and loneliness."
+            ),
+            "Career & Purpose" to listOf(
+                "Career, professional life, work projects, and job responsibilities.",
+                "Productivity, achieving success, promotions, and planning ahead.",
+                "Finding meaning and purpose through work and profession."
+            ),
+            "Goals & Ambition" to listOf(
+                "Goal setting, ambition, milestones, and personal targets.",
+                "Determination, drive, discipline, and pushing boundaries.",
+                "Building the future, succeeding, and working hard toward objectives."
+            ),
+            "Inner Reflection" to listOf(
+                "Self-observation, contemplation, mindfulness, and solitude.",
+                "Understanding my own mind, introspection, and self-awareness.",
+                "Quiet reflection, journaling about thoughts, and inner dialogue."
+            ),
+            "Emotional Wellbeing" to listOf(
+                "Feelings, moods, mental health, and emotional processing.",
+                "Emotional sensitivity, vulnerability, and being open with feelings.",
+                "Emotional highs and lows, inner peace, and mood regulation."
+            ),
+            "Physical Wellbeing" to listOf(
+                "Body, health, exercise, fitness, diet, and sleep quality.",
+                "Fatigue, lacking energy, physical exhaustion, and body aches.",
+                "Physical sensations, resting, recovering, and medical health."
+            ),
+            "Stress & Anxiety" to listOf(
+                "Feeling overwhelmed, anxious, worried, and stressed out.",
+                "Deadline pressure, being overloaded, and mental tension.",
+                "Panic, nervousness, restlessness, and racing thoughts."
+            ),
+            "Learning & Curiosity" to listOf(
+                "Education, studying, reading books, and discovering new ideas.",
+                "Curiosity, acquiring new skills, and intellectual growth.",
+                "Research, fascination with how things work, and knowledge seeking."
+            ),
+            "Creativity & Expression" to listOf(
+                "Art, music, writing, drawing, coding, and creative work.",
+                "Creative projects, self-expression, and making things.",
+                "Imagination, artistic inspiration, and creative flow."
+            ),
+            "Uncertainty & Waiting" to listOf(
+                "Not knowing the future, feeling stuck, and ambiguity.",
+                "Doubt, indecision, waiting for results, and being unsure.",
+                "Feeling lost, confused about direction, and lacking clarity."
+            ),
+            "Gratitude & Joy" to listOf(
+                "Thankfulness, appreciation, and moments of happiness.",
+                "Counting blessings, joy, and positive experiences.",
+                "Feeling grateful, contentment, and savoring good moments."
+            ),
+            "Challenges & Resilience" to listOf(
+                "Facing difficult times, overcoming obstacles, and resilience.",
+                "Struggling through hardship, endurance, and perseverance.",
+                "Staying strong during a crisis, bouncing back, and coping."
+            ),
+            "Leisure & Recreation" to listOf(
+                "Playing games, hobbies, entertainment, and unwinding.",
+                "Watching movies, playing video games, and relaxing activities.",
+                "Having fun, enjoying free time, and recreational pastimes."
+            ),
+            "Travel & Exploration" to listOf(
+                "Vacations, flights, traveling, sightseeing, and tourism.",
+                "Exploring new places, trips, and souvenir hunting.",
+                "Being away from home, commuting, and navigating new areas."
+            ),
+            "Food & Dining" to listOf(
+                "Eating meals, restaurants, cooking, and food cravings.",
+                "Dining out, enjoying food, cafes, and discovering new dishes.",
+                "Snacks, drinks, meals, and culinary experiences."
+            ),
+            "Daily Routine & Chores" to listOf(
+                "Everyday tasks, running errands, chores, and household work.",
+                "Daily habits, regular routines, and mundane activities.",
+                "Grocery shopping, cleaning, and doing standard day-to-day things."
+            )
+        )
+
         const val THEME_TEMPLATE_VERSION = 4
         
         /**

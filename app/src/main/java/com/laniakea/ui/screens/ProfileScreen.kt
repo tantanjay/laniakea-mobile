@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.laniakea.BuildConfig
+import com.laniakea.R
 import com.laniakea.ui.components.profile.ThemeOption
 import com.laniakea.ui.components.shared.BulletPoint
 import com.laniakea.viewmodel.LaniakeaViewModel
@@ -98,7 +99,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val dynamicAvatars = remember(context) {
         val map = mutableMapOf<String, Int>()
         try {
-            val fields = com.laniakea.R.drawable::class.java.fields
+            val fields = R.drawable::class.java.fields
             for (field in fields) {
                 if (field.name.startsWith("ic_profile_")) {
                     val name = field.name.removePrefix("ic_profile_").replaceFirstChar { it.uppercase() }
