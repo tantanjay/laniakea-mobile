@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.tensorflow.lite.Interpreter
 import java.io.FileInputStream
 import java.nio.MappedByteBuffer
@@ -41,6 +42,9 @@ class SentenceEmbedder(
     private val mutex = Mutex()
     private val _ready = MutableSharedFlow<Boolean>(replay = 1)
     private var cachedPermutation: IntArray? = null
+    private var cachedInputMapping: List<Int>? = null
+    private var cachedOutShape: IntArray? = null
+    private val reusableTokenTypeIds = Array(1) { IntArray(maxLen) }
 
     val ready: SharedFlow<Boolean> get() = _ready
 
@@ -72,8 +76,18 @@ class SentenceEmbedder(
 
                 if (interpreter == null) {
                     val modelBuffer = loadModelFile(modelFile)
-                    interpreter = Interpreter(modelBuffer)
-                    Log.i("SentenceEmbedder", "Model and Privacy Shield initialized")
+                    
+                    // Thread allocation: use half the cores, capped between 2 and 4
+                    val availableCores = Runtime.getRuntime().availableProcessors()
+                    val threadsToUse = (availableCores / 2).coerceIn(2, 4)
+
+                    val options = Interpreter.Options().apply {
+                        setNumThreads(threadsToUse)
+                        setUseXNNPACK(true) // Forces state-of-the-art multi-threading and floating point acceleration on MediaTek/ARM
+                    }
+                    
+                    interpreter = Interpreter(modelBuffer, options)
+                    Log.i("SentenceEmbedder", "Model and Privacy Shield initialized with $threadsToUse threads (XNNPACK Enabled)")
                 }
 
                 _ready.emit(true)
@@ -84,8 +98,11 @@ class SentenceEmbedder(
         }
     }
 
-    suspend fun embed(text: String): FloatArray? = mutex.withLock {
-        embedInternal(text, applyNoise = true)
+    suspend fun embed(text: String): FloatArray? = withContext(Dispatchers.Default) {
+        mutex.withLock {
+            val base = getBaseEmbedding(text) ?: return@withLock null
+            applyPrivacyShield(base, applyNoise = true)
+        }
     }
 
     /**
@@ -93,11 +110,24 @@ class SentenceEmbedder(
      * but WITHOUT random noise injection. Use for internal reference vectors (theme anchors)
      * that must be compared against stored entry vectors.
      */
-    suspend fun embedRaw(text: String): FloatArray? = mutex.withLock {
-        embedInternal(text, applyNoise = false)
+    suspend fun embedRaw(text: String): FloatArray? = withContext(Dispatchers.Default) {
+        mutex.withLock {
+            val base = getBaseEmbedding(text) ?: return@withLock null
+            applyPrivacyShield(base, applyNoise = false)
+        }
     }
 
-    private fun embedInternal(text: String, applyNoise: Boolean): FloatArray? {
+    suspend fun embedBoth(text: String): Pair<FloatArray, FloatArray>? = withContext(Dispatchers.Default) {
+        mutex.withLock {
+            val base = getBaseEmbedding(text) ?: return@withLock null
+            Pair(
+                applyPrivacyShield(base, applyNoise = false), // raw vector
+                applyPrivacyShield(base, applyNoise = true)   // noisy vector
+            )
+        }
+    }
+
+    private fun getBaseEmbedding(text: String): FloatArray? {
         val activeInterpreter = interpreter ?: run {
             Log.w("SentenceEmbedder", "Interpreter not ready yet")
             return null
@@ -111,60 +141,99 @@ class SentenceEmbedder(
         return try {
             val tokens = activeTokenizer.tokenize(text, maxLen)
             val inputIds = Array(1) { tokens }
-            val attentionMask = Array(1) { tokens.map { if (it > 0) 1 else 0 }.toIntArray() }
-            val tokenTypeIds = Array(1) { IntArray(maxLen) }
-            val output = Array(1) { Array(maxLen) { FloatArray(hiddenDim) } }
+            val attentionMask = Array(1) { IntArray(tokens.size) { i -> if (tokens[i] > 0) 1 else 0 } }
 
-            val inputs = Array<Any>(activeInterpreter.inputTensorCount) { arrayOf<IntArray>() }
+            // 1. Dynamic Input Mapping (Cached Regex Index Sorting supporting 1, 2, or 3 inputs)
+            val inputs = arrayOfNulls<Any>(activeInterpreter.inputTensorCount)
             
-            // Extract numerical IDs from opaque names like "serving_default_input_19:0"
-            // HuggingFace standard graph creation order is: input_ids, attention_mask, token_type_ids
-            val tensorInfo = mutableListOf<Pair<Int, Int>>() // Pair(tensorIndex, extractedNodeId)
-            for (i in 0 until activeInterpreter.inputTensorCount) {
-                val name = activeInterpreter.getInputTensor(i).name()
-                val match = Regex("\\d+").find(name)
-                val nodeId = match?.value?.toInt() ?: i
-                tensorInfo.add(Pair(i, nodeId))
+            if (cachedInputMapping == null) {
+                val tensorInfo = mutableListOf<Pair<Int, Int>>()
+                for (i in 0 until activeInterpreter.inputTensorCount) {
+                    val name = activeInterpreter.getInputTensor(i).name()
+                    val match = Regex("\\d+").find(name)
+                    val nodeId = match?.value?.toInt() ?: i
+                    tensorInfo.add(Pair(i, nodeId))
+                }
+                tensorInfo.sortBy { it.second }
+                cachedInputMapping = tensorInfo.map { it.first }
             }
             
-            // Sort by node ID to restore creation order
-            tensorInfo.sortBy { it.second }
-            
-            if (tensorInfo.size >= 3) {
-                inputs[tensorInfo[0].first] = inputIds
-                inputs[tensorInfo[1].first] = attentionMask
-                inputs[tensorInfo[2].first] = tokenTypeIds
-            } else if (tensorInfo.size == 2) {
-                inputs[tensorInfo[0].first] = inputIds
-                inputs[tensorInfo[1].first] = attentionMask
-            } else if (tensorInfo.size == 1) {
-                inputs[0] = inputIds
+            val mapping = cachedInputMapping!!
+            when (mapping.size) {
+                0 -> { /* Just in case it's 0, safe default fallback */ }
+                1 -> {
+                    inputs[mapping[0]] = inputIds
+                }
+                2 -> {
+                    inputs[mapping[0]] = inputIds
+                    inputs[mapping[1]] = attentionMask
+                }
+                else -> { // 3 or more inputs
+                    inputs[mapping[0]] = inputIds
+                    inputs[mapping[1]] = attentionMask
+                    inputs[mapping[2]] = reusableTokenTypeIds
+                }
             }
 
-            try {
-                activeInterpreter.runForMultipleInputsOutputs(inputs, mapOf(0 to output))
-            } catch (e: Exception) {
-                Log.e("SentenceEmbedder", "Dynamic tensor mapping crashed!", e)
-                // Fallback just in case
-                activeInterpreter.runForMultipleInputsOutputs(arrayOf(inputIds, attentionMask), mapOf(0 to output))
-            }
-
+            // 2. Dynamic Output Handling (Smart Shape Checking for Pooling Efficiency)
+            val outShape = cachedOutShape ?: activeInterpreter.getOutputTensor(0).shape().also { cachedOutShape = it }
             val sentenceEmbedding = FloatArray(hiddenDim)
-            for (i in 0 until hiddenDim) {
-                var sum = 0f
-                var count = 0
-                for (j in 0 until maxLen) {
-                    if (attentionMask[0][j] == 1) {
-                        sum += output[0][j][i]
-                        count++
+
+            if (outShape.size !in 2..3 || outShape.last() != hiddenDim) {
+                Log.e("SentenceEmbedder", "Unexpected output tensor signature shape: ${outShape.contentToString()}")
+                return null
+            }
+
+            when (outShape.size) {
+                2 -> {
+                    // CASE A: Model already pooled the output matrix into a flat 2D vector [1, hiddenDim]
+                    val output = Array(1) { FloatArray(hiddenDim) }
+                    try {
+                        activeInterpreter.runForMultipleInputsOutputs(inputs, mapOf(0 to output))
+                    } catch (e: Exception) {
+                        Log.e("SentenceEmbedder", "Primary tensor mapping failed, attempting fallback", e)
+                        val fallbackInputs = when (activeInterpreter.inputTensorCount) {
+                            1 -> arrayOf<Any>(inputIds)
+                            2 -> arrayOf<Any>(inputIds, attentionMask)
+                            else -> arrayOf<Any>(inputIds, attentionMask, reusableTokenTypeIds)
+                        }
+                        activeInterpreter.runForMultipleInputsOutputs(fallbackInputs, mapOf(0 to output))
+                    }
+                    System.arraycopy(output[0], 0, sentenceEmbedding, 0, hiddenDim)
+                }
+                3 -> {
+                    // CASE B: Manual mean-pooling required over the 3D token matrix [1, maxLen, hiddenDim]
+                    val output = Array(1) { Array(maxLen) { FloatArray(hiddenDim) } }
+                    try {
+                        activeInterpreter.runForMultipleInputsOutputs(inputs, mapOf(0 to output))
+                    } catch (e: Exception) {
+                        Log.e("SentenceEmbedder", "Primary tensor mapping failed, attempting fallback", e)
+                        val fallbackInputs = when (activeInterpreter.inputTensorCount) {
+                            1 -> arrayOf<Any>(inputIds)
+                            2 -> arrayOf<Any>(inputIds, attentionMask)
+                            else -> arrayOf<Any>(inputIds, attentionMask, reusableTokenTypeIds)
+                        }
+                        activeInterpreter.runForMultipleInputsOutputs(fallbackInputs, mapOf(0 to output))
+                    }
+
+                    // Perform manual mean-pooling on the sequence output tokens
+                    for (i in 0 until hiddenDim) {
+                        var sum = 0f
+                        var count = 0
+                        for (j in 0 until maxLen) {
+                            if (attentionMask[0][j] == 1) {
+                                sum += output[0][j][i]
+                                count++
+                            }
+                        }
+                        sentenceEmbedding[i] = if (count > 0) sum / count else 0f
                     }
                 }
-                sentenceEmbedding[i] = if (count > 0) sum / count else 0f
             }
 
-            applyPrivacyShield(sentenceEmbedding, applyNoise = applyNoise)
+            sentenceEmbedding
         } catch (e: Exception) {
-            Log.e("SentenceEmbedder", "Embedding failed", e)
+            Log.e("SentenceEmbedder", "Embedding processing failed critically", e)
             null
         }
     }
@@ -266,7 +335,10 @@ class SentenceEmbedder(
 
         fun tokenize(text: String, maxLen: Int): IntArray {
             val result = mutableListOf<Int>()
-            val normalized = normalize(text)
+            // Rough heuristic: 256 tokens is around 1000-1500 characters max.
+            // Truncate early to prevent massive regex/memory overhead if the user pastes a novel.
+            val truncatedText = if (text.length > 1000) text.substring(0, 1000) else text
+            val normalized = normalize(truncatedText)
 
             val words = normalized
                 .replace(Regex("(\\p{Punct})"), " $1 ")

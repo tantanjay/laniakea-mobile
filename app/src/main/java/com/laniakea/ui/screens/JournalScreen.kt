@@ -105,7 +105,7 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             value = searchQuery,
             onValueChange = { searchQuery = it },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Search entries by meaning...") },
+            placeholder = { Text("Search entries...") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
             trailingIcon = {
                 if (searchQuery.isNotEmpty()) {
@@ -242,6 +242,41 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 }
             }
         }
+    }
+
+    // ANOMALY ALERT DIALOG
+    val anomalyAlert = vm.currentAnomalyAlert
+    if (anomalyAlert != null) {
+        val distance = anomalyAlert.second
+        AlertDialog(
+            onDismissRequest = { vm.dismissAnomalyAlert() },
+            confirmButton = {
+                TextButton(onClick = { vm.dismissAnomalyAlert() }) {
+                    Text("Reflect on this")
+                }
+            },
+            title = {
+                Text(
+                    text = "A Unique Day Detected",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Your latest entry differs significantly from your recent baseline (Shift: %.2f).".format(distance),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "This is a structural language anomaly. It suggests a major shift in topic, cognitive pacing, or emotional processing.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        )
     }
 
     // SIMILAR ENTRIES DIALOG

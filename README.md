@@ -79,71 +79,57 @@ To reduce the risk of embedding inversion attacks—where original text is recon
 
 ---
 
-## 5. Semantic Search & Memory (Phase 1 Complete)
+## 5. Phase 1: The Utility Layer (Complete)
 
+Phase 1 establishes the core functionality of Laniakea, providing deep meaning-based search and objective structural insights into your journaling habits.
+
+### Semantic Search & Memory
 Laniakea completely replaces traditional keyword search with **meaning-based retrieval**, powered by the on-device sentence embedder.
-
-- **Semantic Search:** You can search your journal history using abstract concepts or feelings (e.g., "Moments of clarity," "Times I felt stuck") without relying on exact word matches or manual tags.
+- **Semantic Search:** Search your journal history using abstract concepts or feelings (e.g., "Moments of clarity," "Times I felt stuck") without relying on exact word matches or manual tags.
 - **Semantic Memory (Find Similar):** Every journal entry features a "Find Similar" action. By calculating the L2 vector distance between entries, Laniakea resurfaces past entries where you shared the exact same state of mind, creating a continuous narrative of your thoughts over time.
 
----
-
-## 6. Writing Reflections (Insights)
-
-Laniakea analyzes decrypted journal entries locally to provide structural insights into how your writing evolves over time. These are objective observations of language, completely devoid of emotional interpretation.
-
-The **Insight Screen** tracks 5 key metrics over your last 30 entries:
+### Writing Reflections (Insights)
+Laniakea analyzes decrypted journal entries locally to provide structural insights into how your writing evolves over time. The **Insight Screen** tracks 5 key metrics over your last 30 entries:
 1. **Entry Length:** Tracks word count over time.
 2. **Vocabulary Diversity:** Measures lexical richness (unique words vs total words).
 3. **Question Frequency:** Analyzes how often you use interrogative patterns (`?`).
 4. **First-Person Usage:** Tracks the density of self-referential pronouns (I, me, my).
 5. **Future vs Past Orientation:** Measures the temporal focus of your writing by comparing future-oriented keywords (will, hope, plan) against past-oriented ones (was, yesterday, remembered).
 
-### Semantic Themes
-Using the generated embeddings, Laniakea automatically clusters your entries into recurring **Semantic Themes** (e.g., Relationships & Connection, Learning & Curiosity) without requiring manual tags.
-
-### Weekly Reflection Digest
-The app also features an auto-generated weekly summary, providing a structural snapshot of your journaling consistency, dominant semantic themes, and language evolution over the past week.
+### Semantic Themes & Weekly Digest
+- **Semantic Themes:** Using the generated embeddings, Laniakea automatically clusters your entries into recurring Semantic Themes (e.g., Relationships & Connection, Learning & Curiosity) without requiring manual tags.
+- **Weekly Reflection Digest:** An auto-generated weekly summary providing a structural snapshot of your journaling consistency, dominant semantic themes, and language evolution over the past week.
 
 ---
 
-## 7. The Vibe Engine & Privacy Math
+## 6. Phase 2: The Structure Layer (Complete)
 
-Laniakea supports **multiple entries per day**. Each entry generates its own embedding, and the underlying Vibe Engine updates a personalized baseline dynamically.
+Phase 2 introduces powerful structural awareness to the journal, turning text into an interconnected and mathematically mapped cognitive space.
 
-While the primary user-facing features focus on structural writing trends and semantic search, the engine still computes a latent **Vibe Score** that measures whether a journal entry lies closer to a *Joy* or *Distress* reference point within semantic embedding space. This is used internally for testing and data modeling.
+### The Constellation Map (Entry Graph)
+Laniakea features a fully interactive **3D Semantic Visualization Map**, rendering your journal entries as a vast, interconnected galaxy of thoughts.
+- **Triple Layout Engines (Clusters, Galaxy & Time Warp):** Switch seamlessly between semantic *Clusters* (grouping nodes by semantic communities into stable spatial clusters), the *Galaxy* (where nodes form a sprawling radial spiral with arms based on theme and time), and *Time Warp* (where the entire map is physically pulled into a linear chronological tunnel, sorting thoughts into twisted semantic "lanes" over time).
+- **Advanced Touch Controls:** Fluidly navigate the 3D space using 1-finger drag for camera rotation, 2-finger pinch for zooming, and 3-finger drag for lateral canvas panning.
+- **Force-Directed Physics Engine:** A custom-built engine simulates gravity and spring forces, organically pulling semantically similar thoughts together to form topical clusters in 3D space.
+- **Focus Mode:** Select any specific node to isolate it. The map dims the background noise and illuminates only its direct connections, complete with dynamically scaled info cards showing themes, dates, and mood labels.
+- **Deterministic Formations:** Uses mathematically seeded algorithms to ensure your constellation remains stable and familiar every time you load the map, rather than shuffling randomly.
+- **High-Performance Rendering:** Custom Jetpack Compose Canvas implementation featuring dynamic zoom scaling, exponential depth culling, and pagination (loading the most recent 1000 entries at a time) to maintain a smooth 60FPS experience.
 
-### Emotional Baseline
-The system initializes an emotional axis using two fixed anchor sentences:
+### Journal Replay
+An animated chronological replay that redraws your constellation node-by-node from your very first entry to your latest, allowing you to visually watch how your semantic clusters formed over time.
 
-- **Joy Anchor:** *“I feel incredibly happy, fulfilled, and optimistic.”*
-- **Distress Anchor:** *“I feel miserable, exhausted, and hopeless.”*
+### Anomaly & Novelty Detection
+The engine mathematically tracks when a new thought drastically deviates from your established baseline. Using a specialized `AnomalyDetector`, it calculates the L2 distance between a new entry and the centroid of your last 30 entries. Entries exceeding the orthogonal threshold (1.4f) are structurally flagged as completely novel thoughts.
 
-Given an entry embedding \(E\), the internal Vibe Score is computed by projecting it onto the Joy–Distress axis:
+### Cognitive Style & Pacing Tracker
+Moving beyond basic metrics, the on-device NLP engine now extracts advanced cognitive metadata for every entry:
+1. **Syntactic Pacing:** Measures thought complexity (ratio of conjunctions to sentences).
+2. **Agency Score:** Tracks active "I" statements vs passive phrasing to gauge personal empowerment.
+3. **Epistemic Modality:** Analyzes the ratio of absolute words (never, always) vs hedged words (maybe, perhaps).
+4. **Processing Markers:** Counts cognitive processing words (realize, understand, because) indicating causal reasoning.
+5. **Temporal Horizon:** Uses vector projection to determine if an entry leans heavily Concrete or Abstract.
 
-\[
-\text{Vibe Score} =
-\frac{E \cdot (A_{joy} - A_{distress})}
-{\|A_{joy} - A_{distress}\|}
-\]
-
----
-
-## 8. Dynamic Calibration (20-Sentiment Model)
-
-While Laniakea starts with generic emotional anchors, the system adapts over time using **Dynamic Calibration**.
-
-1. **Personalized Learning:** After at least five entries are explicitly marked as extreme moods (Joy or Miserable), the engine begins averaging embeddings from the **most recent 20 sentiments** in each category.
-2. **Adaptive Baseline:** These rolling averages replace the initial anchors, aligning the emotional axis with the user’s unique language and expression patterns.
-3. **Why 20 Is the Sweet Spot:**
-    - **Responsiveness:** The baseline adapts to changes in life circumstances within weeks.
-    - **Recency Bias:** Users experience feedback that reflects their current emotional state.
-    - **Performance:** Averaging 20 vectors of 768 dimensions is computationally trivial on modern devices.
-4. **Why It Matters:** Emotional expression is subjective. By calibrating against personal history rather than a generic lexicon, Laniakea creates a **personalized emotional compass** unique to each user.
-
----
-
-## 9. The Accuracy Paradox: Shuffling & Noise
+## 7. The Accuracy Paradox: Shuffling & Noise
 
 ### Why Vector Shuffling Preserves Accuracy
 - **Fixed Permutation:** Vector shuffling uses a deterministic permutation derived from a user-specific `privacySeed`, stored in encrypted settings.

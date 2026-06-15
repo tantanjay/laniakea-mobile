@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.poi.ss.usermodel.Cell
 import org.apache.poi.ss.usermodel.CellType
+import org.apache.poi.ss.usermodel.DateUtil
 import org.apache.poi.ss.usermodel.WorkbookFactory
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
@@ -74,7 +75,6 @@ class VaultManager(
                 writer.name("weather").value(decryptedEntry.weather)
                 writer.name("activities").value(decryptedEntry.activities)
                 writer.name("numericMood").value(entry.numericMood)
-                writer.name("latentVibe").value(entry.latentVibe)
                 writer.name("isVectorized").value(entry.isVectorized)
                 writer.endObject()
                 withContext(Dispatchers.Main) { onProgress(index + 1, totalCount) }
@@ -169,7 +169,6 @@ class VaultManager(
                             var weather = ""
                             var activities = ""
                             var numericMood = 0.0
-                            var latentVibe = 0.0
                             var isVectorized = false
 
                             while (reader.hasNext()) {
@@ -182,7 +181,6 @@ class VaultManager(
                                     "weather" -> weather = reader.nextString()
                                     "activities" -> activities = reader.nextString()
                                     "numericMood" -> numericMood = reader.nextDouble()
-                                    "latentVibe" -> latentVibe = reader.nextDouble()
                                     "isVectorized" -> isVectorized = reader.nextBoolean()
                                     else -> reader.skipValue()
                                 }
@@ -196,7 +194,6 @@ class VaultManager(
                                 weather = weather,
                                 activities = activities,
                                 numericMood = numericMood,
-                                latentVibe = latentVibe,
                                 isVectorized = isVectorized
                             )
                             val entryToSave = securityManager.encryptEntry(rawEntry)
@@ -273,8 +270,14 @@ class VaultManager(
                 val row = sheet.getRow(i) ?: continue
 
                 try {
-                    val dateStr = getCellStringValue(row.getCell(0)).substringBefore(".")
-                    val timeStr = getCellStringValue(row.getCell(1)).substringBefore(".")
+                    val dateCell = row.getCell(0)
+                    val dateStr = getCellDateStringValue(dateCell, "yyyy-MM-dd")
+                        ?: getCellStringValue(dateCell).substringBefore(".")
+
+                    val timeCell = row.getCell(1)
+                    val timeStr = getCellDateStringValue(timeCell, "HH:mm:ss")
+                        ?: getCellStringValue(timeCell).substringBefore(".")
+
                     val mood = getCellStringValue(row.getCell(2))
                     val category = getCellStringValue(row.getCell(3))
                     val weather = getCellStringValue(row.getCell(4))
@@ -307,7 +310,6 @@ class VaultManager(
                         weather = weather,
                         activities = activity,
                         numericMood = numericMood,
-                        latentVibe = 0.0,
                         isVectorized = false
                     )
                     dao.insertEntry(securityManager.encryptEntry(rawEntry))
@@ -332,6 +334,17 @@ class VaultManager(
         } finally {
             withContext(Dispatchers.Main) { onStateChange(false, false, false) }
         }
+    }
+
+    private fun getCellDateStringValue(cell: Cell?, pattern: String): String? {
+        if (cell == null) return null
+        if (cell.cellType == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
+            val date = cell.dateCellValue
+            if (date != null) {
+                return SimpleDateFormat(pattern, Locale.getDefault()).format(date)
+            }
+        }
+        return null
     }
 
     private fun getCellStringValue(cell: Cell?): String {

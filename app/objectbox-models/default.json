@@ -5,7 +5,7 @@
   "entities": [
     {
       "id": "1:8918916038744708733",
-      "lastPropertyId": "4:4258453080731685922",
+      "lastPropertyId": "6:2569544064361814191",
       "name": "ObjectBoxSentenceVector",
       "properties": [
         {
@@ -29,6 +29,16 @@
         {
           "id": "4:4258453080731685922",
           "name": "semanticTheme",
+          "type": 9
+        },
+        {
+          "id": "5:2603305645244476240",
+          "name": "themeDistancesJson",
+          "type": 9
+        },
+        {
+          "id": "6:2569544064361814191",
+          "name": "vibeScoresJson",
           "type": 9
         }
       ],
@@ -62,9 +72,63 @@
         }
       ],
       "relations": []
+    },
+    {
+      "id": "3:6972283977925408382",
+      "lastPropertyId": "9:4118427694449577953",
+      "name": "ObjectBoxVibeAxis",
+      "properties": [
+        {
+          "id": "1:8007350626253998022",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:1127160188593277611",
+          "name": "axisName",
+          "type": 9
+        },
+        {
+          "id": "3:6757626406494295334",
+          "name": "rightName",
+          "type": 9
+        },
+        {
+          "id": "4:535828873129658378",
+          "name": "leftName",
+          "type": 9
+        },
+        {
+          "id": "5:9219060079527144772",
+          "name": "rightCentroid",
+          "type": 28
+        },
+        {
+          "id": "6:5541567499489052502",
+          "name": "leftCentroid",
+          "type": 28
+        },
+        {
+          "id": "7:3648190836617323185",
+          "name": "axisVector",
+          "type": 28
+        },
+        {
+          "id": "8:6012409505906934371",
+          "name": "centerVector",
+          "type": 28
+        },
+        {
+          "id": "9:4118427694449577953",
+          "name": "version",
+          "type": 5
+        }
+      ],
+      "relations": []
     }
   ],
-  "lastEntityId": "2:7133012930251762558",
+  "lastEntityId": "3:6972283977925408382",
   "lastIndexId": "1:8994397947450381609",
   "lastRelationId": "0:0",
   "lastSequenceId": "0:0",

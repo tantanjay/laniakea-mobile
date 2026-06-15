@@ -4,9 +4,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -78,7 +86,7 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 vm.isMetricsLoading = false
             }
         }
-        
+
         if (vm.weeklyDigest == null || vm.themeClusters == null) {
             vm.refreshInsights()
         }
@@ -102,116 +110,190 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             )
         )
 
+        var isDigestExpanded by remember { mutableStateOf(true) }
+
         // Weekly Digest Section
-        if (vm.isDigestLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
-        } else {
-            vm.weeklyDigest?.let { digest ->
-                WeeklyDigestCard(digest = digest)
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SectionHeader(
+                title = "This Week's Reflections",
+                leadingIcon = Icons.Default.DateRange,
+                isExpanded = isDigestExpanded,
+                onToggle = { isDigestExpanded = !isDigestExpanded }
+            )
+
+            AnimatedVisibility(visible = isDigestExpanded) {
+                if (vm.isDigestLoading) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    vm.weeklyDigest?.let { digest ->
+                        WeeklyDigestCard(digest = digest)
+                    }
+                }
             }
         }
 
+        var isWritingTrendsExpanded by remember { mutableStateOf(false) }
+
         // Writing Trends Section
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "How Your Writing Has Changed",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                IconButton(onClick = { showInfo = true }) {
-                    Icon(
-                        imageVector = Icons.Default.Info,
-                        contentDescription = "About Writing Reflections",
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                    )
+            SectionHeader(
+                title = "How Your Writing Has Changed",
+                leadingIcon = Icons.Default.Create,
+                isExpanded = isWritingTrendsExpanded,
+                onToggle = { isWritingTrendsExpanded = !isWritingTrendsExpanded },
+                actionButton = {
+                    IconButton(onClick = { showInfo = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "About Writing Reflections",
+                            tint = if (isWritingTrendsExpanded) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
                 }
-            }
+            )
 
-            if (vm.isMetricsLoading) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-            } else {
-                val metrics = vm.writingMetrics
-                if (metrics != null && metrics.entryLengths.isNotEmpty()) {
-                    WritingTrendCard(
-                        label = "Entry Length",
-                        emoji = "📏",
-                        dataPoints = metrics.entryLengths,
-                        formatValue = { "${it.toInt()} words" },
-                        sparklineColor = MaterialTheme.colorScheme.primary
-                    )
+            AnimatedVisibility(visible = isWritingTrendsExpanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
 
-                    WritingTrendCard(
-                        label = "Vocabulary Diversity",
-                        emoji = "🔤",
-                        dataPoints = metrics.vocabularyDiversity,
-                        formatValue = { "${(it * 100).toInt()}% unique" },
-                        sparklineColor = MaterialTheme.colorScheme.tertiary
-                    )
-
-                    WritingTrendCard(
-                        label = "Question Frequency",
-                        emoji = "❓",
-                        dataPoints = metrics.questionFrequency,
-                        formatValue = { "${(it * 100).toInt()}% questions" },
-                        sparklineColor = MaterialTheme.colorScheme.secondary
-                    )
-
-                    WritingTrendCard(
-                        label = "First-Person Usage",
-                        emoji = "🪞",
-                        dataPoints = metrics.firstPersonUsage,
-                        formatValue = { "${(it * 100).toInt()}% self-ref" },
-                        sparklineColor = MaterialTheme.colorScheme.primary
-                    )
-
-                    WritingTrendCard(
-                        label = "Future vs Past",
-                        emoji = "⏳",
-                        dataPoints = metrics.futureVsPast,
-                        formatValue = { v ->
-                            when {
-                                v > 0.2f -> "Future-focused"
-                                v < -0.2f -> "Past-focused"
-                                else -> "Balanced"
-                            }
-                        },
-                        sparklineColor = MaterialTheme.colorScheme.tertiary
-                    )
-                } else {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    ) {
+                    if (vm.isMetricsLoading) {
                         Box(
-                            modifier = Modifier.padding(32.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                "Write a few entries to see your writing patterns emerge.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            CircularProgressIndicator()
+                        }
+                    } else {
+                        val metrics = vm.writingMetrics
+                        if (metrics != null && metrics.entryLengths.isNotEmpty()) {
+                            WritingTrendCard(
+                                label = "Entry Length",
+                                emoji = "📏",
+                                dataPoints = metrics.entryLengths,
+                                formatValue = { "${it.toInt()} words" },
+                                sparklineColor = MaterialTheme.colorScheme.primary
                             )
+
+                            WritingTrendCard(
+                                label = "Vocabulary Diversity",
+                                emoji = "🔤",
+                                dataPoints = metrics.vocabularyDiversity,
+                                formatValue = { "${(it * 100).toInt()}% unique" },
+                                sparklineColor = MaterialTheme.colorScheme.tertiary
+                            )
+
+                            WritingTrendCard(
+                                label = "Question Frequency",
+                                emoji = "❓",
+                                dataPoints = metrics.questionFrequency,
+                                formatValue = { "${(it * 100).toInt()}% questions" },
+                                sparklineColor = MaterialTheme.colorScheme.secondary
+                            )
+
+                            WritingTrendCard(
+                                label = "First-Person Usage",
+                                emoji = "🪞",
+                                dataPoints = metrics.firstPersonUsage,
+                                formatValue = { "${(it * 100).toInt()}% self-ref" },
+                                sparklineColor = MaterialTheme.colorScheme.primary
+                            )
+
+                            WritingTrendCard(
+                                label = "Future vs Past",
+                                emoji = "⏳",
+                                dataPoints = metrics.futureVsPast,
+                                formatValue = { v ->
+                                    when {
+                                        v > 0.2f -> "Future-focused"
+                                        v < -0.2f -> "Past-focused"
+                                        else -> "Balanced"
+                                    }
+                                },
+                                sparklineColor = MaterialTheme.colorScheme.tertiary
+                            )
+
+                            WritingTrendCard(
+                                label = "Syntactic Pacing",
+                                emoji = "🔗",
+                                dataPoints = metrics.syntacticPacing,
+                                formatValue = { "%.2f conjs/sent".format(it) },
+                                sparklineColor = MaterialTheme.colorScheme.secondary
+                            )
+
+                            WritingTrendCard(
+                                label = "Agency (Active vs Passive)",
+                                emoji = "💪",
+                                dataPoints = metrics.agencyScore,
+                                formatValue = { v ->
+                                    when {
+                                        v > 0.3f -> "Active"
+                                        v < -0.3f -> "Passive"
+                                        else -> "Balanced"
+                                    }
+                                },
+                                sparklineColor = MaterialTheme.colorScheme.primary
+                            )
+
+                            WritingTrendCard(
+                                label = "Epistemic Modality",
+                                emoji = "⚖️",
+                                dataPoints = metrics.epistemicModality,
+                                formatValue = { v ->
+                                    when {
+                                        v > 0.5f -> "Absolute"
+                                        v < -0.5f -> "Hedged"
+                                        else -> "Balanced"
+                                    }
+                                },
+                                sparklineColor = MaterialTheme.colorScheme.tertiary
+                            )
+
+                            WritingTrendCard(
+                                label = "Processing Markers",
+                                emoji = "🧠",
+                                dataPoints = metrics.processingMarkers,
+                                formatValue = { "${it.toInt()} markers" },
+                                sparklineColor = MaterialTheme.colorScheme.secondary
+                            )
+
+                            WritingTrendCard(
+                                label = "Temporal Horizon",
+                                emoji = "🔭",
+                                dataPoints = metrics.temporalHorizon,
+                                formatValue = { v ->
+                                    when {
+                                        v > 0.6f -> "Abstract"
+                                        v < 0.4f -> "Concrete"
+                                        else -> "Neutral"
+                                    }
+                                },
+                                sparklineColor = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "Write a few entries to see your writing patterns emerge.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -234,38 +316,73 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             )
         }
 
-        if (vm.isEngineActive) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Semantic Themes",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                    IconButton(onClick = { showThemeSelection = true }) {
+        var isThemesExpanded by remember { mutableStateOf(false) }
+
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SectionHeader(
+                title = "Semantic Themes",
+                leadingIcon = Icons.Default.Star,
+                isExpanded = isThemesExpanded,
+                onToggle = { isThemesExpanded = !isThemesExpanded },
+                actionButton = {
+                    IconButton(
+                        onClick = { showThemeSelection = true },
+                        enabled = vm.isEngineActive
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Edit,
                             contentDescription = "Edit Themes",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = if (vm.isEngineActive) {
+                                if (isThemesExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            }
                         )
                     }
                 }
+            )
 
-                if (vm.isThemesLoading) {
-                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+            AnimatedVisibility(visible = isThemesExpanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (vm.isEngineActive) {
+                        if (vm.isThemesLoading) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                        } else if (vm.themeClusters?.isNotEmpty() == true) {
+                            vm.themeClusters!!.forEach { (theme, entries) ->
+                                ThemeClusterCard(theme = theme, entries = entries)
+                            }
+                        } else {
+                            Text("Not enough data to form semantic themes.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Text(
+                                    text = "Laniakea Core engine is offline. Initialize it to identify and group your memories by semantic theme.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                                FilledTonalButton(
+                                    onClick = { vm.initializeEngine() },
+                                    enabled = !vm.isEngineLoading,
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                                ) {
+                                    Text(if (vm.isEngineLoading) "Initializing Core..." else "Initialize Core")
+                                }
+                            }
+                        }
                     }
-                } else if (vm.themeClusters?.isNotEmpty() == true) {
-                    vm.themeClusters!!.forEach { (theme, entries) ->
-                        ThemeClusterCard(theme = theme, entries = entries)
-                    }
-                } else {
-                    Text("Not enough data to form semantic themes.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -288,7 +405,11 @@ fun ThemeSelectionDialog(vm: LaniakeaViewModel, onDismiss: () -> Unit) {
         "Creativity & Expression",
         "Uncertainty & Waiting",
         "Gratitude & Joy",
-        "Challenges & Resilience"
+        "Challenges & Resilience",
+        "Leisure & Recreation",
+        "Travel & Exploration",
+        "Food & Dining",
+        "Daily Routine & Chores"
     )
 
     var selectedThemes by remember { mutableStateOf(vm.selectedThemes.toSet()) }
@@ -303,7 +424,7 @@ fun ThemeSelectionDialog(vm: LaniakeaViewModel, onDismiss: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
-                
+
                 androidx.compose.foundation.lazy.LazyColumn(
                     modifier = Modifier.heightIn(max = 300.dp)
                 ) {
@@ -333,14 +454,6 @@ fun ThemeSelectionDialog(vm: LaniakeaViewModel, onDismiss: () -> Unit) {
                         }
                     }
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                Text(
-                    "Note: Enabling more themes requires more device processing power. We recommend choosing 4-6 core themes.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         },
         confirmButton = {
@@ -407,5 +520,85 @@ private fun InfoSection(title: String, content: String) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
+    }
+}
+
+@Composable
+private fun SectionHeader(
+    title: String,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector,
+    isExpanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    actionButton: @Composable (() -> Unit)? = null
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onToggle() },
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        color = if (isExpanded) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.12f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+        },
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isExpanded) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+            } else {
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+            }
+        ),
+        tonalElevation = if (isExpanded) 2.dp else 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 64.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = null,
+                    tint = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    modifier = Modifier.basicMarquee()
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (actionButton != null) {
+                    actionButton()
+                }
+                
+                val rotationAngle by animateFloatAsState(
+                    targetValue = if (isExpanded) 180f else 0f,
+                    label = "ArrowRotation"
+                )
+                
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "Collapse" else "Expand",
+                    tint = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.graphicsLayer(rotationZ = rotationAngle)
+                )
+            }
+        }
     }
 }
