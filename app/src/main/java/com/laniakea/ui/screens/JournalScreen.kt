@@ -28,6 +28,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.sp
+import com.laniakea.data.DiaryEntry
 
 @Composable
 fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
@@ -40,10 +41,10 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
-    var searchResults by remember { mutableStateOf<List<com.laniakea.data.DiaryEntry>>(emptyList()) }
+    var searchResults by remember { mutableStateOf<List<DiaryEntry>>(emptyList()) }
     
-    var showSimilarDialogForEntry by remember { mutableStateOf<com.laniakea.data.DiaryEntry?>(null) }
-    var similarEntriesList by remember { mutableStateOf<List<com.laniakea.data.DiaryEntry>>(emptyList()) }
+    var showSimilarDialogForEntry by remember { mutableStateOf<DiaryEntry?>(null) }
+    var similarEntriesList by remember { mutableStateOf<List<DiaryEntry>>(emptyList()) }
     var isLoadingSimilar by remember { mutableStateOf(false) }
     var showSimilarInfo by remember { mutableStateOf(false) }
 

@@ -43,6 +43,15 @@ object VibeEngine {
         return Pair(axis, center)
     }
 
+    fun scaleVibeSmooth(raw: Float, maxExpected: Float = 0.1f): Float {
+        // normalized relative to expected max
+        val normalized = raw / maxExpected
+        // tanh naturally clamps between -1 and 1, but large values saturate smoothly
+        val scaled = tanh(normalized.toDouble())
+        // optional multiplier for desired range (e.g., -2..2)
+        return (scaled * 2.0).toFloat()
+    }
+
     fun calculateVibeScore(embedding: FloatArray, axisVec: FloatArray, centerVec: FloatArray): Float {
         var score = 0f
 
@@ -53,12 +62,12 @@ object VibeEngine {
         return scaleVibeSmooth(score)
     }
 
-    fun scaleVibeSmooth(raw: Float, maxExpected: Float = 0.1f): Float {
-        // normalized relative to expected max
-        val normalized = raw / maxExpected
-        // tanh naturally clamps between -1 and 1, but large values saturate smoothly
-        val scaled = tanh(normalized.toDouble())
-        // optional multiplier for desired range (e.g., -2..2)
-        return (scaled * 2.0).toFloat()
+    fun calculateDistance(a: FloatArray, b: FloatArray): Float {
+        var sum = 0f
+        for (i in a.indices) {
+            val diff = a[i] - b[i]
+            sum += diff * diff
+        }
+        return kotlin.math.sqrt(sum)
     }
 }

@@ -13,5 +13,7 @@ data class WeeklyDigest(
     val questionRatio: Float,
     val questionRatioPrior: Float?,
     val avgVibeScore: Float? = null,
-    val avgVibeScorePrior: Float? = null
+    val avgVibeScorePrior: Float? = null,
+    val avgManualMood: Float? = null,
+    val avgManualMoodPrior: Float? = null
 )
