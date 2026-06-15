@@ -1,10 +1,9 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.google.ksp)
-    id("org.jetbrains.kotlin.kapt")
-    id("io.objectbox")
+    alias(libs.plugins.legacy.kapt)
+    alias(libs.plugins.objectboxplugin)
 }
 
 configurations.all {
@@ -23,7 +22,7 @@ android {
         applicationId = "com.laniakea"
         minSdk = 28
         targetSdk = 37
-        versionCode = 1
+        versionCode = 10000
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -49,8 +48,8 @@ android {
     }
     sourceSets {
         getByName("release") {
-            // AGP handles both Java and Kotlin sources here
-            java.srcDirs("build/generated/ksp/release/kotlin", "build/generated/ksp/release/java")
+            kotlin.directories += "build/generated/ksp/release/kotlin"
+            java.directories += "build/generated/ksp/release/java"
         }
     }
 }

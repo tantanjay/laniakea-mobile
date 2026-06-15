@@ -10,7 +10,8 @@ data class AppSettings(
     val autoLoadEngine: Boolean = false,
     val userName: String = "",
     val theme: String = "PURPLE",
-    val selectedThemes: String = "Relationships & Connection,Career & Purpose,Goals & Ambition,Inner Reflection,Emotional Wellbeing,Physical Wellbeing"
+    val selectedThemes: String = "Relationships & Connection,Career & Purpose,Goals & Ambition,Inner Reflection,Emotional Wellbeing,Physical Wellbeing",
+    val profilePicture: String = "Person"
 )
 
 @Entity(tableName = "entries")
@@ -23,7 +24,10 @@ data class DiaryEntry(
     val weather: String = "",
     val activities: String = "",
     val numericMood: Double = 0.0,
-    val latentVibe: Double = 0.0,
-    val isVectorized: Boolean = false
+    val isVectorized: Boolean = false,
+    val syntacticPacing: Float = 0f,
+    val agencyScore: Float = 0f,
+    val epistemicModality: Float = 0f,
+    val processingMarkers: Int = 0,
+    val temporalHorizon: Float = 0f
 )
-

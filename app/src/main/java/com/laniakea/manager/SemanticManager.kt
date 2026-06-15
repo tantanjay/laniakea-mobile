@@ -4,6 +4,7 @@ import com.laniakea.data.DiaryDatabase
 import com.laniakea.data.DiaryEntry
 import com.laniakea.data.ObjectBoxManager
 import com.laniakea.data.ObjectBoxSentenceVector_
+import com.laniakea.data.ObjectBoxThemeCentroid
 import com.laniakea.engine.SentenceEmbedder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -81,21 +82,41 @@ class SemanticManager(
             "Facing difficult times, overcoming obstacles, and resilience.",
             "Struggling through hardship, endurance, and perseverance.",
             "Staying strong during a crisis, bouncing back, and coping."
+        ),
+        "Leisure & Recreation" to listOf(
+            "Playing games, hobbies, entertainment, and unwinding.",
+            "Watching movies, playing video games, and relaxing activities.",
+            "Having fun, enjoying free time, and recreational pastimes."
+        ),
+        "Travel & Exploration" to listOf(
+            "Vacations, flights, traveling, sightseeing, and tourism.",
+            "Exploring new places, trips, and souvenir hunting.",
+            "Being away from home, commuting, and navigating new areas."
+        ),
+        "Food & Dining" to listOf(
+            "Eating meals, restaurants, cooking, and food cravings.",
+            "Dining out, enjoying food, cafes, and discovering new dishes.",
+            "Snacks, drinks, meals, and culinary experiences."
+        ),
+        "Daily Routine & Chores" to listOf(
+            "Everyday tasks, running errands, chores, and household work.",
+            "Daily habits, regular routines, and mundane activities.",
+            "Grocery shopping, cleaning, and doing standard day-to-day things."
         )
     )
     
     companion object {
-        const val THEME_TEMPLATE_VERSION = 3
+        const val THEME_TEMPLATE_VERSION = 4
         
         /**
          * Distance thresholds for normalized 768-dim vectors (L2 distance).
          * 0.0 = identical, ~1.0 = weakly related, ~1.41 = unrelated, 2.0 = opposite.
          *
          * SEARCH/SIMILAR: 0.85 ≈ cosine similarity 0.64 — filters clearly unrelated results.
-         * THEME_CLUSTER:  1.25 ≈ cosine similarity 0.22 — looser threshold for rich theme descriptions.
+         * THEME_CLUSTER:  0.95 ≈ tighter threshold to ensure semantic relevance.
          */
         private const val MAX_DISTANCE_SEARCH = 0.85
-        const val MAX_DISTANCE_THEME = 1.10
+        const val MAX_DISTANCE_THEME = 0.95
     }
 
     suspend fun semanticSearch(query: String, limit: Int = 5): List<DiaryEntry> {
@@ -168,9 +189,10 @@ class SemanticManager(
                 val themeBox = ObjectBoxManager.themeBox
                 val storedThemes = themeBox.query().build().find()
                 
+                val centroids = mutableMapOf<String, FloatArray>()
+                
                 // Attempt to load from ObjectBox
                 if (storedThemes.isNotEmpty() && storedThemes.first().version == THEME_TEMPLATE_VERSION) {
-                    val centroids = mutableMapOf<String, FloatArray>()
                     for (t in storedThemes) {
                         t.vector?.let { centroids[t.themeName] = it }
                     }
@@ -178,18 +200,21 @@ class SemanticManager(
                         cachedThemeCentroids = centroids
                         return@withContext
                     }
+                } else {
+                    // If not available or version mismatch, clear old data
+                    themeBox.removeAll()
                 }
                 
-                // If not available or version mismatch, calculate from scratch
-                themeBox.removeAll()
-                val centroids = mutableMapOf<String, FloatArray>()
+                // Calculate missing themes
                 for ((title, descriptions) in richThemes) {
+                    if (centroids.containsKey(title)) continue
+                    
                     val embeddedDesc = descriptions.mapNotNull { embedder.embedRaw(it) }
                     if (embeddedDesc.isNotEmpty()) {
                         val avg = averageVectors(embeddedDesc)
                         centroids[title] = avg
                         themeBox.put(
-                            com.laniakea.data.ObjectBoxThemeCentroid(
+                            ObjectBoxThemeCentroid(
                                 themeName = title, 
                                 vector = avg, 
                                 version = THEME_TEMPLATE_VERSION
@@ -223,6 +248,23 @@ class SemanticManager(
         }
 
         return if (minDistance < MAX_DISTANCE_THEME) bestTheme else null
+    }
+
+    suspend fun calculateAllThemeDistancesJson(rawVector: FloatArray?): String? {
+        if (rawVector == null || !isEngineActive()) return null
+        
+        if (cachedThemeCentroids == null) {
+            initializeThemes()
+        }
+        
+        val centroids = cachedThemeCentroids ?: return null
+        
+        val jsonObj = org.json.JSONObject()
+        for ((themeName, centroid) in centroids) {
+            val distance = calculateL2Distance(rawVector, centroid)
+            jsonObj.put(themeName, distance)
+        }
+        return jsonObj.toString()
     }
 
     fun isThemesInitialized(): Boolean {
