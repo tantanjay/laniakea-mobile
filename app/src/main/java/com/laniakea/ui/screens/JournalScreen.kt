@@ -24,11 +24,9 @@ import com.laniakea.viewmodel.LaniakeaViewModel
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.TextStyle
-import kotlin.time.Duration.Companion.milliseconds
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.sp
-import com.laniakea.data.DiaryEntry
 import com.laniakea.viewmodel.JournalScreenState
 import com.laniakea.LaniakeaApplication
 import androidx.compose.ui.platform.LocalContext

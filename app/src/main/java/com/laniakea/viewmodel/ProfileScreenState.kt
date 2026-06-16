@@ -3,6 +3,7 @@ package com.laniakea.viewmodel
 import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.laniakea.manager.VaultManager
@@ -31,22 +32,34 @@ class ProfileScreenState(
     var isVaultBackingUp by mutableStateOf(false)
     var isXlsxImporting by mutableStateOf(false)
     var vaultProgress by mutableFloatStateOf(0f)
+    var vaultProgressCurrent by mutableIntStateOf(0)
+    var vaultProgressTotal by mutableIntStateOf(0)
+
+    init {
+        vaultManager.onProgress = { current, total ->
+            vaultProgressCurrent = current
+            vaultProgressTotal = total
+            vaultProgress = if (total > 0) current.toFloat() / total.toFloat() else 0f
+        }
+        vaultManager.onStateChange = { backingUp, restoring, importing ->
+            isVaultBackingUp = backingUp
+            isVaultRestoring = restoring
+            isXlsxImporting = importing
+        }
+    }
+
 
     fun exportDataStream(uri: Uri, pass: String, onComplete: (Boolean) -> Unit) {
         coroutineScope.launch(Dispatchers.IO) {
-            withContext(Dispatchers.Main) {
-                isVaultBackingUp = true
-            }
+            
             try {
                 vaultManager.exportDataStream(uri, pass) { success ->
                     coroutineScope.launch(Dispatchers.Main) { 
-                        isVaultBackingUp = false
                         onComplete(success) 
                     }
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 withContext(Dispatchers.Main) {
-                    isVaultBackingUp = false
                     onComplete(false)
                 }
             }
@@ -55,19 +68,15 @@ class ProfileScreenState(
 
     fun importDataStream(uri: Uri, pass: String, onComplete: (Boolean) -> Unit) {
         coroutineScope.launch(Dispatchers.IO) {
-            withContext(Dispatchers.Main) {
-                isVaultRestoring = true
-            }
+            
             try {
                 vaultManager.importDataStream(uri, pass) { success ->
                     coroutineScope.launch(Dispatchers.Main) { 
-                        isVaultRestoring = false
                         onComplete(success) 
                     }
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 withContext(Dispatchers.Main) {
-                    isVaultRestoring = false
                     onComplete(false)
                 }
             }
@@ -76,19 +85,15 @@ class ProfileScreenState(
 
     fun importXlsxStream(uri: Uri, onComplete: (Boolean) -> Unit) {
         coroutineScope.launch(Dispatchers.IO) {
-            withContext(Dispatchers.Main) {
-                isXlsxImporting = true
-            }
+            
             try {
                 vaultManager.importXlsxStream(uri) { success ->
                     coroutineScope.launch(Dispatchers.Main) { 
-                        isXlsxImporting = false
                         onComplete(success) 
                     }
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 withContext(Dispatchers.Main) {
-                    isXlsxImporting = false
                     onComplete(false)
                 }
             }

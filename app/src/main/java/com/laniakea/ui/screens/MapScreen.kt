@@ -22,18 +22,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.laniakea.data.ObjectBoxSentenceVector
-import com.laniakea.engine.GraphEdge
-import com.laniakea.engine.GraphEngine
-import com.laniakea.engine.GraphNode
 import com.laniakea.engine.LayoutMode
 import com.laniakea.util.*
 import com.laniakea.manager.SecurityManager
 import com.laniakea.viewmodel.LaniakeaViewModel
 import com.laniakea.viewmodel.MapScreenState
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
 import com.laniakea.ui.components.map.ConstellationCanvas
 import com.laniakea.ui.components.map.ConstellationLoader
@@ -43,12 +37,8 @@ import com.laniakea.ui.components.map.MapNodeDetailPanel
 import com.laniakea.ui.components.map.MapStatsBadge
 import com.laniakea.ui.components.map.MapConnectionsDialog
 import com.laniakea.ui.components.map.MapEmptyState
-import androidx.core.content.edit
 import com.laniakea.data.ObjectBoxManager
-
 import com.laniakea.viewmodel.ColorMode
-import com.laniakea.viewmodel.GalaxyStar
-import com.laniakea.viewmodel.CameraState
 
 @Composable
 fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
