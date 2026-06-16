@@ -46,6 +46,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var profilePicture by mutableStateOf("Person")
     var theme by mutableStateOf("PURPLE")
     var selectedThemes by mutableStateOf<List<String>>(emptyList())
+    var hasCompletedOnboarding by mutableStateOf<Boolean?>(null)
 
     var isEngineActive by mutableStateOf(false)
     var isEngineLoading by mutableStateOf(false)
@@ -86,6 +87,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     profilePicture = it.profilePicture.takeIf { pic -> pic.isNotEmpty() } ?: "Person"
                     theme = it.theme
                     selectedThemes = it.selectedThemes.split(",").filter { s -> s.isNotBlank() }
+                    hasCompletedOnboarding = it.hasCompletedOnboarding
 
                     if (autoLoadEnabled && !isEngineActive && !isEngineLoading) {
                         initializeEngine()
@@ -140,6 +142,14 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val currentSettings = db.diaryDao().getSettings() ?: AppSettings()
             db.diaryDao().saveSettings(currentSettings.copy(userName = newName, profilePicture = newPicture))
+        }
+    }
+
+    fun completeOnboarding() {
+        viewModelScope.launch {
+            val currentSettings = db.diaryDao().getSettings() ?: AppSettings()
+            db.diaryDao().saveSettings(currentSettings.copy(hasCompletedOnboarding = true))
+            hasCompletedOnboarding = true
         }
     }
 

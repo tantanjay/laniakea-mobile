@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.laniakea.viewmodel.LaniakeaViewModel
+import com.laniakea.viewmodel.OnboardingState
 import com.laniakea.ui.screens.*
 
 enum class AppDestinations(
@@ -30,6 +31,23 @@ enum class AppDestinations(
 
 @Composable
 fun LaniakeaApp(vm: LaniakeaViewModel = viewModel()) {
+    val completedOnboarding = vm.hasCompletedOnboarding
+
+    if (completedOnboarding == null) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+            Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            }
+        }
+        return
+    }
+
+    if (!completedOnboarding) {
+        val onboardingState = remember { OnboardingState(onComplete = { vm.completeOnboarding() }) }
+        OnboardingScreen(state = onboardingState)
+        return
+    }
+
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
 
     NavigationSuiteScaffold(

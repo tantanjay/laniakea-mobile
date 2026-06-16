@@ -14,7 +14,7 @@ import com.laniakea.manager.WritingMetrics
 import android.content.SharedPreferences
 import androidx.core.content.edit
 
-class InsightScreenState(
+class InsightState(
     private val analyticsManager: AnalyticsManager,
     private val digestManager: PeriodDigestManager,
     private val semanticManager: SemanticManager,
@@ -54,31 +54,82 @@ class InsightScreenState(
 
     fun getInsightDateRange(): Pair<Long, Long> {
         val calendar = java.util.Calendar.getInstance()
-        val rangeDays = when(insightSelectedRange) {
-            "7D" -> 7
-            "14D" -> 14
-            "1M" -> 30
-            "3M" -> 90
-            "6M" -> 180
-            "1Y" -> 365
-            else -> 30
+        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        calendar.set(java.util.Calendar.MINUTE, 0)
+        calendar.set(java.util.Calendar.SECOND, 0)
+        calendar.set(java.util.Calendar.MILLISECOND, 0)
+
+        when (insightSelectedRange) {
+            "7D" -> {
+                calendar.add(java.util.Calendar.WEEK_OF_YEAR, -insightTimeOffset)
+                calendar.set(java.util.Calendar.DAY_OF_WEEK, calendar.firstDayOfWeek)
+            }
+            "14D" -> {
+                calendar.add(java.util.Calendar.WEEK_OF_YEAR, -(insightTimeOffset * 2))
+                calendar.set(java.util.Calendar.DAY_OF_WEEK, calendar.firstDayOfWeek)
+                calendar.add(java.util.Calendar.WEEK_OF_YEAR, -1)
+            }
+            "1M" -> {
+                calendar.add(java.util.Calendar.MONTH, -insightTimeOffset)
+                calendar.set(java.util.Calendar.DAY_OF_MONTH, 1)
+            }
+            "3M" -> {
+                calendar.add(java.util.Calendar.MONTH, -(insightTimeOffset * 3))
+                val currentMonth = calendar.get(java.util.Calendar.MONTH)
+                val quarterStartMonth = (currentMonth / 3) * 3
+                calendar.set(java.util.Calendar.MONTH, quarterStartMonth)
+                calendar.set(java.util.Calendar.DAY_OF_MONTH, 1)
+            }
+            "6M" -> {
+                calendar.add(java.util.Calendar.MONTH, -(insightTimeOffset * 6))
+                val currentMonth = calendar.get(java.util.Calendar.MONTH)
+                val halfStartMonth = (currentMonth / 6) * 6
+                calendar.set(java.util.Calendar.MONTH, halfStartMonth)
+                calendar.set(java.util.Calendar.DAY_OF_MONTH, 1)
+            }
+            "1Y" -> {
+                calendar.add(java.util.Calendar.YEAR, -insightTimeOffset)
+                calendar.set(java.util.Calendar.DAY_OF_YEAR, 1)
+            }
+            else -> {
+                calendar.add(java.util.Calendar.MONTH, -insightTimeOffset)
+                calendar.set(java.util.Calendar.DAY_OF_MONTH, 1)
+            }
         }
-        
-        calendar.add(java.util.Calendar.DAY_OF_YEAR, -(insightTimeOffset * rangeDays))
-        
+
+        val startDate = calendar.timeInMillis
+
+        when (insightSelectedRange) {
+            "7D" -> calendar.add(java.util.Calendar.DAY_OF_YEAR, 6)
+            "14D" -> calendar.add(java.util.Calendar.DAY_OF_YEAR, 13)
+            "1M" -> {
+                calendar.add(java.util.Calendar.MONTH, 1)
+                calendar.add(java.util.Calendar.DAY_OF_YEAR, -1)
+            }
+            "3M" -> {
+                calendar.add(java.util.Calendar.MONTH, 3)
+                calendar.add(java.util.Calendar.DAY_OF_YEAR, -1)
+            }
+            "6M" -> {
+                calendar.add(java.util.Calendar.MONTH, 6)
+                calendar.add(java.util.Calendar.DAY_OF_YEAR, -1)
+            }
+            "1Y" -> {
+                calendar.add(java.util.Calendar.YEAR, 1)
+                calendar.add(java.util.Calendar.DAY_OF_YEAR, -1)
+            }
+            else -> {
+                calendar.add(java.util.Calendar.MONTH, 1)
+                calendar.add(java.util.Calendar.DAY_OF_YEAR, -1)
+            }
+        }
+
         calendar.set(java.util.Calendar.HOUR_OF_DAY, 23)
         calendar.set(java.util.Calendar.MINUTE, 59)
         calendar.set(java.util.Calendar.SECOND, 59)
         calendar.set(java.util.Calendar.MILLISECOND, 999)
         val endDate = calendar.timeInMillis
-        
-        calendar.add(java.util.Calendar.DAY_OF_YEAR, -(rangeDays - 1))
-        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
-        calendar.set(java.util.Calendar.MINUTE, 0)
-        calendar.set(java.util.Calendar.SECOND, 0)
-        calendar.set(java.util.Calendar.MILLISECOND, 0)
-        val startDate = calendar.timeInMillis
-        
+
         return Pair(startDate, endDate)
     }
 

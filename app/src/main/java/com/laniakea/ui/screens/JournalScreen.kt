@@ -27,7 +27,7 @@ import java.time.format.TextStyle
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.sp
-import com.laniakea.viewmodel.JournalScreenState
+import com.laniakea.viewmodel.JournalState
 import com.laniakea.LaniakeaApplication
 import androidx.compose.ui.platform.LocalContext
 
@@ -37,7 +37,7 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val app = context.applicationContext as LaniakeaApplication
     val coroutineScope = rememberCoroutineScope()
     val state = remember {
-        JournalScreenState(
+        JournalState(
             db = app.container.database,
             semanticManager = app.container.semanticManager,
             securityManager = app.container.securityManager,
