@@ -126,5 +126,12 @@ fun HomeScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     if (state.showQuestionnaire) {
         QuestionnaireBottomSheet(state = state, isEngineActive = vm.isEngineActive)
     }
+
+    if (vm.pendingQuickReflection) {
+        LaunchedEffect(vm.pendingQuickReflection) {
+            state.showQuestionnaire = true
+            vm.pendingQuickReflection = false
+        }
+    }
 }
 

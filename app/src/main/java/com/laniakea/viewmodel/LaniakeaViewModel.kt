@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.util.Calendar
 import com.laniakea.manager.VaultManager
+import com.laniakea.manager.NotificationScheduler
 
 class LaniakeaViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as LaniakeaApplication
@@ -37,6 +38,8 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         
     )
 
+    private val notificationScheduler = NotificationScheduler(application)
+
     private val analyticsManager = container.analyticsManager
     private val semanticManager = container.semanticManager
     private val vibeManager = container.vibeManager
@@ -47,6 +50,9 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var theme by mutableStateOf("PURPLE")
     var selectedThemes by mutableStateOf<List<String>>(emptyList())
     var hasCompletedOnboarding by mutableStateOf<Boolean?>(null)
+    var isNotificationEnabled by mutableStateOf(false)
+    var notificationHours by mutableStateOf<List<Int>>(emptyList())
+    var pendingQuickReflection by mutableStateOf(false)
 
     var isEngineActive by mutableStateOf(false)
     var isEngineLoading by mutableStateOf(false)
@@ -69,6 +75,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     init {
         container.engineActiveProvider = { isEngineActive }
         ObjectBoxManager.init(application)
+        notificationScheduler.createNotificationChannel()
         observeSettings()
         observeEngineStatus()
         refreshData()
@@ -88,6 +95,8 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                     theme = it.theme
                     selectedThemes = it.selectedThemes.split(",").filter { s -> s.isNotBlank() }
                     hasCompletedOnboarding = it.hasCompletedOnboarding
+                    isNotificationEnabled = it.isNotificationEnabled
+                    notificationHours = it.notificationHours.split(",").filter { s -> s.isNotBlank() }.mapNotNull { s -> s.toIntOrNull() }
 
                     if (autoLoadEnabled && !isEngineActive && !isEngineLoading) {
                         initializeEngine()
@@ -142,6 +151,45 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val currentSettings = db.diaryDao().getSettings() ?: AppSettings()
             db.diaryDao().saveSettings(currentSettings.copy(userName = newName, profilePicture = newPicture))
+        }
+    }
+
+    fun toggleNotifications(enabled: Boolean) {
+        viewModelScope.launch {
+            val currentSettings = db.diaryDao().getSettings() ?: AppSettings()
+            db.diaryDao().saveSettings(currentSettings.copy(isNotificationEnabled = enabled))
+            if (enabled) {
+                val hours = currentSettings.notificationHours.split(",").filter { it.isNotBlank() }.mapNotNull { it.toIntOrNull() }
+                notificationScheduler.scheduleNotifications(hours)
+            } else {
+                notificationScheduler.cancelAllNotifications()
+            }
+        }
+    }
+
+    fun addNotificationHour(hour: Int) {
+        viewModelScope.launch {
+            val currentSettings = db.diaryDao().getSettings() ?: AppSettings()
+            val hours = currentSettings.notificationHours.split(",").filter { it.isNotBlank() }.mapNotNull { it.toIntOrNull() }.toMutableSet()
+            hours.add(hour)
+            val newHoursStr = hours.joinToString(",")
+            db.diaryDao().saveSettings(currentSettings.copy(notificationHours = newHoursStr))
+            if (currentSettings.isNotificationEnabled) {
+                notificationScheduler.scheduleNotifications(hours.toList())
+            }
+        }
+    }
+
+    fun removeNotificationHour(hour: Int) {
+        viewModelScope.launch {
+            val currentSettings = db.diaryDao().getSettings() ?: AppSettings()
+            val hours = currentSettings.notificationHours.split(",").filter { it.isNotBlank() }.mapNotNull { it.toIntOrNull() }.toMutableSet()
+            hours.remove(hour)
+            val newHoursStr = hours.joinToString(",")
+            db.diaryDao().saveSettings(currentSettings.copy(notificationHours = newHoursStr))
+            if (currentSettings.isNotificationEnabled) {
+                notificationScheduler.scheduleNotifications(hours.toList())
+            }
         }
     }
 

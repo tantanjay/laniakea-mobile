@@ -21,6 +21,7 @@ class ProfileState(
     var showXlsxValidationDialog by mutableStateOf(false)
     var showConfirmOverwriteDialog by mutableStateOf(false)
     var showEditProfileDialog by mutableStateOf(false)
+    var showTimePickerDialog by mutableStateOf(false)
     var showCompletionDialog by mutableStateOf<Pair<Boolean, String>?>(null)
 
     var editingUserName by mutableStateOf("")

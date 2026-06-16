@@ -12,7 +12,9 @@ data class AppSettings(
     val theme: String = "PURPLE",
     val selectedThemes: String = "Relationships & Connection,Career & Purpose,Goals & Ambition,Inner Reflection,Emotional Wellbeing,Physical Wellbeing",
     val profilePicture: String = "Person",
-    val hasCompletedOnboarding: Boolean = false
+    val hasCompletedOnboarding: Boolean = false,
+    val isNotificationEnabled: Boolean = false,
+    val notificationHours: String = ""
 )
 
 @Entity(tableName = "entries")

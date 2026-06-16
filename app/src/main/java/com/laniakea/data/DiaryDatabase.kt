@@ -12,7 +12,7 @@ import androidx.room.migration.Migration
 
 @Database(
     entities = [DiaryEntry::class, AppSettings::class],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class DiaryDatabase : RoomDatabase() {
@@ -41,6 +41,13 @@ abstract class DiaryDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE app_settings ADD COLUMN isNotificationEnabled INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE app_settings ADD COLUMN notificationHours TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun getDatabase(context: Context): DiaryDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -48,7 +55,7 @@ abstract class DiaryDatabase : RoomDatabase() {
                     DiaryDatabase::class.java,
                     "laniakea_db"
                 ).fallbackToDestructiveMigration(true)
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)

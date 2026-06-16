@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,10 +26,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import android.app.TimePickerDialog
 import com.laniakea.BuildConfig
 import com.laniakea.R
 import com.laniakea.ui.components.profile.ThemeOption
 import com.laniakea.ui.components.profile.BulletPoint
+import com.laniakea.ui.components.profile.CompletionDialog
+import com.laniakea.ui.components.profile.ConfirmOverwriteDialog
+import com.laniakea.ui.components.profile.ExportDialog
+import com.laniakea.ui.components.profile.ImportDialog
+import com.laniakea.ui.components.profile.XlsxValidationDialog
+import com.laniakea.ui.components.profile.EditProfileDialog
 import com.laniakea.viewmodel.ProfileState
 import com.laniakea.viewmodel.LaniakeaViewModel
 
@@ -66,6 +74,17 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             }
         } else {
             state.password = ""
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            vm.toggleNotifications(true)
+        } else {
+            Toast.makeText(context, "Notification permission is required for reminders", Toast.LENGTH_SHORT).show()
+            vm.toggleNotifications(false)
         }
     }
 
@@ -117,6 +136,25 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         val keys = dynamicAvatars.keys.toMutableSet()
         keys.remove("Person")
         keys.sorted().toList()
+    }
+
+    val timePicker = remember {
+        TimePickerDialog(
+            context,
+            { _, hourOfDay, _ ->
+                vm.addNotificationHour(hourOfDay)
+                state.showTimePickerDialog = false
+            },
+            12, 0, false
+        ).apply {
+            setOnDismissListener { state.showTimePickerDialog = false }
+        }
+    }
+
+    if (state.showTimePickerDialog) {
+        LaunchedEffect(Unit) {
+            timePicker.show()
+        }
     }
 
     // Wrap the entire screen in a Box to allow overlays to be drawn on top
@@ -285,6 +323,70 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                     ListItem(
+                        headlineContent = { Text("Daily Reflection Reminders") },
+                        supportingContent = { Text("Get notified to log your thoughts", style = MaterialTheme.typography.labelMedium) },
+                        trailingContent = {
+                            Switch(
+                                checked = vm.isNotificationEnabled,
+                                onCheckedChange = { 
+                                    if (it) {
+                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                            if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                                permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                            } else {
+                                                vm.toggleNotifications(true)
+                                            }
+                                        } else {
+                                            vm.toggleNotifications(true)
+                                        }
+                                    } else {
+                                        vm.toggleNotifications(false)
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.primary,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
+                                )
+                            )
+                        }
+                    )
+
+                    AnimatedVisibility(visible = vm.isNotificationEnabled) {
+                        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+                            Text("Scheduled Times", style = MaterialTheme.typography.titleSmall)
+                            Spacer(Modifier.height(8.dp))
+                            @OptIn(ExperimentalLayoutApi::class)
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                vm.notificationHours.forEach { hour ->
+                                    InputChip(
+                                        selected = false,
+                                        onClick = { },
+                                        label = { Text(String.format("%02d:00", hour)) },
+                                        trailingIcon = {
+                                            Icon(
+                                                Icons.Default.Close,
+                                                contentDescription = "Remove",
+                                                modifier = Modifier.size(16.dp).clickable { vm.removeNotificationHour(hour) }
+                                            )
+                                        }
+                                    )
+                                }
+                                AssistChip(
+                                    onClick = { state.showTimePickerDialog = true },
+                                    label = { Text("Add Time") },
+                                    leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                )
+                            }
+                        }
+                    }
+                    
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    ListItem(
                         headlineContent = { Text("Vault Export / Import", fontWeight = FontWeight.SemiBold) },
                         leadingContent = { Icon(Icons.Default.Shield, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
                     )
@@ -401,276 +503,58 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 
     // Completion Dialog
     if (state.showCompletionDialog != null) {
-        AlertDialog(
-            onDismissRequest = { state.showCompletionDialog = null },
-            icon = { 
-                Icon(
-                    if (state.showCompletionDialog!!.first) Icons.Default.CheckCircle else Icons.Default.Error,
-                    contentDescription = null,
-                    tint = if (state.showCompletionDialog!!.first) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
-                )
-            },
-            title = { Text(if (state.showCompletionDialog!!.first) "Done Process" else "Failed") },
-            text = { Text(state.showCompletionDialog!!.second) },
-            confirmButton = {
-                Button(onClick = { state.showCompletionDialog = null }) {
-                    Text("OK")
-                }
-            }
+        CompletionDialog(
+            show = state.showCompletionDialog!!,
+            onDismiss = { state.showCompletionDialog = null }
         )
     }
 
     // Overwrite Confirmation Dialog
     if (state.showConfirmOverwriteDialog) {
-        AlertDialog(
-            onDismissRequest = { state.selectedUri = null },
-            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text("Overwrite Existing Vault?") },
-            text = {
-                Text(
-                    "This will completely erase your current memories and settings, replacing them with the data from the backup file. This action cannot be undone.",
-                    textAlign = TextAlign.Center
-                )
+        ConfirmOverwriteDialog(
+            onConfirm = {
+                state.showConfirmOverwriteDialog = false
+                state.showImportDialog = true
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        state.showConfirmOverwriteDialog = false
-                        state.showImportDialog = true
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Yes, Replace Everything")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { 
-                    state.selectedUri = null
-                    state.showConfirmOverwriteDialog = false
-                }) {
-                    Text("Cancel")
-                }
+            onDismiss = {
+                state.selectedUri = null
+                state.showConfirmOverwriteDialog = false
             }
         )
     }
 
     // Export Dialog
     if (state.showExportDialog) {
-        AlertDialog(
-            onDismissRequest = { state.showExportDialog = false; state.password = "" },
-            title = { Text("Secure Export") },
-            text = {
-                Column {
-                    Text("Enter a password to encrypt your vault file. You will need this password to import it later.")
-                    Spacer(modifier = Modifier.height(16.dp))
-                    OutlinedTextField(
-                        value = state.password,
-                        onValueChange = { state.password = it },
-                        label = { Text("Vault Password") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (state.password.length >= 4) {
-                            state.showExportDialog = false
-                            createDocumentLauncher.launch("laniakea_backup.bin")
-                        } else {
-                            Toast.makeText(context, "Password too short", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                ) {
-                    Text("Choose Location")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { 
-                    state.showExportDialog = false
-                    state.password = ""
-                }) {
-                    Text("Cancel")
-                }
-            }
+        ExportDialog(
+            state = state,
+            context = context,
+            createDocumentLauncher = createDocumentLauncher
         )
     }
 
     // Import Dialog
     if (state.showImportDialog) {
-        AlertDialog(
-            onDismissRequest = { state.showImportDialog = false; state.password = "" },
-            title = { Text("Secure Import") },
-            text = {
-                Column {
-                    Text("Enter the state.password for the selected vault file.")
-                    Spacer(modifier = Modifier.height(16.dp))
-                    OutlinedTextField(
-                        value = state.password,
-                        onValueChange = { state.password = it },
-                        label = { Text("Vault Password") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        state.selectedUri?.let { uri ->
-                            state.showImportDialog = false
-                            state.importDataStream(uri, state.password) { success ->
-                                if (success) {
-                                    vm.refreshData()
-                                    state.showCompletionDialog = true to "Your memory vault has been successfully restored."
-                                } else {
-                                    state.showCompletionDialog = false to "Import failed. Please check your password and file."
-                                }
-                                state.password = ""
-                                state.selectedUri = null
-                            }
-                        }
-                    }
-                ) {
-                    Text("Start Import")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { 
-                    state.showImportDialog = false
-                    state.password = ""
-                }) {
-                    Text("Cancel")
-                }
-            }
+        ImportDialog(
+            state = state,
+            vm = vm
         )
     }
 
     // XLSX Validation Dialog
     if (state.showXlsxValidationDialog) {
-        AlertDialog(
-            onDismissRequest = { state.showXlsxValidationDialog = false },
-            title = { Text("Spreadsheet Import Guide") },
-            text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    Text("Ensure your .xlsx file follows this exact column order:", fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("1. Date (yyyy-MM-dd)\n2. Time (HH:mm:ss)\n3. Mood\n4. Category\n5. Weather\n6. Activity\n7. Content")
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Validation Rules:", fontWeight = FontWeight.Bold)
-                    BulletPoint("Rows with missing Date, Time, or Mood will be skipped.")
-                    BulletPoint("Content must contain at least 5 words.")
-                    BulletPoint("Invalid Date/Time formats will be ignored.")
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        state.showXlsxValidationDialog = false
-                        xlsxPickerLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
-                    }
-                ) {
-                    Text("Select File")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { state.showXlsxValidationDialog = false }) {
-                    Text("Cancel")
-                }
-            }
+        XlsxValidationDialog(
+            state = state,
+            xlsxPickerLauncher = xlsxPickerLauncher
         )
     }
 
     // Edit Profile Dialog
     if (state.showEditProfileDialog) {
-        AlertDialog(
-            onDismissRequest = { state.showEditProfileDialog = false },
-            title = { Text("Edit Profile") },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    OutlinedTextField(
-                        value = state.editingUserName,
-                        onValueChange = { state.editingUserName = it },
-                        label = { Text("Name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    
-                    Text("Select Profile Picture", style = MaterialTheme.typography.titleSmall)
-                    
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        for (i in allAvatarKeys.indices step 4) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                            ) {
-                                for (j in 0 until 4) {
-                                    if (i + j < allAvatarKeys.size) {
-                                        val key = allAvatarKeys[i + j]
-                                        val dynamicId = dynamicAvatars[key]
-                                        val isSelected = state.editingProfilePicture == key
-                                        Box(
-                                            modifier = Modifier
-                                                .size(48.dp)
-                                                .background(
-                                                    if (isSelected) MaterialTheme.colorScheme.primaryContainer 
-                                                    else MaterialTheme.colorScheme.surfaceVariant,
-                                                    CircleShape
-                                                )
-                                                .border(
-                                                    if (isSelected) 2.dp else 0.dp,
-                                                    if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                                    CircleShape
-                                                )
-                                                .clickable {
-                                                    state.editingProfilePicture = if (state.editingProfilePicture == key) {
-                                                        "Person"
-                                                    } else {
-                                                        key
-                                                    }
-                                                },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            if (dynamicId != null) {
-                                                Icon(
-                                                    painter = androidx.compose.ui.res.painterResource(id = dynamicId),
-                                                    contentDescription = null,
-                                                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                        }
-                                    } else {
-                                        Spacer(modifier = Modifier.size(48.dp))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        vm.updateProfile(state.editingUserName, state.editingProfilePicture)
-                        state.showEditProfileDialog = false
-                    }
-                ) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { state.showEditProfileDialog = false }
-                ) {
-                    Text("Cancel")
-                }
-            }
+        EditProfileDialog(
+            state = state,
+            vm = vm,
+            allAvatarKeys = allAvatarKeys,
+            dynamicAvatars = dynamicAvatars
         )
     }
 }
