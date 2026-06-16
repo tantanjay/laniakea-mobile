@@ -1,8 +1,8 @@
 package com.laniakea.data
 
-data class WeeklyDigest(
-    val weekStart: Long,
-    val weekEnd: Long,
+data class PeriodDigest(
+    val periodStart: Long,
+    val periodEnd: Long,
     val entryCount: Int,
     val activeDays: Int,
     val dominantThemes: List<String>,

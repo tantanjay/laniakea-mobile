@@ -30,22 +30,46 @@ class VibeManager(
                 "I am feeling sad, anxious, and drained of energy."
             )
         ),
-        "Active vs Passive" to Pair(
-            "Active" to listOf(
-                "I am being highly productive and getting things done.",
-                "Feeling energized, motivated, and taking action.",
-                "Moving fast, working hard, and making progress."
+        "Agency vs Helplessness" to Pair(
+            "Agency" to listOf(
+                "I took control of the situation and made it happen.",
+                "I am responsible for my own choices and I am actively fixing this.",
+                "I stepped up, decided what to do, and executed my plan."
             ),
-            "Passive" to listOf(
-                "I am resting, relaxing, and taking it easy.",
-                "Doing nothing, recovering, and being still.",
-                "Feeling lethargic, unmotivated, and passive."
+            "Helplessness" to listOf(
+                "There is nothing I can do, this just keeps happening to me.",
+                "I have no control over this situation and I am stuck.",
+                "Everything is out of my hands and I am overwhelmed by circumstances."
+            )
+        ),
+        "Certainty vs Rumination" to Pair(
+            "Certainty" to listOf(
+                "I know exactly what I need to do and I am sure of my decision.",
+                "The situation is clear, the facts are absolute, and I am confident.",
+                "I have decided on my path and there is no doubt in my mind."
+            ),
+            "Rumination" to listOf(
+                "I keep overthinking everything and wondering what if I made a mistake.",
+                "Maybe I should have done something else, I'm not really sure.",
+                "I feel confused, uncertain, and keep getting stuck in loops."
+            )
+        ),
+        "Concrete vs Abstract" to Pair(
+            "Concrete" to listOf(
+                "I woke up, drank coffee, walked the dog, and sent some emails.",
+                "I went to the store, bought groceries, and cooked dinner.",
+                "The sun was shining brightly as I ran five miles this morning."
+            ),
+            "Abstract" to listOf(
+                "The nature of existence and meaning is complicated and deeply philosophical.",
+                "We must constantly evaluate our internal paradigms and universal truths.",
+                "Time is a relative construct that intertwines with our perceived reality."
             )
         )
     )
 
     companion object {
-        const val AXIS_TEMPLATE_VERSION = 1
+        const val AXIS_TEMPLATE_VERSION = 2
     }
 
     suspend fun initializeAxes() {
@@ -146,6 +170,16 @@ class VibeManager(
         }
 
         return jsonObj.toString()
+    }
+
+    fun getAxisScore(axisName: String, vector: FloatArray): Float? {
+        val axes = cachedAxes ?: return null
+        val axis = axes.find { it.axisName == axisName } ?: return null
+        
+        val axisVec = axis.axisVector ?: return null
+        val centerVec = axis.centerVector ?: return null
+        
+        return VibeEngine.calculateVibeScore(vector, axisVec, centerVec)
     }
 
     private fun averageVectors(vectors: List<FloatArray>): FloatArray {

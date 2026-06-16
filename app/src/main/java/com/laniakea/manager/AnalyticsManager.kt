@@ -23,9 +23,9 @@ class AnalyticsManager(
     private val securityManager: SecurityManager
 ) {
 
-    suspend fun analyzeWritingTrends(limit: Int = 30): WritingMetrics {
+    suspend fun analyzeWritingTrends(startDate: Long, endDate: Long): WritingMetrics {
         return withContext(Dispatchers.IO) {
-            val rawEntries = db.diaryDao().getRecentEntries(limit)
+            val rawEntries = db.diaryDao().getEntriesInRangeSnapshot(startDate, endDate)
             // Reverse to chronological order (oldest first) for sparkline
             val entries = rawEntries.reversed().map { securityManager.decryptEntry(it) }
 

@@ -304,7 +304,7 @@ class SemanticManager(
         return result
     }
 
-    suspend fun getThemeClusters(selectedThemes: List<String>): Map<String, List<DiaryEntry>> {
+    suspend fun getThemeClusters(selectedThemes: List<String>, startDate: Long, endDate: Long): Map<String, List<DiaryEntry>> {
         if (!isEngineActive()) return emptyMap()
         
         // Ensure themes are initialized
@@ -313,17 +313,24 @@ class SemanticManager(
         }
 
         return withContext(Dispatchers.IO) {
+            val validEntryIds = db.diaryDao().getEntriesInRangeSnapshot(startDate, endDate).map { it.id }.toSet()
+            if (validEntryIds.isEmpty()) return@withContext emptyMap()
+
             val vectorBox = ObjectBoxManager.vectorBox
             val allVectors = vectorBox.query().build().find()
 
-            // Group by pre-calculated semanticTheme
+            // Group by pre-calculated semanticTheme, only including entries in the date range
             val groupedByTheme = allVectors
-                .filter { it.semanticTheme != null && selectedThemes.contains(it.semanticTheme) }
+                .filter { it.entryId in validEntryIds && it.semanticTheme != null }
                 .groupBy { it.semanticTheme!! }
 
             val finalClusters = mutableMapOf<String, List<DiaryEntry>>()
+            
+            // Order by selectedThemes first, then the rest
+            val orderedThemes = selectedThemes + (groupedByTheme.keys - selectedThemes.toSet())
 
-            for ((theme, vectors) in groupedByTheme) {
+            for (theme in orderedThemes) {
+                val vectors = groupedByTheme[theme] ?: continue
                 // Sort by entryId DESC (most recent) and take top 10 potential entries
                 val potentialIds = vectors.sortedByDescending { it.entryId }.take(10).map { it.entryId }
                 
