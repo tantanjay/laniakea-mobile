@@ -1,4 +1,4 @@
-package com.laniakea.ui.components.shared
+package com.laniakea.ui.components.profile
 
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding

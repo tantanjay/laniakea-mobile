@@ -26,9 +26,9 @@ import com.laniakea.engine.GraphEngine
 import com.laniakea.engine.GraphNode
 import com.laniakea.engine.LayoutMode
 import com.laniakea.util.*
-import com.laniakea.ui.screens.CameraState
-import com.laniakea.ui.screens.ColorMode
-import com.laniakea.ui.screens.GalaxyStar
+import com.laniakea.viewmodel.CameraState
+import com.laniakea.viewmodel.ColorMode
+import com.laniakea.viewmodel.GalaxyStar
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale

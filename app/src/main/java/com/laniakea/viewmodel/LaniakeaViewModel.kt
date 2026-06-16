@@ -1,10 +1,7 @@
 package com.laniakea.viewmodel
 
 import android.app.Application
-import android.net.Uri
-import android.util.Log
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -16,26 +13,14 @@ import com.laniakea.data.DiaryEntry
 import com.laniakea.data.ObjectBoxManager
 import com.laniakea.data.ObjectBoxSentenceVector
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
-import java.time.YearMonth
-import java.time.ZoneId
 import java.util.Calendar
 import com.laniakea.manager.VaultManager
-import kotlin.time.Duration.Companion.milliseconds
 
 class LaniakeaViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as LaniakeaApplication
@@ -45,39 +30,23 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     private val securityManager = container.securityManager
     private val embedder = container.embedder
 
-    private val vaultManager = VaultManager(
+    val vaultManager = VaultManager(
         application = application,
         db = db,
         securityManager = securityManager,
-        onProgress = { current, total -> vaultProgress = current to total },
-        onStateChange = { isBackingUp, isRestoring, isImporting ->
-            isVaultBackingUp = isBackingUp
-            isVaultRestoring = isRestoring
-            isXlsxImporting = isImporting
-        }
+        onProgress = { _, _ -> },
+        onStateChange = { _, _, _ -> }
     )
 
     private val analyticsManager = container.analyticsManager
     private val semanticManager = container.semanticManager
     private val vibeManager = container.vibeManager
-    
-    private val anomalyDetector = container.anomalyDetector
     private val cognitiveTracker = container.cognitiveTracker
-
-    // UI State
     var currentAnomalyAlert by mutableStateOf<Pair<DiaryEntry, Float>?>(null)
-        private set
-
     var userName by mutableStateOf("Traveller")
     var profilePicture by mutableStateOf("Person")
     var theme by mutableStateOf("PURPLE")
     var selectedThemes by mutableStateOf<List<String>>(emptyList())
-
-    // Vault states
-    var isVaultRestoring by mutableStateOf(false)
-    var isVaultBackingUp by mutableStateOf(false)
-    var isXlsxImporting by mutableStateOf(false)
-    var vaultProgress by mutableStateOf(0 to 0)
 
     var isEngineActive by mutableStateOf(false)
     var isEngineLoading by mutableStateOf(false)
@@ -94,36 +63,8 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
     var unprocessedCount by mutableIntStateOf(0)
     var isProcessing by mutableStateOf(false)
 
-    // Token Quality State
-    var tokenQuality by mutableFloatStateOf(0f)
-    var tokenCount by mutableIntStateOf(0)
-    var isEntryValid by mutableStateOf(false)
-    private var qualityCheckJob: Job? = null
-
-
-
-    // Journal Screen State
-    private val _selectedDateRange = MutableStateFlow<Pair<Long, Long>?>(null)
-    val selectedDateRange: StateFlow<Pair<Long, Long>?> = _selectedDateRange.asStateFlow()
-
-    private val _viewingMonth = MutableStateFlow(YearMonth.now())
-    val viewingMonth: StateFlow<YearMonth> = _viewingMonth.asStateFlow()
-
     val allEntries = db.diaryDao().getAllEntriesFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val filteredEntries = combine(_selectedDateRange, _viewingMonth) { range, month ->
-        range ?: run {
-            val start = month.atDay(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            val end = month.atEndOfMonth().atTime(23, 59, 59).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            start to end
-        }
-    }.flatMapLatest { (start, end) ->
-        db.diaryDao().getEntriesInRange(start, end)
-    }.map { entries ->
-        entries.map { securityManager.decryptEntry(it) }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
         container.engineActiveProvider = { isEngineActive }
@@ -135,20 +76,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
 
     fun dismissAnomalyAlert() {
         currentAnomalyAlert = null
-    }
-
-    fun setSelectedDateRange(start: Long?, end: Long?) {
-        if (start == null || end == null) {
-            _selectedDateRange.value = null
-        } else {
-            _selectedDateRange.value = minOf(start, end) to maxOf(start, end)
-        }
-    }
-
-    fun setViewingMonth(month: YearMonth) {
-        _viewingMonth.value = month
-        // Reset range selection when changing months to show the new month's entries
-        _selectedDateRange.value = null
     }
 
     private fun observeSettings() {
@@ -214,104 +141,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val currentSettings = db.diaryDao().getSettings() ?: AppSettings()
             db.diaryDao().saveSettings(currentSettings.copy(userName = newName, profilePicture = newPicture))
-        }
-    }
-
-    fun checkTextQuality(text: String) {
-        qualityCheckJob?.cancel()
-        qualityCheckJob = viewModelScope.launch(Dispatchers.Default) {
-            delay(300.milliseconds) // Debounce
-            val quality = embedder.calculateTokenQuality(text)
-            val count = embedder.getUsedTokenCount(text)
-            
-            // Context Validation: 
-            // Must have variety (handled in SentenceEmbedder) and enough words
-            val words = text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-            
-            withContext(Dispatchers.Main) {
-                tokenQuality = quality
-                tokenCount = count
-                isEntryValid = count in 5..256 && quality > 0.4 && words.size >= 5
-            }
-        }
-    }
-
-    fun addDiaryEntry(
-        content: String,
-        mood: String,
-        numericMood: Double,
-        category: String = "Home",
-        weather: String = "Sunny",
-        activities: String = ""
-    ) {
-        // FAIL-SAFE RE-VALIDATION
-        val words = content.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-        val quality = embedder.calculateTokenQuality(content)
-        val count = embedder.getUsedTokenCount(content)
-        
-        if (count !in 5..256 || words.size < 5 || quality <= 0.4) {
-            Log.e("LaniakeaViewModel", "Aborted save: Context validation failed at runtime check.")
-            return
-        }
-
-        viewModelScope.launch(Dispatchers.IO) {
-            val rawEntry = DiaryEntry(
-                dateTime = System.currentTimeMillis(),
-                content = content,
-                mood = mood,
-                category = category,
-                weather = weather,
-                activities = activities,
-                numericMood = numericMood,
-                isVectorized = false
-            )
-
-            if (isEngineActive && semanticManager.isThemesInitialized() && vibeManager.isAxesInitialized()) {
-                val vectors = embedder.embedBoth(content)
-                
-                if (vectors != null) {
-                    val rawVector = vectors.first
-                    val vector = vectors.second
-                    val vibeScoresJson = vibeManager.calculateVibesJson(vector)
-                    val semanticTheme = semanticManager.classifyTheme(rawVector)
-                    val themeDistancesJson = semanticManager.calculateAllThemeDistancesJson(rawVector)
-                    
-                    val metrics = cognitiveTracker.analyze(content, vector) { axisName, vec ->
-                        vibeManager.getAxisScore(axisName, vec)
-                    }
-                    
-                    val entryToSave = securityManager.encryptEntry(
-                        rawEntry.copy(
-                            isVectorized = true,
-                            syntacticPacing = metrics.syntacticPacing,
-                            agencyScore = metrics.agencyScore,
-                            epistemicModality = metrics.epistemicModality,
-                            processingMarkers = metrics.processingMarkers,
-                            temporalHorizon = metrics.temporalHorizon
-                        )
-                    )
-
-                    val entryId = db.diaryDao().insertEntry(entryToSave)
-                    ObjectBoxManager.vectorBox.put(
-                        ObjectBoxSentenceVector(entryId = entryId, vector = vector, semanticTheme = semanticTheme, themeDistancesJson = themeDistancesJson, vibeScoresJson = vibeScoresJson)
-                    )
-                    
-                    // Check for anomaly
-                    val anomalyResult = anomalyDetector.detectAnomaly(vector)
-                    if (anomalyResult.second) { // isAnomaly
-                        withContext(Dispatchers.Main) {
-                            currentAnomalyAlert = Pair(rawEntry, anomalyResult.first)
-                        }
-                    }
-
-                    refreshData()
-                    return@launch
-                }
-            }
-
-            val entryToSave = securityManager.encryptEntry(rawEntry)
-            db.diaryDao().insertEntry(entryToSave)
-            refreshData()
         }
     }
 
@@ -396,6 +225,8 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun triggerAnomalyAlert(pair: Pair<DiaryEntry, Float>?) { currentAnomalyAlert = pair }
+
     fun refreshData() {
         viewModelScope.launch(Dispatchers.IO) {
             refreshProcessingStats()
@@ -416,41 +247,6 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                 }
             }
         }
-    }
-
-    fun exportDataStream(uri: Uri, password: String, onComplete: (Boolean) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            vaultManager.exportDataStream(uri, password, onComplete)
-        }
-    }
-
-    fun importDataStream(uri: Uri, password: String, onComplete: (Boolean) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            vaultManager.importDataStream(uri, password) { success ->
-                if (success) {
-                    if (isEngineActive) embedder.initialize()
-                    refreshData()
-                }
-                onComplete(success)
-            }
-        }
-    }
-
-    fun importXlsxStream(uri: Uri, onComplete: (Boolean) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            vaultManager.importXlsxStream(uri) { success ->
-                if (success) refreshData()
-                onComplete(success)
-            }
-        }
-    }
-
-    suspend fun semanticSearch(query: String, limit: Int = 5): List<DiaryEntry> {
-        return semanticManager.semanticSearch(query, limit)
-    }
-
-    suspend fun findSimilarEntries(entryId: Long, limit: Int = 5): List<DiaryEntry> {
-        return semanticManager.findSimilarEntries(entryId, limit)
     }
 
     fun updateSelectedThemes(themes: List<String>) {

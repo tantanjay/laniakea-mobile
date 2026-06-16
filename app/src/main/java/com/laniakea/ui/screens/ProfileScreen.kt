@@ -1,6 +1,5 @@
 package com.laniakea.ui.screens
 
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,46 +25,48 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.laniakea.BuildConfig
 import com.laniakea.R
 import com.laniakea.ui.components.profile.ThemeOption
-import com.laniakea.ui.components.shared.BulletPoint
+import com.laniakea.ui.components.profile.BulletPoint
+import com.laniakea.viewmodel.ProfileScreenState
 import com.laniakea.viewmodel.LaniakeaViewModel
+import com.laniakea.LaniakeaApplication
 
 @Composable
 fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val context = LocalContext.current
+    val app = context.applicationContext as LaniakeaApplication
+    val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
     
-    var showExportDialog by remember { mutableStateOf(false) }
-    var showImportDialog by remember { mutableStateOf(false) }
-    var showXlsxValidationDialog by remember { mutableStateOf(false) }
-    var showConfirmOverwriteDialog by remember { mutableStateOf(false) }
-    var showEditProfileDialog by remember { mutableStateOf(false) }
-    var showCompletionDialog by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    val state = remember {
+        ProfileScreenState(
+            vaultManager = vm.vaultManager,
+            coroutineScope = coroutineScope
+        )
+    }
+
+    val isVaultRestoring = state.isVaultRestoring
+    val isVaultBackingUp = state.isVaultBackingUp
+    val isXlsxImporting = state.isXlsxImporting
+    val vaultProgress = state.vaultProgress
     
-    var editingUserName by remember { mutableStateOf(vm.userName) }
-    var editingProfilePicture by remember { mutableStateOf(vm.profilePicture) }
-    
-    var password by remember { mutableStateOf("") }
-    var selectedUri by remember { mutableStateOf<Uri?>(null) }
 
     val createDocumentLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
         if (uri != null) {
-            vm.exportDataStream(uri, password) { success ->
-                showCompletionDialog = if (success) {
+            state.exportDataStream(uri, state.password) { success ->
+                state.showCompletionDialog = if (success) {
                     true to "Your memory vault has been securely exported and saved."
                 } else {
                     false to "The export process failed. Please ensure you have enough storage space."
                 }
-                password = ""
+                state.password = ""
             }
         } else {
-            password = ""
+            state.password = ""
         }
     }
 
@@ -73,11 +74,11 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
-            selectedUri = it
+            state.selectedUri = it
             if (vm.totalEntries > 0) {
-                showConfirmOverwriteDialog = true
+                state.showConfirmOverwriteDialog = true
             } else {
-                showImportDialog = true
+                state.showImportDialog = true
             }
         }
     }
@@ -85,12 +86,12 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val xlsxPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
-        uri?.let {
-            vm.importXlsxStream(it) { success ->
-                showCompletionDialog = if (success) {
-                    true to "The spreadsheet data has been successfully integrated into your vault."
+        if (uri != null) {
+            state.importXlsxStream(uri) { success ->
+                state.showCompletionDialog = if (success) {
+                    true to "Your spreadsheet has been successfully imported."
                 } else {
-                    false to "Spreadsheet import failed. Please verify the file format and data integrity."
+                    false to "Import failed. Please ensure the file format matches the template."
                 }
             }
         }
@@ -183,9 +184,9 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 ) {
                     IconButton(
                         onClick = { 
-                            editingUserName = vm.userName
-                            editingProfilePicture = vm.profilePicture
-                            showEditProfileDialog = true 
+                            state.editingUserName = vm.userName
+                            state.editingProfilePicture = vm.profilePicture
+                            state.showEditProfileDialog = true
                         },
                         modifier = Modifier
                             .size(32.dp)
@@ -295,7 +296,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
-                            onClick = { showExportDialog = true },
+                            onClick = { state.showExportDialog = true },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -315,7 +316,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     }
                     
                     OutlinedButton(
-                        onClick = { showXlsxValidationDialog = true },
+                        onClick = { state.showXlsxValidationDialog = true },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 4.dp),
@@ -367,147 +368,47 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             }
         }
 
-        // Vault Restoration Overlay
-        if (vm.isVaultRestoring) {
-            Dialog(
+        // Overlay loading spinner for Vault Operations
+        if (isVaultRestoring || isVaultBackingUp || isXlsxImporting) {
+            val title = when {
+                isVaultRestoring -> "Restoring Vault..."
+                isVaultBackingUp -> "Encrypting & Exporting..."
+                isXlsxImporting -> "Importing Spreadsheet..."
+                else -> ""
+            }
+            AlertDialog(
                 onDismissRequest = { },
-                properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp)
-                ) {
+                title = { Text(title) },
+                text = {
                     Column(
-                        modifier = Modifier.padding(32.dp),
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(
-                            Icons.Default.CloudDownload,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                        CircularProgressIndicator(progress = { vaultProgress })
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("Restoring Memory Vault", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Reconstructing your cognitive landscape...", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(modifier = Modifier.height(24.dp))
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            "${vm.vaultProgress.first} fragments restored",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        Text("${(vaultProgress * 100).toInt()}%", fontWeight = FontWeight.Bold)
                     }
-                }
-            }
-        }
-
-        // Vault Backup Overlay
-        if (vm.isVaultBackingUp) {
-            Dialog(
-                onDismissRequest = { },
-                properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            Icons.Default.Shield,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("Securing Vault", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Encrypting memory fragments for export...", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(modifier = Modifier.height(24.dp))
-                        CircularProgressIndicator()
-                        Spacer(modifier = Modifier.height(16.dp))
-                        if (vm.vaultProgress.second > 0) {
-                            Text(
-                                "${vm.vaultProgress.first} / ${vm.vaultProgress.second}",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        } else {
-                            Text(
-                                "Processing ${vm.vaultProgress.first} memories...",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        
-        // XLSX Import Overlay
-        if (vm.isXlsxImporting) {
-            Dialog(
-                onDismissRequest = { },
-                properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            Icons.Default.TableChart,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("Processing Spreadsheet", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Validating and importing memory entries...", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(modifier = Modifier.height(24.dp))
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            "Row ${vm.vaultProgress.first} of ${vm.vaultProgress.second}",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            }
+                },
+                confirmButton = { }
+            )
         }
     }
 
     // Completion Dialog
-    if (showCompletionDialog != null) {
+    if (state.showCompletionDialog != null) {
         AlertDialog(
-            onDismissRequest = { showCompletionDialog = null },
+            onDismissRequest = { state.showCompletionDialog = null },
             icon = { 
                 Icon(
-                    if (showCompletionDialog!!.first) Icons.Default.CheckCircle else Icons.Default.Error,
+                    if (state.showCompletionDialog!!.first) Icons.Default.CheckCircle else Icons.Default.Error,
                     contentDescription = null,
-                    tint = if (showCompletionDialog!!.first) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
+                    tint = if (state.showCompletionDialog!!.first) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
                 )
             },
-            title = { Text(if (showCompletionDialog!!.first) "Done Process" else "Failed") },
-            text = { Text(showCompletionDialog!!.second) },
+            title = { Text(if (state.showCompletionDialog!!.first) "Done Process" else "Failed") },
+            text = { Text(state.showCompletionDialog!!.second) },
             confirmButton = {
-                Button(onClick = { showCompletionDialog = null }) {
+                Button(onClick = { state.showCompletionDialog = null }) {
                     Text("OK")
                 }
             }
@@ -515,9 +416,9 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     }
 
     // Overwrite Confirmation Dialog
-    if (showConfirmOverwriteDialog) {
+    if (state.showConfirmOverwriteDialog) {
         AlertDialog(
-            onDismissRequest = { selectedUri = null },
+            onDismissRequest = { state.selectedUri = null },
             icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Overwrite Existing Vault?") },
             text = {
@@ -529,8 +430,8 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
-                        showConfirmOverwriteDialog = false
-                        showImportDialog = true
+                        state.showConfirmOverwriteDialog = false
+                        state.showImportDialog = true
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
@@ -539,8 +440,8 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { 
-                    selectedUri = null
-                    showConfirmOverwriteDialog = false
+                    state.selectedUri = null
+                    state.showConfirmOverwriteDialog = false
                 }) {
                     Text("Cancel")
                 }
@@ -549,17 +450,17 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     }
 
     // Export Dialog
-    if (showExportDialog) {
+    if (state.showExportDialog) {
         AlertDialog(
-            onDismissRequest = { showExportDialog = false; password = "" },
+            onDismissRequest = { state.showExportDialog = false; state.password = "" },
             title = { Text("Secure Export") },
             text = {
                 Column {
                     Text("Enter a password to encrypt your vault file. You will need this password to import it later.")
                     Spacer(modifier = Modifier.height(16.dp))
                     OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
+                        value = state.password,
+                        onValueChange = { state.password = it },
                         label = { Text("Vault Password") },
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth()
@@ -569,8 +470,8 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
-                        if (password.length >= 4) {
-                            showExportDialog = false
+                        if (state.password.length >= 4) {
+                            state.showExportDialog = false
                             createDocumentLauncher.launch("laniakea_backup.bin")
                         } else {
                             Toast.makeText(context, "Password too short", Toast.LENGTH_SHORT).show()
@@ -582,8 +483,8 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { 
-                    showExportDialog = false
-                    password = ""
+                    state.showExportDialog = false
+                    state.password = ""
                 }) {
                     Text("Cancel")
                 }
@@ -592,17 +493,17 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     }
 
     // Import Dialog
-    if (showImportDialog) {
+    if (state.showImportDialog) {
         AlertDialog(
-            onDismissRequest = { showImportDialog = false; password = "" },
+            onDismissRequest = { state.showImportDialog = false; state.password = "" },
             title = { Text("Secure Import") },
             text = {
                 Column {
-                    Text("Enter the password for the selected vault file.")
+                    Text("Enter the state.password for the selected vault file.")
                     Spacer(modifier = Modifier.height(16.dp))
                     OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
+                        value = state.password,
+                        onValueChange = { state.password = it },
                         label = { Text("Vault Password") },
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth()
@@ -612,16 +513,16 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
-                        selectedUri?.let { uri ->
-                            showImportDialog = false
-                            vm.importDataStream(uri, password) { success ->
-                                showCompletionDialog = if (success) {
+                        state.selectedUri?.let { uri ->
+                            state.showImportDialog = false
+                            state.importDataStream(uri, state.password) { success ->
+                                state.showCompletionDialog = if (success) {
                                     true to "Your memory vault has been successfully restored."
                                 } else {
                                     false to "Import failed. Please check your password and file."
                                 }
-                                password = ""
-                                selectedUri = null
+                                state.password = ""
+                                state.selectedUri = null
                             }
                         }
                     }
@@ -631,8 +532,8 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { 
-                    showImportDialog = false
-                    password = ""
+                    state.showImportDialog = false
+                    state.password = ""
                 }) {
                     Text("Cancel")
                 }
@@ -641,9 +542,9 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     }
 
     // XLSX Validation Dialog
-    if (showXlsxValidationDialog) {
+    if (state.showXlsxValidationDialog) {
         AlertDialog(
-            onDismissRequest = { showXlsxValidationDialog = false },
+            onDismissRequest = { state.showXlsxValidationDialog = false },
             title = { Text("Spreadsheet Import Guide") },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
@@ -660,7 +561,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
-                        showXlsxValidationDialog = false
+                        state.showXlsxValidationDialog = false
                         xlsxPickerLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                     }
                 ) {
@@ -668,7 +569,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showXlsxValidationDialog = false }) {
+                TextButton(onClick = { state.showXlsxValidationDialog = false }) {
                     Text("Cancel")
                 }
             }
@@ -676,9 +577,9 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     }
 
     // Edit Profile Dialog
-    if (showEditProfileDialog) {
+    if (state.showEditProfileDialog) {
         AlertDialog(
-            onDismissRequest = { showEditProfileDialog = false },
+            onDismissRequest = { state.showEditProfileDialog = false },
             title = { Text("Edit Profile") },
             text = {
                 Column(
@@ -688,8 +589,8 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     OutlinedTextField(
-                        value = editingUserName,
-                        onValueChange = { editingUserName = it },
+                        value = state.editingUserName,
+                        onValueChange = { state.editingUserName = it },
                         label = { Text("Name") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
@@ -707,7 +608,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                                     if (i + j < allAvatarKeys.size) {
                                         val key = allAvatarKeys[i + j]
                                         val dynamicId = dynamicAvatars[key]
-                                        val isSelected = editingProfilePicture == key
+                                        val isSelected = state.editingProfilePicture == key
                                         Box(
                                             modifier = Modifier
                                                 .size(48.dp)
@@ -722,7 +623,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                                                     CircleShape
                                                 )
                                                 .clickable {
-                                                    editingProfilePicture = if (editingProfilePicture == key) {
+                                                    state.editingProfilePicture = if (state.editingProfilePicture == key) {
                                                         "Person"
                                                     } else {
                                                         key
@@ -750,8 +651,8 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
-                        vm.updateProfile(editingUserName, editingProfilePicture)
-                        showEditProfileDialog = false
+                        vm.updateProfile(state.editingUserName, state.editingProfilePicture)
+                        state.showEditProfileDialog = false
                     }
                 ) {
                     Text("Save")
@@ -759,7 +660,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             },
             dismissButton = {
                 TextButton(
-                    onClick = { showEditProfileDialog = false }
+                    onClick = { state.showEditProfileDialog = false }
                 ) {
                     Text("Cancel")
                 }
