@@ -53,6 +53,7 @@ class AnalyticsManager(
             val temporalHorizon = mutableListOf<Pair<Long, Float>>()
 
             for (entry in entries) {
+                if (entry.entryType == "QUESTIONNAIRE") continue
                 val content = entry.content
                 if (content == "[Encrypted]" || content.isBlank()) continue
 

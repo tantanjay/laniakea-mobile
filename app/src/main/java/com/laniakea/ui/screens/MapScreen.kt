@@ -231,9 +231,11 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             }
             val nodeColor = if (state.colorMode == ColorMode.MOOD) getMoodNodeColor(nodeToShow.moodScore) else getCommunityColor(nodeToShow.clusterName)
             val moodLabel = getMoodLabel(nodeToShow.moodScore)
+            val rawEntry = allEntries.find { it.id == nodeToShow.entryId }
             
             MapNodeDetailPanel(
                 nodeToShow = nodeToShow,
+                rawEntry = rawEntry,
                 decryptedContent = decryptedContent,
                 nodeColor = nodeColor,
                 moodLabel = moodLabel,

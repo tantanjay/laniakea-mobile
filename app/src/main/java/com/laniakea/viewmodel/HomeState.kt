@@ -46,6 +46,97 @@ class HomeScreenState(
     var isEntryValid by mutableStateOf(false)
     private var qualityCheckJob: Job? = null
 
+    // Questionnaire State
+    var showQuestionnaire by mutableStateOf(false)
+    var qEnergy by mutableStateOf<String?>(null)
+    var qTheme by mutableStateOf<String?>(null)
+    var qMentalPace by mutableStateOf<String?>(null)
+    var qSocialState by mutableStateOf<String?>(null)
+    var qThinkingStyle by mutableStateOf<String?>(null)
+    var qTemporalFocus by mutableStateOf<String?>(null)
+    var qIntensity by mutableStateOf<String?>(null)
+
+    fun submitQuestionnaire(isEngineActive: Boolean) {
+        val energy = qEnergy ?: return
+        val theme = qTheme ?: return
+        val pace = qMentalPace ?: return
+        val social = qSocialState ?: return
+        val thinking = qThinkingStyle ?: return
+        val temporal = qTemporalFocus ?: return
+        val intensity = qIntensity ?: return
+
+        val content = com.laniakea.util.QuestionnaireUtils.generateSyntheticSentence(
+            energy, theme, pace, social, thinking, temporal, intensity
+        )
+
+        coroutineScope.launch(Dispatchers.IO) {
+            val rawEntry = DiaryEntry(
+                dateTime = System.currentTimeMillis(),
+                content = content,
+                mood = "Fine", // Default since not asked
+                numericMood = 0.0,
+                entryType = "QUESTIONNAIRE",
+                isVectorized = false,
+                energyLevel = com.laniakea.util.QuestionnaireUtils.mapEnergyToFloat(energy),
+                mainTheme = theme,
+                mentalPace = com.laniakea.util.QuestionnaireUtils.mapMentalPaceToFloat(pace),
+                connectionLevel = com.laniakea.util.QuestionnaireUtils.mapSocialStateToFloat(social),
+                thinkingStyle = thinking,
+                timeFocus = temporal,
+                intensityLevel = com.laniakea.util.QuestionnaireUtils.mapIntensityToFloat(intensity)
+            )
+
+            if (isEngineActive && semanticManager.isThemesInitialized() && vibeManager.isAxesInitialized()) {
+                val vectors = embedder.embedBoth(content)
+                if (vectors != null) {
+                    val rawVector = vectors.first
+                    val vector = vectors.second
+                    val vibeScoresJson = vibeManager.calculateVibesJson(vector)
+                    val semanticTheme = semanticManager.classifyTheme(rawVector)
+                    val themeDistancesJson = semanticManager.calculateAllThemeDistancesJson(rawVector)
+
+                    val entryToSave = securityManager.encryptEntry(rawEntry.copy(isVectorized = true))
+                    val entryId = db.diaryDao().insertEntry(entryToSave)
+
+                    ObjectBoxManager.vectorBox.put(
+                        ObjectBoxSentenceVector(
+                            entryId = entryId,
+                            vector = vector,
+                            semanticTheme = semanticTheme,
+                            themeDistancesJson = themeDistancesJson,
+                            vibeScoresJson = vibeScoresJson
+                        )
+                    )
+
+                    withContext(Dispatchers.Main) {
+                        resetQuestionnaire()
+                        showQuestionnaire = false
+                        onEntryAdded()
+                    }
+                    return@launch
+                }
+            }
+
+            val entryToSave = securityManager.encryptEntry(rawEntry)
+            db.diaryDao().insertEntry(entryToSave)
+            withContext(Dispatchers.Main) {
+                resetQuestionnaire()
+                showQuestionnaire = false
+                onEntryAdded()
+            }
+        }
+    }
+
+    private fun resetQuestionnaire() {
+        qEnergy = null
+        qTheme = null
+        qMentalPace = null
+        qSocialState = null
+        qThinkingStyle = null
+        qTemporalFocus = null
+        qIntensity = null
+    }
+
     fun onTextChange(text: String) {
         journalText = text
         qualityCheckJob?.cancel()

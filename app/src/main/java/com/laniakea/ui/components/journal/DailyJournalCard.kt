@@ -15,6 +15,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.TextStyle
 import androidx.compose.ui.platform.LocalLocale
+import com.laniakea.util.QuestionnaireUtils
 
 @Composable
 fun DailyJournalCard(entries: List<DiaryEntry>, onFindSimilar: ((DiaryEntry) -> Unit)? = null) {
@@ -85,8 +86,14 @@ fun DailyJournalCard(entries: List<DiaryEntry>, onFindSimilar: ((DiaryEntry) -> 
                     Spacer(modifier = Modifier.width(12.dp))
 
                     Column(modifier = Modifier.weight(1f)) {
+                        val displayText = if (entry.entryType == "QUESTIONNAIRE") {
+                            QuestionnaireUtils.generateCompactDisplay(entry)
+                        } else {
+                            entry.content
+                        }
+                        
                         Text(
-                            text = entry.content,
+                            text = displayText,
                             modifier = Modifier.fillMaxWidth(),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -101,18 +108,33 @@ fun DailyJournalCard(entries: List<DiaryEntry>, onFindSimilar: ((DiaryEntry) -> 
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // Mood Badge
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = moodColor,
-                                contentColor = Color.White
-                            ) {
-                                Text(
-                                    text = entry.mood.ifEmpty { "Neutral" },
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
+                            // Mood Badge or Questionnaire Indicator
+                            if (entry.entryType == "QUESTIONNAIRE") {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    contentColor = MaterialTheme.colorScheme.onSecondary
+                                ) {
+                                    Text(
+                                        text = "⚡ Quick Reflection",
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            } else {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = moodColor,
+                                    contentColor = Color.White
+                                ) {
+                                    Text(
+                                        text = entry.mood.ifEmpty { "Neutral" },
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
                             }
 
                             if (entry.activities.isNotEmpty()) {
@@ -131,7 +153,7 @@ fun DailyJournalCard(entries: List<DiaryEntry>, onFindSimilar: ((DiaryEntry) -> 
                             }
                         }
 
-                        if (onFindSimilar != null && entry.isVectorized) {
+                        if (onFindSimilar != null && entry.isVectorized && entry.entryType != "QUESTIONNAIRE") {
                             Spacer(modifier = Modifier.height(8.dp))
                             TextButton(
                                 onClick = { onFindSimilar.invoke(entry) },

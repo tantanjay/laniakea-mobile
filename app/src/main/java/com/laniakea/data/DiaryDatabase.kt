@@ -12,7 +12,7 @@ import androidx.room.migration.Migration
 
 @Database(
     entities = [DiaryEntry::class, AppSettings::class],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class DiaryDatabase : RoomDatabase() {
@@ -28,6 +28,19 @@ abstract class DiaryDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE entries ADD COLUMN entryType TEXT NOT NULL DEFAULT 'WRITTEN'")
+                db.execSQL("ALTER TABLE entries ADD COLUMN energyLevel REAL")
+                db.execSQL("ALTER TABLE entries ADD COLUMN mainTheme TEXT")
+                db.execSQL("ALTER TABLE entries ADD COLUMN mentalPace REAL")
+                db.execSQL("ALTER TABLE entries ADD COLUMN connectionLevel REAL")
+                db.execSQL("ALTER TABLE entries ADD COLUMN thinkingStyle TEXT")
+                db.execSQL("ALTER TABLE entries ADD COLUMN timeFocus TEXT")
+                db.execSQL("ALTER TABLE entries ADD COLUMN intensityLevel REAL")
+            }
+        }
+
         fun getDatabase(context: Context): DiaryDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -35,7 +48,7 @@ abstract class DiaryDatabase : RoomDatabase() {
                     DiaryDatabase::class.java,
                     "laniakea_db"
                 ).fallbackToDestructiveMigration(true)
-                .addMigrations(MIGRATION_2_3)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)

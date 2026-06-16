@@ -110,6 +110,7 @@ fun HomeScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             customActivity = state.customActivity,
             onCustomActivityChange = { state.customActivity = it },
             onAddCustomActivity = { state.addCustomActivity() },
+            onQuickCheckInClick = { state.showQuestionnaire = true },
             onSave = { state.addDiaryEntry(vm.isEngineActive) }
         )
 
@@ -120,6 +121,10 @@ fun HomeScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         AnalysisStatusCard(vm)
 
         Spacer(modifier = Modifier.height(32.dp))
+    }
+
+    if (state.showQuestionnaire) {
+        QuestionnaireBottomSheet(state = state, isEngineActive = vm.isEngineActive)
     }
 }
 

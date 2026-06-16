@@ -33,13 +33,16 @@ class PeriodDigestManager(
             val thisPeriodEntries = thisPeriodEntriesRaw.map { securityManager.decryptEntry(it) }
             val priorPeriodEntries = priorPeriodEntriesRaw.map { securityManager.decryptEntry(it) }
 
+            val thisPeriodWrittenEntries = thisPeriodEntries.filter { it.entryType != "QUESTIONNAIRE" }
+            val priorPeriodWrittenEntries = priorPeriodEntries.filter { it.entryType != "QUESTIONNAIRE" }
+
             // 1. Entry Count and Active Days
             val entryCount = thisPeriodEntries.size
             val activeDays = calculateActiveDays(thisPeriodEntries)
 
             // 2. Structural Metrics
-            val thisPeriodMetrics = calculateMetrics(thisPeriodEntries)
-            val priorPeriodMetrics = if (priorPeriodEntries.isNotEmpty()) calculateMetrics(priorPeriodEntries) else null
+            val thisPeriodMetrics = calculateMetrics(thisPeriodWrittenEntries)
+            val priorPeriodMetrics = if (priorPeriodWrittenEntries.isNotEmpty()) calculateMetrics(priorPeriodWrittenEntries) else null
 
             // 3. Dominant Themes and Vibes (only if engine is active)
             val dominantThemes: List<String>

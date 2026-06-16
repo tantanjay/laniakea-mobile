@@ -313,7 +313,9 @@ class SemanticManager(
         }
 
         return withContext(Dispatchers.IO) {
-            val validEntryIds = db.diaryDao().getEntriesInRangeSnapshot(startDate, endDate).map { it.id }.toSet()
+            val validEntryIds = db.diaryDao().getEntriesInRangeSnapshot(startDate, endDate)
+                .filter { it.entryType != "QUESTIONNAIRE" }
+                .map { it.id }.toSet()
             if (validEntryIds.isEmpty()) return@withContext emptyMap()
 
             val vectorBox = ObjectBoxManager.vectorBox
