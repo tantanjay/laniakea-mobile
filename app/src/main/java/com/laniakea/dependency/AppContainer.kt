@@ -1,4 +1,4 @@
-package com.laniakea.di
+package com.laniakea.dependency
 
 import android.content.Context
 import com.laniakea.data.DiaryDatabase
