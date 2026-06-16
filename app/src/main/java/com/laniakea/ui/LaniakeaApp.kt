@@ -50,6 +50,12 @@ fun LaniakeaApp(vm: LaniakeaViewModel = viewModel()) {
 
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
 
+    if (vm.pendingQuickReflection && currentDestination != AppDestinations.HOME) {
+        LaunchedEffect(vm.pendingQuickReflection) {
+            currentDestination = AppDestinations.HOME
+        }
+    }
+
     NavigationSuiteScaffold(
         navigationSuiteItems = {
             AppDestinations.entries.forEach { dest ->
