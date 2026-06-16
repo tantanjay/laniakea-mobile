@@ -34,8 +34,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
         application = application,
         db = db,
         securityManager = securityManager,
-        onProgress = { _, _ -> },
-        onStateChange = { _, _, _ -> }
+        
     )
 
     private val analyticsManager = container.analyticsManager

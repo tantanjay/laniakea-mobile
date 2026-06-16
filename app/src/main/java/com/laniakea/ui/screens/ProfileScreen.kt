@@ -31,12 +31,10 @@ import com.laniakea.ui.components.profile.ThemeOption
 import com.laniakea.ui.components.profile.BulletPoint
 import com.laniakea.viewmodel.ProfileScreenState
 import com.laniakea.viewmodel.LaniakeaViewModel
-import com.laniakea.LaniakeaApplication
 
 @Composable
 fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val context = LocalContext.current
-    val app = context.applicationContext as LaniakeaApplication
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
     
@@ -51,7 +49,8 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val isVaultBackingUp = state.isVaultBackingUp
     val isXlsxImporting = state.isXlsxImporting
     val vaultProgress = state.vaultProgress
-    
+    val vaultProgressCurrent = state.vaultProgressCurrent
+    val vaultProgressTotal = state.vaultProgressTotal
 
     val createDocumentLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream")
@@ -88,10 +87,11 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     ) { uri ->
         if (uri != null) {
             state.importXlsxStream(uri) { success ->
-                state.showCompletionDialog = if (success) {
-                    true to "Your spreadsheet has been successfully imported."
+                if (success) {
+                    vm.refreshData()
+                    state.showCompletionDialog = true to "Your spreadsheet has been successfully imported."
                 } else {
-                    false to "Import failed. Please ensure the file format matches the template."
+                    state.showCompletionDialog = false to "Import failed. Please ensure the file format matches the template."
                 }
             }
         }
@@ -373,8 +373,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             val title = when {
                 isVaultRestoring -> "Restoring Vault..."
                 isVaultBackingUp -> "Encrypting & Exporting..."
-                isXlsxImporting -> "Importing Spreadsheet..."
-                else -> ""
+                else -> "Importing Spreadsheet..."
             }
             AlertDialog(
                 onDismissRequest = { },
@@ -387,6 +386,12 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         CircularProgressIndicator(progress = { vaultProgress })
                         Spacer(modifier = Modifier.height(16.dp))
                         Text("${(vaultProgress * 100).toInt()}%", fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (vaultProgressTotal > 0) {
+                            Text("$vaultProgressCurrent / $vaultProgressTotal items", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else if (vaultProgressCurrent > 0) {
+                            Text("$vaultProgressCurrent items processed", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 },
                 confirmButton = { }
@@ -516,10 +521,11 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         state.selectedUri?.let { uri ->
                             state.showImportDialog = false
                             state.importDataStream(uri, state.password) { success ->
-                                state.showCompletionDialog = if (success) {
-                                    true to "Your memory vault has been successfully restored."
+                                if (success) {
+                                    vm.refreshData()
+                                    state.showCompletionDialog = true to "Your memory vault has been successfully restored."
                                 } else {
-                                    false to "Import failed. Please check your password and file."
+                                    state.showCompletionDialog = false to "Import failed. Please check your password and file."
                                 }
                                 state.password = ""
                                 state.selectedUri = null

@@ -19,7 +19,6 @@ import androidx.compose.ui.graphics.Color
 import android.content.SharedPreferences
 import androidx.core.content.edit
 import com.laniakea.data.DiaryEntry
-import com.laniakea.manager.SecurityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

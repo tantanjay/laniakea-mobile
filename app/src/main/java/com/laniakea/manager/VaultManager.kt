@@ -26,14 +26,14 @@ class VaultManager(
     private val application: Application,
     private val db: DiaryDatabase,
     private val securityManager: SecurityManager,
-    private val onProgress: (Int, Int) -> Unit,
-    private val onStateChange: (isBackingUp: Boolean, isRestoring: Boolean, isImporting: Boolean) -> Unit
+    var onProgress: ((Int, Int) -> Unit)? = null,
+    var onStateChange: ((Boolean, Boolean, Boolean) -> Unit)? = null
 ) {
 
     suspend fun exportDataStream(uri: Uri, password: String, onComplete: (Boolean) -> Unit) {
         withContext(Dispatchers.Main) {
-            onStateChange(true, false, false)
-            onProgress(0, 0)
+            onStateChange?.invoke(true, false, false)
+            onProgress?.invoke(0, 0)
         }
         try {
             val outputStream = application.contentResolver.openOutputStream(uri) ?: throw Exception("Failed to open URI")
@@ -77,7 +77,7 @@ class VaultManager(
                 writer.name("numericMood").value(entry.numericMood)
                 writer.name("isVectorized").value(entry.isVectorized)
                 writer.endObject()
-                withContext(Dispatchers.Main) { onProgress(index + 1, totalCount) }
+                withContext(Dispatchers.Main) { onProgress?.invoke(index + 1, totalCount) }
             }
             writer.endArray()
 
@@ -109,14 +109,14 @@ class VaultManager(
             e.printStackTrace()
             withContext(Dispatchers.Main) { onComplete(false) }
         } finally {
-            withContext(Dispatchers.Main) { onStateChange(false, false, false) }
+            withContext(Dispatchers.Main) { onStateChange?.invoke(false, false, false) }
         }
     }
 
     suspend fun importDataStream(uri: Uri, password: String, onComplete: (Boolean) -> Unit) {
         withContext(Dispatchers.Main) {
-            onStateChange(false, true, false)
-            onProgress(0, 0)
+            onStateChange?.invoke(false, true, false)
+            onProgress?.invoke(0, 0)
         }
         try {
             val inputStream = application.contentResolver.openInputStream(uri) ?: throw Exception("Failed to open URI")
@@ -201,7 +201,7 @@ class VaultManager(
                             if (oldId != -1L) oldToNewIdMap[oldId] = newId
 
                             count++
-                            withContext(Dispatchers.Main) { onProgress(count, 0) }
+                            withContext(Dispatchers.Main) { onProgress?.invoke(count, 0) }
                             reader.endObject()
                         }
                         reader.endArray()
@@ -248,14 +248,14 @@ class VaultManager(
             e.printStackTrace()
             withContext(Dispatchers.Main) { onComplete(false) }
         } finally {
-            withContext(Dispatchers.Main) { onStateChange(false, false, false) }
+            withContext(Dispatchers.Main) { onStateChange?.invoke(false, false, false) }
         }
     }
 
     suspend fun importXlsxStream(uri: Uri, onComplete: (Boolean) -> Unit) {
         withContext(Dispatchers.Main) {
-            onStateChange(false, false, true)
-            onProgress(0, 0)
+            onStateChange?.invoke(false, false, true)
+            onProgress?.invoke(0, 0)
         }
         try {
             val inputStream = application.contentResolver.openInputStream(uri) ?: throw Exception("Failed to open URI")
@@ -317,7 +317,7 @@ class VaultManager(
                     Log.e("VaultManager", "Error importing row $i", e)
                 }
 
-                withContext(Dispatchers.Main) { onProgress(i, totalRows) }
+                withContext(Dispatchers.Main) { onProgress?.invoke(i, totalRows) }
             }
 
             workbook.close()
@@ -332,7 +332,7 @@ class VaultManager(
             Log.e("VaultManager", "XLSX Import failed", e)
             withContext(Dispatchers.Main) { onComplete(false) }
         } finally {
-            withContext(Dispatchers.Main) { onStateChange(false, false, false) }
+            withContext(Dispatchers.Main) { onStateChange?.invoke(false, false, false) }
         }
     }
 
