@@ -31,6 +31,9 @@ import com.laniakea.ui.components.insight.CognitiveRadarChart
 import com.laniakea.ui.components.insight.GradientGauge
 import com.laniakea.ui.components.insight.PeriodDigestCard
 import com.laniakea.ui.components.insight.WritingTrendCard
+import com.laniakea.ui.components.insight.ThemeSelectionDialog
+import com.laniakea.ui.components.insight.ThemeClusterCard
+import com.laniakea.ui.components.insight.InfoSection
 import com.laniakea.viewmodel.InsightScreenState
 import com.laniakea.viewmodel.LaniakeaViewModel
 import kotlinx.coroutines.launch
@@ -50,12 +53,10 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     }
     val coroutineScope = rememberCoroutineScope()
     
-    var showInfo by remember { mutableStateOf(false) }
-
-    if (showInfo) {
+    if (state.showInfo) {
         AlertDialog(
-            onDismissRequest = { showInfo = false },
-            confirmButton = { TextButton(onClick = { showInfo = false }) { Text("Got it") } },
+            onDismissRequest = { state.showInfo = false },
+            confirmButton = { TextButton(onClick = { state.showInfo = false }) { Text("Got it") } },
             title = { Text("About Insights", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -128,7 +129,7 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     }
 
                     Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { showInfo = true }) {
+                        IconButton(onClick = { state.showInfo = true }) {
                             Icon(Icons.Default.Info, contentDescription = "Info", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                         }
                         IconButton(
@@ -262,12 +263,10 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             }
 
             // Semantic Themes
-            var showThemeSelection by remember { mutableStateOf(false) }
-
-            if (showThemeSelection) {
+            if (state.showThemeSelection) {
                 ThemeSelectionDialog(
                     vm = vm, 
-                    onDismiss = { showThemeSelection = false },
+                    onDismiss = { state.showThemeSelection = false },
                     onSave = { 
                         coroutineScope.launch { state.refreshInsights(vm.selectedThemes) }
                     }
@@ -279,7 +278,7 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     Icon(Icons.Default.Star, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                     Text("Semantic Themes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
-                IconButton(onClick = { showThemeSelection = true }, enabled = vm.isEngineActive) {
+                IconButton(onClick = { state.showThemeSelection = true }, enabled = vm.isEngineActive) {
                     Icon(Icons.Default.Edit, contentDescription = "Edit Themes", tint = if (vm.isEngineActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(20.dp))
                 }
             }
@@ -327,81 +326,5 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 
             Spacer(modifier = Modifier.height(24.dp))
         }
-    }
-}
-
-@Composable
-fun ThemeSelectionDialog(vm: LaniakeaViewModel, onDismiss: () -> Unit, onSave: () -> Unit) {
-    val allThemes = SemanticManager.richThemes.keys.toList()
-    var selectedThemes by remember { mutableStateOf(vm.selectedThemes.toSet()) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Customize Themes") },
-        text = {
-            Column {
-                Text("Select the themes you want to track in your insights.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 8.dp))
-                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
-                    items(allThemes.size) { index ->
-                        val theme = allThemes[index]
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().clickable {
-                                val newSet = selectedThemes.toMutableSet()
-                                if (newSet.contains(theme)) newSet.remove(theme) else newSet.add(theme)
-                                selectedThemes = newSet
-                            }.padding(vertical = 4.dp)
-                        ) {
-                            Checkbox(checked = selectedThemes.contains(theme), onCheckedChange = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(theme)
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { 
-            TextButton(onClick = { 
-                vm.updateSelectedThemes(selectedThemes.toList())
-                onSave()
-                onDismiss() 
-            }) { Text("Save") } 
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
-}
-
-@Composable
-fun ThemeClusterCard(theme: String, entries: List<DiaryEntry>, modifier: Modifier = Modifier) {
-    val windowInfo = LocalWindowInfo.current
-    val density = LocalDensity.current
-    val isTablet = with(density) { windowInfo.containerSize.width.toDp() > 600.dp }
-
-    Surface(
-        modifier = modifier,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(theme, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
-            Spacer(modifier = Modifier.height(8.dp))
-            entries.take(3).forEach { entry ->
-                Text(
-                    text = "• " + entry.content, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
-                    maxLines = if (isTablet) Int.MAX_VALUE else 3,
-                    overflow = if (isTablet) TextOverflow.Clip else TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun InfoSection(title: String, content: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-        Text(content, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
     }
 }

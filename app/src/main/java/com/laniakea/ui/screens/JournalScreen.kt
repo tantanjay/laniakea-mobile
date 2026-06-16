@@ -29,38 +29,28 @@ import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.sp
 import com.laniakea.data.DiaryEntry
+import com.laniakea.viewmodel.JournalScreenState
+import com.laniakea.LaniakeaApplication
+import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
-    val allEntries by vm.allEntries.collectAsState()
-    val filteredEntries by vm.filteredEntries.collectAsState()
-    val selectedRange by vm.selectedDateRange.collectAsState()
-    val currentMonth by vm.viewingMonth.collectAsState()
-
-    var isCalendarExpanded by remember { mutableStateOf(true) }
-
-    var searchQuery by remember { mutableStateOf("") }
-    var isSearching by remember { mutableStateOf(false) }
-    var searchResults by remember { mutableStateOf<List<DiaryEntry>>(emptyList()) }
-    
-    var showSimilarDialogForEntry by remember { mutableStateOf<DiaryEntry?>(null) }
-    var similarEntriesList by remember { mutableStateOf<List<DiaryEntry>>(emptyList()) }
-    var isLoadingSimilar by remember { mutableStateOf(false) }
-    var showSimilarInfo by remember { mutableStateOf(false) }
-
-    LaunchedEffect(searchQuery) {
-        if (searchQuery.isNotBlank()) {
-            isSearching = true
-            try {
-                kotlinx.coroutines.delay(500.milliseconds)
-                searchResults = vm.semanticSearch(searchQuery)
-            } finally {
-                isSearching = false
-            }
-        } else {
-            searchResults = emptyList()
-        }
+    val context = LocalContext.current
+    val app = context.applicationContext as LaniakeaApplication
+    val coroutineScope = rememberCoroutineScope()
+    val state = remember {
+        JournalScreenState(
+            db = app.container.database,
+            semanticManager = app.container.semanticManager,
+            securityManager = app.container.securityManager,
+            coroutineScope = coroutineScope
+        )
     }
+
+    val allEntries by state.allEntries.collectAsState()
+    val filteredEntries by state.filteredEntries.collectAsState()
+    val selectedRange by state.selectedDateRange.collectAsState()
+    val currentMonth by state.viewingMonth.collectAsState()
 
     val groupedEntries = remember(filteredEntries) {
         filteredEntries.groupBy {
@@ -90,10 +80,10 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 color = MaterialTheme.colorScheme.primary
             )
 
-            IconButton(onClick = { isCalendarExpanded = !isCalendarExpanded }) {
+            IconButton(onClick = { state.isCalendarExpanded = !state.isCalendarExpanded }) {
                 Icon(
-                    imageVector = if (isCalendarExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = if (isCalendarExpanded) "Collapse Calendar" else "Expand Calendar",
+                    imageVector = if (state.isCalendarExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (state.isCalendarExpanded) "Collapse Calendar" else "Expand Calendar",
                     tint = MaterialTheme.colorScheme.primary
                 )
             }
@@ -103,14 +93,14 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 
         // Semantic Search Bar
         OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
+            value = state.searchQuery,
+            onValueChange = { state.onSearchQueryChanged(it) },
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("Search entries...") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
             trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { searchQuery = "" }) {
+                if (state.searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { state.onSearchQueryChanged("") }) {
                         Icon(Icons.Default.Clear, contentDescription = "Clear")
                     }
                 }
@@ -125,13 +115,13 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (searchQuery.isNotEmpty()) {
+        if (state.searchQuery.isNotEmpty()) {
             // SHOW SEARCH RESULTS
-            if (isSearching) {
+            if (state.isSearching) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-            } else if (searchResults.isEmpty()) {
+            } else if (state.searchResults.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                     Text(
                         text = "No matches found.",
@@ -153,11 +143,9 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
                     }
-                    items(searchResults, key = { it.id }) { entry ->
+                    items(state.searchResults, key = { it.id }) { entry ->
                         DailyJournalCard(listOf(entry), onFindSimilar = { e ->
-                            similarEntriesList = emptyList()
-                            isLoadingSimilar = true
-                            showSimilarDialogForEntry = e
+                            state.findSimilarEntriesFor(e)
                         })
                     }
                 }
@@ -165,20 +153,20 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         } else {
             // SHOW STANDARD TIMELINE
             AnimatedVisibility(
-                visible = isCalendarExpanded,
+                visible = state.isCalendarExpanded,
                 enter = expandVertically(),
                 exit = shrinkVertically()
             ) {
                 Column {
                     CalendarView(
                         currentMonth = currentMonth,
-                        onMonthChange = { vm.setViewingMonth(it) },
+                        onMonthChange = { state.setViewingMonth(it) },
                         entries = allEntries,
                         selectedRange = selectedRange,
                         onRangeSelected = { start, end ->
-                            vm.setSelectedDateRange(start, end)
+                            state.setSelectedDateRange(start, end)
                         },
-                        onSwipeUp = { isCalendarExpanded = false }
+                        onSwipeUp = { state.isCalendarExpanded = false }
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                 }
@@ -202,7 +190,7 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 
                 if (selectedRange != null) {
                     TextButton(
-                        onClick = { vm.setSelectedDateRange(null, null) },
+                        onClick = { state.setSelectedDateRange(null, null) },
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.secondary)
                     ) {
                         Text("Clear Filter")
@@ -219,9 +207,7 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             ) {
                 items(groupedEntries, key = { it.first.toString() }) { (_, entries) ->
                     DailyJournalCard(entries, onFindSimilar = { e ->
-                        similarEntriesList = emptyList()
-                        isLoadingSimilar = true
-                        showSimilarDialogForEntry = e
+                        state.findSimilarEntriesFor(e)
                     })
                 }
                 
@@ -281,11 +267,11 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     }
 
     // SIMILAR ENTRIES DIALOG
-    if (showSimilarDialogForEntry != null) {
+    if (state.showSimilarDialogForEntry != null) {
         AlertDialog(
-            onDismissRequest = { showSimilarDialogForEntry = null },
+            onDismissRequest = { state.closeSimilarDialog() },
             confirmButton = {
-                TextButton(onClick = { showSimilarDialogForEntry = null }) {
+                TextButton(onClick = { state.closeSimilarDialog() }) {
                     Text("Close")
                 }
             },
@@ -301,7 +287,7 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
-                        IconButton(onClick = { showSimilarInfo = true }) {
+                        IconButton(onClick = { state.showSimilarInfo = true }) {
                             Icon(
                                 imageVector = Icons.Default.Info,
                                 contentDescription = "Information",
@@ -309,7 +295,7 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                             )
                         }
                     }
-                    showSimilarDialogForEntry?.let { sourceEntry ->
+                    state.showSimilarDialogForEntry?.let { sourceEntry ->
                         val sourceDate = Instant.ofEpochMilli(sourceEntry.dateTime)
                             .atZone(ZoneId.systemDefault()).toLocalDate()
                         val preview = sourceEntry.content.take(50) + if (sourceEntry.content.length > 50) "..." else ""
@@ -323,18 +309,18 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 }
             },
             text = {
-                if (isLoadingSimilar) {
+                if (state.isLoadingSimilar) {
                     Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
-                } else if (similarEntriesList.isEmpty()) {
+                } else if (state.similarEntriesList.isEmpty()) {
                     Text("No similar entries found.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     LazyColumn(
                         modifier = Modifier.heightIn(max = 400.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(similarEntriesList, key = { it.id }) { similarEntry ->
+                        items(state.similarEntriesList, key = { it.id }) { similarEntry ->
                             DailyJournalCard(listOf(similarEntry), onFindSimilar = null)
                         }
                     }
@@ -343,24 +329,11 @@ fun JournalScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         )
     }
 
-    LaunchedEffect(showSimilarDialogForEntry) {
-        val entry = showSimilarDialogForEntry
-        if (entry != null) {
-            isLoadingSimilar = true
-            similarEntriesList = emptyList()
-            try {
-                similarEntriesList = vm.findSimilarEntries(entry.id)
-            } finally {
-                isLoadingSimilar = false
-            }
-        }
-    }
-
-    if (showSimilarInfo) {
+    if (state.showSimilarInfo) {
         AlertDialog(
-            onDismissRequest = { showSimilarInfo = false },
+            onDismissRequest = { state.showSimilarInfo = false },
             confirmButton = {
-                TextButton(onClick = { showSimilarInfo = false }) {
+                TextButton(onClick = { state.showSimilarInfo = false }) {
                     Text("Got it")
                 }
             },

@@ -46,41 +46,9 @@ import com.laniakea.ui.components.map.MapEmptyState
 import androidx.core.content.edit
 import com.laniakea.data.ObjectBoxManager
 
-enum class ColorMode { MOOD, COMMUNITY }
-
-data class GalaxyStar(val x: Float, val y: Float, val z: Float, val size: Float, val color: Color)
-
-/**
- * Immutable camera state with a companion providing sensible defaults.
- * Eliminates duplicated reset values that were previously scattered across the file.
- */
-data class CameraState(
-    val yaw: Float = DEFAULT_YAW,
-    val pitch: Float = DEFAULT_PITCH,
-    val roll: Float = DEFAULT_ROLL,
-    val cameraX: Float = DEFAULT_CAMERA_X,
-    val cameraY: Float = DEFAULT_CAMERA_Y,
-    val cameraZ: Float = DEFAULT_CAMERA_Z,
-) {
-    companion object {
-        const val DEFAULT_YAW = 0f
-        const val DEFAULT_PITCH = -0.6f
-        const val DEFAULT_ROLL = 0f
-        const val DEFAULT_CAMERA_X = 0f
-        const val DEFAULT_CAMERA_Y = 0f
-        const val DEFAULT_CAMERA_Z = 800f
-    }
-
-    fun reset(): CameraState = CameraState()
-    
-    fun resetForMode(mode: LayoutMode): CameraState {
-        return if (mode == LayoutMode.TIME_WARP) {
-            CameraState(pitch = 0f, cameraZ = 800f) // Look straight down the barrel for Time Warp
-        } else {
-            CameraState() // Tilted -0.6f pitch for Galaxy/Clusters
-        }
-    }
-}
+import com.laniakea.viewmodel.ColorMode
+import com.laniakea.viewmodel.GalaxyStar
+import com.laniakea.viewmodel.CameraState
 
 @Composable
 fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
@@ -91,94 +59,17 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("map_prefs", android.content.Context.MODE_PRIVATE) }
-    val state = remember { MapScreenState(coroutineScope) }
+    val state = remember { MapScreenState(coroutineScope, prefs) }
 
-    var colorMode by remember { 
-        mutableStateOf(ColorMode.valueOf(prefs.getString("color_mode", ColorMode.MOOD.name) ?: ColorMode.MOOD.name)) 
-    }
-    var layoutMode by remember { 
-        mutableStateOf(LayoutMode.valueOf(prefs.getString("layout_mode", LayoutMode.CLUSTERS.name) ?: LayoutMode.CLUSTERS.name)) 
-    }
-    var showDecorations by remember { 
-        mutableStateOf(prefs.getBoolean("show_decorations", true)) 
-    }
-
-    val backgroundStars = remember {
-        val list = mutableListOf<GalaxyStar>()
-        val numStars = 4000
-        val numArms = 2
-        val random = java.util.Random()
-
-        for (i in 0 until numStars) {
-            val isCore = i < numStars * 0.35f
-            if (isCore) {
-                val r = (kotlin.math.abs(random.nextGaussian()) * 150f).toFloat()
-                val theta = random.nextDouble() * 2 * Math.PI
-                val phi = kotlin.math.acos(2 * random.nextDouble() - 1)
-                
-                val x = r * kotlin.math.sin(phi) * kotlin.math.cos(theta)
-                val y = r * kotlin.math.sin(phi) * kotlin.math.sin(theta)
-                val z = r * kotlin.math.cos(phi) * 0.8
-                
-                val color = Color(0xFFFFFFFF)
-                val size = random.nextFloat() * 1.5f + 0.5f
-                list.add(GalaxyStar(x.toFloat(), y.toFloat(), z.toFloat(), size, color))
-            } else {
-                val armIndex = i % numArms
-                val dist = (random.nextFloat() * 1000f) + 80f
-                val baseAngle = dist * 0.004f + (armIndex * (2 * Math.PI / numArms))
-                val spread = (random.nextGaussian() * (dist * 0.18f)).toFloat()
-                val angle = baseAngle + (spread * 0.002f)
-                val x = (kotlin.math.cos(angle) * dist).toFloat() + spread * kotlin.math.cos(angle + Math.PI/2).toFloat()
-                val y = (kotlin.math.sin(angle) * dist).toFloat() + spread * kotlin.math.sin(angle + Math.PI/2).toFloat()
-                val zThickness = (1000f - dist).coerceAtLeast(0f) * 0.03f
-                val z = (random.nextGaussian() * zThickness).toFloat()
-                
-                val color = Color(0xFFB0B0B0)
-                val size = random.nextFloat() * 2.0f + 0.5f
-                list.add(GalaxyStar(x, y, z, size, color))
-            }
-        }
-        list
-    }
-
-    var allNodes by remember { mutableStateOf<List<GraphNode>>(emptyList()) }
-    var allEdges by remember { mutableStateOf<List<GraphEdge>>(emptyList()) }
-    
-    // Replay controls visibility only — no physics during replay
-    // Variables migrated to MapScreenState
-    
-    // Settle button re-runs live physics briefly
-    var isSettling by remember { mutableStateOf(false) }
-    var showInfoDialog by remember { mutableStateOf(false) }
-    
-    val graphEngine = remember { GraphEngine() }
-    var layoutWidth by remember { mutableFloatStateOf(0f) }
-    var layoutHeight by remember { mutableFloatStateOf(0f) }
-    
-    var camera by remember { mutableStateOf(CameraState()) }
-    
-    var selectedNode by remember { mutableStateOf<GraphNode?>(null) }
-    var isIsolateMode by remember { mutableStateOf(false) }
-    var lockedFocusNode by remember { mutableStateOf<GraphNode?>(null) }
-    var showConnectionsFor by remember { mutableStateOf<GraphNode?>(null) }
-    var showDetailPanelInFocusMode by remember { mutableStateOf(false) }
-    
-    var vectorsFetched by remember { mutableStateOf(false) }
-    var vectors by remember { mutableStateOf<List<ObjectBoxSentenceVector>>(emptyList()) }
-    
-    var hasBuiltGraph by remember { mutableStateOf(false) }
-    var isBuildingGraph by remember { mutableStateOf(false) }
-    
-    var dismissEmptyState by remember { mutableStateOf(false) }
-    
-    var entryLimit by remember { mutableIntStateOf(1000) }
-    
     val securityManager = remember { SecurityManager(context) }
     
-    // Build a node map for ID-based edge lookups
-    val nodeMap = remember(allNodes) { allNodes.associateBy { it.entryId } }
-    
+    // Content decryptor lambda — passed to the engine to avoid leaking SecurityManager
+    val contentDecryptor: (String) -> String = remember(securityManager) {
+        { encrypted: String ->
+            try { securityManager.decrypt(encrypted) } catch (_: Exception) { encrypted }
+        }
+    }
+
     // Pulsing glow animation
     val infiniteTransition = rememberInfiniteTransition(label = "glow")
     val glowPulse by infiniteTransition.animateFloat(
@@ -190,86 +81,28 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         ),
         label = "glowPulse"
     )
-    
-    // Content decryptor lambda — passed to the engine to avoid leaking SecurityManager
-    val contentDecryptor: (String) -> String = remember(securityManager) {
-        { encrypted: String ->
-            try { securityManager.decrypt(encrypted) } catch (_: Exception) { encrypted }
-        }
-    }
-    
+
     LaunchedEffect(isEngineActive) {
         if (isEngineActive) {
-            vectors = ObjectBoxManager.vectorBox.all
-            vectorsFetched = true
+            state.vectors = ObjectBoxManager.vectorBox.all
+            state.vectorsFetched = true
         }
     }
     
-    // Build and pre-settle the graph — layout is already done when it appears
-    LaunchedEffect(vectorsFetched, allEntries.size, layoutWidth, layoutHeight, entryLimit) {
-        if (vectorsFetched && allEntries.isNotEmpty() && layoutWidth > 0 && layoutHeight > 0) {
-            val entriesToProcess = allEntries.sortedByDescending { it.dateTime }.take(entryLimit)
-            if (hasBuiltGraph && allNodes.size == entriesToProcess.size) return@LaunchedEffect
-            
-            isBuildingGraph = true
-            
-            val entriesIds = entriesToProcess.map { it.id }.toSet()
-            val vectorsToProcess = vectors.filter { it.entryId in entriesIds }
-            
-            val (initialNodes, initialEdges) = withContext(Dispatchers.Default) {
-                graphEngine.layoutMode = layoutMode // Sync layout mode before building
-                graphEngine.buildGraph(
-                    entries = entriesToProcess,
-                    vectors = vectorsToProcess,
-                    width = layoutWidth,
-                    height = layoutHeight,
-                    contentDecryptor = contentDecryptor
-                )
-            }
-            allNodes = initialNodes.sortedBy { it.date }
-            allEdges = initialEdges
-            state.replayProgress = allNodes.size
-            hasBuiltGraph = true
-            isBuildingGraph = false
-        }
+    LaunchedEffect(state.vectorsFetched, allEntries.size, state.layoutWidth, state.layoutHeight, state.entryLimit) {
+        state.checkAndBuildGraph(allEntries, contentDecryptor)
     }
-    
-    // Live physics for the "Settle" button only
-    LaunchedEffect(isSettling) {
-        if (isSettling) {
-            graphEngine.layoutMode = layoutMode
-            graphEngine.startLiveSimulation()
-            var steps = 0
-            while (isSettling && steps < 150) { // Reduced steps to 150 for faster propagation
-                delay(16L.milliseconds)
-                graphEngine.applyLiveStep(allNodes, allEdges, nodeMap, layoutWidth, layoutHeight, 150)
-                allNodes = allNodes.toList() // trigger recomposition
-                steps++
-            }
-            isSettling = false
-        }
-    }
-    
-    // Automatically settle when switching layout modes
-    LaunchedEffect(layoutMode) {
-        if (hasBuiltGraph && !state.isReplaying) {
-            isSettling = true
-            camera = camera.resetForMode(layoutMode)
-        }
-    }
-    
-    // Replay loop logic migrated to MapScreenState
-    
+
     // Continuous Background Animations
-    LaunchedEffect(layoutMode) {
+    LaunchedEffect(state.layoutMode) {
         var t = 0f
         while (true) {
             delay(16L.milliseconds)
             t += 0.016f
-            if (selectedNode == null && !showDetailPanelInFocusMode && !state.isReplaying) {
-                if (layoutMode == LayoutMode.GALAXY) {
-                    camera = camera.copy(
-                        roll = camera.roll - 0.002f, // Spin around the galaxy's center
+            if (state.selectedNode == null && !state.showDetailPanelInFocusMode && !state.isReplaying) {
+                if (state.layoutMode == LayoutMode.GALAXY) {
+                    state.camera = state.camera.copy(
+                        roll = state.camera.roll - 0.002f, // Spin around the galaxy's center
                         yaw = kotlin.math.cos(t * 0.1f) * 0.1f
                     )
                 }
@@ -297,7 +130,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             .padding(padding)
             .background(Brush.verticalGradient(backgroundGradient))
     ) {
-        if (!isEngineActive || isBuildingGraph) {
+        if (!isEngineActive || state.isBuildingGraph) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     if (!isEngineActive && !isEngineLoading) {
@@ -326,18 +159,18 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             Box(modifier = Modifier
                 .fillMaxSize()
                 .onSizeChanged { size ->
-                    layoutWidth = size.width.toFloat()
-                    layoutHeight = size.height.toFloat()
+                    state.layoutWidth = size.width.toFloat()
+                    state.layoutHeight = size.height.toFloat()
                 }
             )
             return@Box
         }
 
-        val baseVisibleNodes = allNodes.take(state.replayProgress)
-        val focusCenter = if (isIsolateMode) (lockedFocusNode ?: selectedNode) else null
+        val baseVisibleNodes = state.allNodes.take(state.replayProgress)
+        val focusCenter = if (state.isIsolateMode) (state.lockedFocusNode ?: state.selectedNode) else null
         
         val visibleNodes = if (focusCenter != null) {
-            val connectedIds = allEdges.filter { it.sourceId == focusCenter.entryId || it.targetId == focusCenter.entryId }
+            val connectedIds = state.allEdges.filter { it.sourceId == focusCenter.entryId || it.targetId == focusCenter.entryId }
                 .flatMap { listOf(it.sourceId, it.targetId) }
                 .toSet()
             baseVisibleNodes.filter { it.entryId == focusCenter.entryId || it.entryId in connectedIds }
@@ -347,35 +180,35 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 
         val visibleIds = visibleNodes.map { it.entryId }.toSet()
         val visibleEdges = if (focusCenter != null) {
-            allEdges.filter { (it.sourceId == focusCenter.entryId || it.targetId == focusCenter.entryId) && 
+            state.allEdges.filter { (it.sourceId == focusCenter.entryId || it.targetId == focusCenter.entryId) && 
                               it.sourceId in visibleIds && it.targetId in visibleIds }
         } else {
-            allEdges.filter { it.sourceId in visibleIds && it.targetId in visibleIds }
+            state.allEdges.filter { it.sourceId in visibleIds && it.targetId in visibleIds }
         }
 
         ConstellationCanvas(
             visibleNodes = visibleNodes,
             visibleEdges = visibleEdges,
-            allNodes = allNodes,
-            backgroundStars = backgroundStars,
-            layoutMode = layoutMode,
-            colorMode = colorMode,
-            camera = camera,
-            onCameraChange = { camera = it },
-            graphEngine = graphEngine,
-            isIsolateMode = isIsolateMode,
-            selectedNode = selectedNode,
-            onNodeTap = { selectedNode = it },
+            allNodes = state.allNodes,
+            backgroundStars = state.backgroundStars,
+            layoutMode = state.layoutMode,
+            colorMode = state.colorMode,
+            camera = state.camera,
+            onCameraChange = { state.camera = it },
+            graphEngine = state.graphEngine,
+            isIsolateMode = state.isIsolateMode,
+            selectedNode = state.selectedNode,
+            onNodeTap = { state.selectedNode = it },
             onNodeDoubleTap = { clicked ->
-                selectedNode = clicked
-                showDetailPanelInFocusMode = true
+                state.selectedNode = clicked
+                state.showDetailPanelInFocusMode = true
             },
             onLayoutSize = { w, h ->
-                layoutWidth = w
-                layoutHeight = h
+                state.layoutWidth = w
+                state.layoutHeight = h
             },
             glowPulse = glowPulse,
-            showDecorations = showDecorations
+            showDecorations = state.showDecorations
         )
 
         // Stats badge
@@ -386,19 +219,19 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         )
         
         // Empty state / low node count visual
-        if (allNodes.size < 10 && !isBuildingGraph && vectorsFetched && (!dismissEmptyState || allNodes.isEmpty())) {
+        if (state.allNodes.size < 10 && !state.isBuildingGraph && state.vectorsFetched && (!state.dismissEmptyState || state.allNodes.isEmpty())) {
             MapEmptyState(
-                isEmpty = allNodes.isEmpty(),
+                isEmpty = state.allNodes.isEmpty(),
                 accentColor = accentColor,
                 glowPulse = glowPulse,
-                onClose = { dismissEmptyState = true }
+                onClose = { state.dismissEmptyState = true }
             )
         }
         
         // Node detail panel
-        val showPanel = (!isIsolateMode && selectedNode != null) || (isIsolateMode && showDetailPanelInFocusMode && selectedNode != null)
+        val showPanel = (!state.isIsolateMode && state.selectedNode != null) || (state.isIsolateMode && state.showDetailPanelInFocusMode && state.selectedNode != null)
         if (showPanel) {
-            val nodeToShow = selectedNode!!
+            val nodeToShow = state.selectedNode!!
             val decryptedContent = remember(nodeToShow) {
                 try {
                     securityManager.decrypt(nodeToShow.content)
@@ -406,7 +239,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     nodeToShow.content
                 }
             }
-            val nodeColor = if (colorMode == ColorMode.MOOD) getMoodNodeColor(nodeToShow.moodScore) else getCommunityColor(nodeToShow.clusterName)
+            val nodeColor = if (state.colorMode == ColorMode.MOOD) getMoodNodeColor(nodeToShow.moodScore) else getCommunityColor(nodeToShow.clusterName)
             val moodLabel = getMoodLabel(nodeToShow.moodScore)
             
             MapNodeDetailPanel(
@@ -415,15 +248,15 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 nodeColor = nodeColor,
                 moodLabel = moodLabel,
                 nodeConnections = visibleEdges.count { it.sourceId == nodeToShow.entryId || it.targetId == nodeToShow.entryId },
-                isIsolateMode = isIsolateMode,
+                isIsolateMode = state.isIsolateMode,
                 onClose = {
-                    if (isIsolateMode) showDetailPanelInFocusMode = false else selectedNode = null
+                    if (state.isIsolateMode) state.showDetailPanelInFocusMode = false else state.selectedNode = null
                 },
-                onViewAll = { showConnectionsFor = nodeToShow },
+                onViewAll = { state.showConnectionsFor = nodeToShow },
                 onFocus = {
-                    isIsolateMode = true
-                    lockedFocusNode = nodeToShow
-                    showDetailPanelInFocusMode = false
+                    state.isIsolateMode = true
+                    state.lockedFocusNode = nodeToShow
+                    state.showDetailPanelInFocusMode = false
                 },
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
@@ -445,33 +278,24 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             
             Spacer(modifier = Modifier.height(12.dp))
             MapControls(
-                layoutMode = layoutMode,
-                onLayoutModeChange = { 
-                    layoutMode = it
-                    prefs.edit { putString("layout_mode", it.name) }
-                },
-                colorMode = colorMode,
-                onColorModeChange = { 
-                    colorMode = it
-                    prefs.edit { putString("color_mode", it.name) }
-                },
-                showDecorations = showDecorations,
-                onToggleDecorations = { 
-                    showDecorations = !showDecorations 
-                    prefs.edit { putBoolean("show_decorations", showDecorations) }
-                },
-                isSettling = isSettling
+                layoutMode = state.layoutMode,
+                onLayoutModeChange = { state.updateLayoutMode(it) },
+                colorMode = state.colorMode,
+                onColorModeChange = { state.updateColorMode(it) },
+                showDecorations = state.showDecorations,
+                onToggleDecorations = { state.toggleDecorations() },
+                isSettling = state.isSettling
             )
             
             // Legend
-            if (colorMode == ColorMode.MOOD) {
+            if (state.colorMode == ColorMode.MOOD) {
                 Spacer(modifier = Modifier.height(12.dp))
                 MapLegend()
             }
         }
         
         // Helper Label (Bottom Left)
-        if (isIsolateMode && !showDetailPanelInFocusMode) {
+        if (state.isIsolateMode && !state.showDetailPanelInFocusMode) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -489,8 +313,8 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         }
         
         // Floating Controls (Bottom Right)
-        if (isIsolateMode) {
-            val isLocked = lockedFocusNode != null
+        if (state.isIsolateMode) {
+            val isLocked = state.lockedFocusNode != null
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -499,10 +323,10 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             ) {
                 FloatingActionButton(
                     onClick = {
-                        lockedFocusNode = if (isLocked) {
+                        state.lockedFocusNode = if (isLocked) {
                             null
                         } else {
-                            selectedNode
+                            state.selectedNode
                         }
                     },
                     containerColor = Color.White.copy(alpha = 0.1f),
@@ -515,9 +339,9 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 }
                 FloatingActionButton(
                     onClick = { 
-                        isIsolateMode = false 
-                        lockedFocusNode = null
-                        showDetailPanelInFocusMode = false
+                        state.isIsolateMode = false 
+                        state.lockedFocusNode = null
+                        state.showDetailPanelInFocusMode = false
                     },
                     containerColor = Color.White.copy(alpha = 0.1f),
                     contentColor = accentColor
@@ -526,7 +350,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 }
             }
         } else {
-            val fabBottomOffset = if (selectedNode != null) 220.dp else 16.dp
+            val fabBottomOffset = if (state.selectedNode != null) 220.dp else 16.dp
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
@@ -536,8 +360,8 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 if (state.isReplaying) {
                     FloatingActionButton(
                         onClick = {
-                            state.stopReplay(layoutMode)
-                            camera = camera.reset()
+                            state.stopReplay(state.layoutMode)
+                            state.camera = state.camera.reset()
                         },
                         containerColor = Color(0xFF2D1B1B),
                         contentColor = Color(0xFFFF5252)
@@ -547,7 +371,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 } else {
                     FloatingActionButton(
                         onClick = { 
-                            state.startReplay(layoutMode) { rollDelta -> camera = camera.copy(roll = camera.roll - rollDelta) } 
+                            state.startReplay(state.layoutMode) { rollDelta -> state.camera = state.camera.copy(roll = state.camera.roll - rollDelta) } 
                         },
                         containerColor = accentColor.copy(alpha = 0.15f),
                         contentColor = accentColor
@@ -557,16 +381,16 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                 }
                 
                 FloatingActionButton(
-                    onClick = { showInfoDialog = true },
+                    onClick = { state.showInfoDialog = true },
                     containerColor = Color.White.copy(alpha = 0.1f),
                     contentColor = Color.White.copy(alpha = 0.8f)
                 ) {
                     Icon(Icons.Default.Info, contentDescription = "Layout Info")
                 }
                 
-                if (!isSettling && !state.isReplaying) {
+                if (!state.isSettling && !state.isReplaying) {
                     FloatingActionButton(
-                        onClick = { camera = camera.reset() },
+                        onClick = { state.camera = state.camera.reset() },
                         containerColor = Color.White.copy(alpha = 0.1f),
                         contentColor = Color.White.copy(alpha = 0.8f)
                     ) {
@@ -574,17 +398,17 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     }
                     FloatingActionButton(
                         onClick = { 
-                            isSettling = true 
-                            camera = camera.copy(cameraX = 0f, cameraY = 0f)
+                            state.startSettling(state.layoutMode)
+                            state.camera = state.camera.copy(cameraX = 0f, cameraY = 0f)
                         },
                         containerColor = Color.White.copy(alpha = 0.1f),
                         contentColor = Color.White.copy(alpha = 0.8f)
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Re-settle")
                     }
-                    if (allEntries.size > entryLimit) {
+                    if (allEntries.size > state.entryLimit) {
                         FloatingActionButton(
-                            onClick = { entryLimit += 1000 },
+                            onClick = { state.entryLimit += 1000 },
                             containerColor = Color.White.copy(alpha = 0.1f),
                             contentColor = Color.White.copy(alpha = 0.8f)
                         ) {
@@ -595,20 +419,20 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             }
         }
         
-        if (showConnectionsFor != null) {
+        if (state.showConnectionsFor != null) {
             MapConnectionsDialog(
-                targetNode = showConnectionsFor!!,
-                allEdges = allEdges,
-                nodeMap = nodeMap,
+                targetNode = state.showConnectionsFor!!,
+                allEdges = state.allEdges,
+                nodeMap = state.nodeMap,
                 securityManager = securityManager,
-                onDismiss = { showConnectionsFor = null }
+                onDismiss = { state.showConnectionsFor = null }
             )
         }
         
-        if (showInfoDialog) {
+        if (state.showInfoDialog) {
             com.laniakea.ui.components.map.MapInfoDialog(
-                layoutMode = layoutMode,
-                onDismiss = { showInfoDialog = false }
+                layoutMode = state.layoutMode,
+                onDismiss = { state.showInfoDialog = false }
             )
         }
     }

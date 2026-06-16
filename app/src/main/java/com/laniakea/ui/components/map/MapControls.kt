@@ -14,7 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.laniakea.engine.LayoutMode
-import com.laniakea.ui.screens.ColorMode
+import com.laniakea.viewmodel.ColorMode
 
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.AutoAwesome

@@ -40,6 +40,9 @@ class InsightScreenState(
         private set
     var isThemesLoading by mutableStateOf(false)
         private set
+
+    var showInfo by mutableStateOf(false)
+    var showThemeSelection by mutableStateOf(false)
         
     fun updateSelectedRange(newRange: String) {
         insightSelectedRange = newRange
