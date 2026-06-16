@@ -30,5 +30,13 @@ data class DiaryEntry(
     val agencyScore: Float = 0f,
     val epistemicModality: Float = 0f,
     val processingMarkers: Int = 0,
-    val temporalHorizon: Float = 0f
+    val temporalHorizon: Float = 0f,
+    val entryType: String = "WRITTEN", // "WRITTEN" or "QUESTIONNAIRE"
+    val energyLevel: Float? = null,
+    val mainTheme: String? = null,
+    val mentalPace: Float? = null,
+    val connectionLevel: Float? = null,
+    val thinkingStyle: String? = null,
+    val timeFocus: String? = null,
+    val intensityLevel: Float? = null
 )

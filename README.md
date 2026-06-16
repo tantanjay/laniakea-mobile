@@ -25,6 +25,7 @@ Ultimately, Laniakea acts as a **personal semantic memory system** that reveals 
 - **Meaning-Based Search:** Replaces rigid keyword search with deep semantic retrieval.
 - **Structural Language Trends:** Tracks how your writing evolves over time (e.g., vocabulary diversity, question frequency) instead of assigning emotional scores.
 - **Weekly Digests & Themes:** Auto-generates weekly insights and clusters entries into semantic themes without manual tagging.
+- **Quick Reflections:** A structured check-in system for low-energy days that seamlessly maps onto the constellation without skewing natural language analytics.
 
 ## User Privacy & Ethical Use
 
@@ -99,6 +100,14 @@ Laniakea analyzes decrypted journal entries locally to provide structural insigh
 ### Semantic Themes & Weekly Digest
 - **Semantic Themes:** Using the generated embeddings, Laniakea automatically clusters your entries into recurring Semantic Themes (e.g., Relationships & Connection, Learning & Curiosity) without requiring manual tags.
 - **Weekly Reflection Digest:** An auto-generated weekly summary providing a structural snapshot of your journaling consistency, dominant semantic themes, and language evolution over the past week.
+
+### Quick Reflection (Questionnaire) Integration
+For moments when users lack the energy for a full written journal entry, Laniakea offers a structured **Quick Reflection** questionnaire (capturing Energy, Mental Pace, Social State, etc.). To maintain the integrity of the core NLP engine, these structured check-ins are handled with specific architectural nuances:
+- **Synthetic Vectorization:** Explicit answers are converted into a formatted synthetic sentence (e.g., *"Today energy was drained. Primary theme was work."*) and embedded. This allows the entry to be mapped natively onto the 3D Constellation Graph alongside written entries.
+- **Analytics Exclusion:** Quick Reflections are explicitly excluded from the writing trends engine. They do not artificially deflate average word counts, skew vocabulary diversity metrics, or affect syntactic pacing charts.
+- **Semantic Clustering Exclusion:** They are hidden from the Semantic Themes clustering pipeline, ensuring your auto-generated thematic buckets are composed entirely of naturally written thoughts.
+- **Constellation Node Scaling:** Because synthetic sentences have artificially dense semantic keywords, their base graph `importance` is mathematically constrained by a factor of 10. This prevents Questionnaire nodes from becoming visually dominant "Super Novas" on the map.
+- **UI Degradation:** On the Journal Screen and Map Node detail panels, the verbose synthetic text is suppressed and cleanly reconstructed into a readable, compact summary (e.g., *"Work • Drained Energy • Racing Mind"*).
 
 ---
 

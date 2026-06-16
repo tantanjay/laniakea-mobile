@@ -49,7 +49,8 @@ data class GraphNode(
     var clusterName: String = "Uncharted Thoughts",
     var importance: Float = 0f,
     val themeDistances: Map<String, Float> = emptyMap(),
-    var entropy: Float = 0f
+    var entropy: Float = 0f,
+    val entryType: String = "WRITTEN"
 )
 
 /**
@@ -110,16 +111,20 @@ class GraphEngine {
             val ny = r * sin(theta) * sin(phi)
             val nz = r * cos(theta)
             
-            val rawTheme = v.semanticTheme ?: "Unknown"
-            val finalTheme = if (rawTheme == "Unknown" || rawTheme.isBlank()) {
-                val decryptedContent = try {
-                    contentDecryptor(entry.content)
-                } catch (_: Exception) {
-                    entry.content
-                }
-                extractTopicFromText(decryptedContent)
+            val finalTheme = if (entry.entryType == "QUESTIONNAIRE" && !entry.mainTheme.isNullOrBlank()) {
+                entry.mainTheme
             } else {
-                rawTheme
+                val rawTheme = v.semanticTheme ?: "Unknown"
+                if (rawTheme == "Unknown" || rawTheme.isBlank()) {
+                    val decryptedContent = try {
+                        contentDecryptor(entry.content)
+                    } catch (_: Exception) {
+                        entry.content
+                    }
+                    extractTopicFromText(decryptedContent)
+                } else {
+                    rawTheme
+                }
             }
             
             val themeDistances = mutableMapOf<String, Float>()
@@ -160,7 +165,8 @@ class GraphEngine {
                 moodScore = entry.numericMood,
                 content = entry.content,
                 themeDistances = themeDistances,
-                entropy = normalizedEntropy
+                entropy = normalizedEntropy,
+                entryType = entry.entryType
             )
         }
         
@@ -239,7 +245,7 @@ class GraphEngine {
             }
             
             // Prevent Unknowns and locally-extracted fallback topics from becoming supernovas
-            if (node.theme == "Unknown" || node.theme.endsWith(" Thought")) {
+            if (node.theme == "Unknown" || node.theme.endsWith(" Thought") || node.entryType == "QUESTIONNAIRE") {
                 rawImportance *= 0.1f
             }
             

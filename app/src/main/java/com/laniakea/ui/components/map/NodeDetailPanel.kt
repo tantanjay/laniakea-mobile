@@ -17,10 +17,12 @@ import androidx.compose.ui.unit.dp
 import com.laniakea.engine.GraphNode
 import com.laniakea.util.*
 import androidx.compose.ui.platform.LocalLocale
+import com.laniakea.data.DiaryEntry
 
 @Composable
 fun MapNodeDetailPanel(
     nodeToShow: GraphNode,
+    rawEntry: DiaryEntry?,
     decryptedContent: String,
     nodeColor: Color,
     moodLabel: String,
@@ -117,15 +119,32 @@ fun MapNodeDetailPanel(
                 shape = RoundedCornerShape(12.dp),
                 color = Color.White.copy(alpha = 0.05f)
             ) {
-                Text(
-                    text = decryptedContent,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier
-                        .padding(12.dp)
-                        .heightIn(max = 150.dp)
-                        .verticalScroll(rememberScrollState())
-                )
+                if (nodeToShow.entryType == "QUESTIONNAIRE" && rawEntry != null) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                            .heightIn(max = 150.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text("Energy: ${QuestionnaireUtils.mapFloatToEnergy(rawEntry.energyLevel)}", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
+                        Text("Mental Pace: ${QuestionnaireUtils.mapFloatToMentalPace(rawEntry.mentalPace)}", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
+                        Text("Social State: ${QuestionnaireUtils.mapFloatToSocialState(rawEntry.connectionLevel)}", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
+                        Text("Thinking Style: ${rawEntry.thinkingStyle}", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
+                        Text("Temporal Focus: ${rawEntry.timeFocus}", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
+                        Text("Intensity: ${QuestionnaireUtils.mapFloatToIntensity(rawEntry.intensityLevel)}", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.85f))
+                    }
+                } else {
+                    Text(
+                        text = decryptedContent,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier
+                            .padding(12.dp)
+                            .heightIn(max = 150.dp)
+                            .verticalScroll(rememberScrollState())
+                    )
+                }
             }
         }
     }

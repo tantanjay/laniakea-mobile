@@ -55,6 +55,7 @@ fun MainInputCard(
     customActivity: String,
     onCustomActivityChange: (String) -> Unit,
     onAddCustomActivity: () -> Unit,
+    onQuickCheckInClick: () -> Unit,
     onSave: () -> Unit
 ) {
     var showMoreDetails by remember { mutableStateOf(false) }
@@ -171,32 +172,44 @@ fun MainInputCard(
                     )
                 }
 
-                IconButton(
-                    onClick = {
-                        if (isListening) {
-                            speechRecognizer.stopListening()
-                            isListening = false
-                        } else {
-                            when (PackageManager.PERMISSION_GRANTED) {
-                                ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) -> {
-                                    textBeforeListening = journalText // CAPTURE CURRENT TEXT
-                                    speechRecognizer.startListening(speechIntent)
-                                }
-                                else -> {
-                                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onQuickCheckInClick,
+                        colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Bolt,
+                            contentDescription = "Quick Reflection"
+                        )
+                    }
+                    
+                    IconButton(
+                        onClick = {
+                            if (isListening) {
+                                speechRecognizer.stopListening()
+                                isListening = false
+                            } else {
+                                when (PackageManager.PERMISSION_GRANTED) {
+                                    ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) -> {
+                                        textBeforeListening = journalText // CAPTURE CURRENT TEXT
+                                        speechRecognizer.startListening(speechIntent)
+                                    }
+                                    else -> {
+                                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
                                 }
                             }
-                        }
-                    },
-                    colors = IconButtonDefaults.iconButtonColors(
-                        contentColor = if (isListening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                    )
-                ) {
-                    Icon(
-                        imageVector = if (isListening) Icons.Default.MicNone else Icons.Default.Mic,
-                        contentDescription = if (isListening) "Stop Listening" else "Start Voice Input",
-                        modifier = Modifier.graphicsLayer(scaleX = if (isListening) 1.2f else 1f, scaleY = if (isListening) 1.2f else 1f)
-                    )
+                        },
+                        colors = IconButtonDefaults.iconButtonColors(
+                            contentColor = if (isListening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = if (isListening) Icons.Default.MicNone else Icons.Default.Mic,
+                            contentDescription = if (isListening) "Stop Listening" else "Start Voice Input",
+                            modifier = Modifier.graphicsLayer(scaleX = if (isListening) 1.2f else 1f, scaleY = if (isListening) 1.2f else 1f)
+                        )
+                    }
                 }
             }
 
