@@ -4,7 +4,7 @@
 
 Laniakea is currently an experimental prototype and research project.
 
-The Vibe Engine analyzes linguistic patterns in journal entries and is intended for personal reflection only.
+The On-Device NLP Engine analyzes linguistic patterns in journal entries and is intended for personal reflection only.
 
 It is not a mental health tool, diagnostic system, or clinical assessment instrument.
 
@@ -128,6 +128,9 @@ Moving beyond basic metrics, the on-device NLP engine now extracts advanced cogn
 3. **Epistemic Modality:** Analyzes the ratio of absolute words (never, always) vs hedged words (maybe, perhaps).
 4. **Processing Markers:** Counts cognitive processing words (realize, understand, because) indicating causal reasoning.
 5. **Temporal Horizon:** Uses vector projection to determine if an entry leans heavily Concrete or Abstract.
+
+### Mood-Text Alignment
+The engine calculates the vector position of your writing along a predefined emotional axis. It uses this to mathematically check if the subconscious tone of your text aligns with the mood you manually logged for the day.
 
 ## 7. The Accuracy Paradox: Shuffling & Noise
 

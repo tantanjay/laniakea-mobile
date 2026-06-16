@@ -4,83 +4,77 @@ import com.laniakea.data.DiaryDatabase
 import com.laniakea.data.DiaryEntry
 import com.laniakea.data.ObjectBoxManager
 import com.laniakea.data.ObjectBoxSentenceVector_
-import com.laniakea.data.WeeklyDigest
+import com.laniakea.data.PeriodDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.time.Instant
-import java.time.temporal.ChronoUnit
 import java.util.Calendar
 
-class WeeklyDigestManager(
+class PeriodDigestManager(
     private val db: DiaryDatabase,
     private val securityManager: SecurityManager,
     private val isEngineActive: () -> Boolean
 ) {
 
-    suspend fun generateDigest(selectedThemes: List<String>): WeeklyDigest? {
+    suspend fun generateDigest(startDate: Long, endDate: Long, selectedThemes: List<String>): PeriodDigest? {
         return withContext(Dispatchers.IO) {
             val dao = db.diaryDao()
             
-            // Anchor the week to the most recent entry, falling back to now if DB is empty
-            val mostRecentEntry = dao.getRecentEntries(1).firstOrNull() ?: return@withContext null
-            val anchorTimeMillis = mostRecentEntry.dateTime
-            
-            val endInstant = Instant.ofEpochMilli(anchorTimeMillis)
-            val weekStart = endInstant.minus(7, ChronoUnit.DAYS).toEpochMilli()
-            val priorWeekStart = endInstant.minus(14, ChronoUnit.DAYS).toEpochMilli()
+            val duration = endDate - startDate
+            val priorPeriodStart = startDate - duration
+            val priorPeriodEnd = startDate - 1
 
-            val thisWeekEntriesRaw = dao.getEntriesInRangeSnapshot(weekStart, anchorTimeMillis)
-            val priorWeekEntriesRaw = dao.getEntriesInRangeSnapshot(priorWeekStart, weekStart - 1)
+            val thisPeriodEntriesRaw = dao.getEntriesInRangeSnapshot(startDate, endDate)
+            val priorPeriodEntriesRaw = dao.getEntriesInRangeSnapshot(priorPeriodStart, priorPeriodEnd)
 
-            if (thisWeekEntriesRaw.isEmpty()) {
-                return@withContext null // No digest if no entries this week
+            if (thisPeriodEntriesRaw.isEmpty()) {
+                return@withContext null // No digest if no entries in period
             }
 
-            val thisWeekEntries = thisWeekEntriesRaw.map { securityManager.decryptEntry(it) }
-            val priorWeekEntries = priorWeekEntriesRaw.map { securityManager.decryptEntry(it) }
+            val thisPeriodEntries = thisPeriodEntriesRaw.map { securityManager.decryptEntry(it) }
+            val priorPeriodEntries = priorPeriodEntriesRaw.map { securityManager.decryptEntry(it) }
 
             // 1. Entry Count and Active Days
-            val entryCount = thisWeekEntries.size
-            val activeDays = calculateActiveDays(thisWeekEntries)
+            val entryCount = thisPeriodEntries.size
+            val activeDays = calculateActiveDays(thisPeriodEntries)
 
             // 2. Structural Metrics
-            val thisWeekMetrics = calculateMetrics(thisWeekEntries)
-            val priorWeekMetrics = if (priorWeekEntries.isNotEmpty()) calculateMetrics(priorWeekEntries) else null
+            val thisPeriodMetrics = calculateMetrics(thisPeriodEntries)
+            val priorPeriodMetrics = if (priorPeriodEntries.isNotEmpty()) calculateMetrics(priorPeriodEntries) else null
 
             // 3. Dominant Themes and Vibes (only if engine is active)
             val dominantThemes: List<String>
-            val thisWeekVibe: Float?
-            val priorWeekVibe: Float?
+            val thisPeriodVibe: Float?
+            val priorPeriodVibe: Float?
 
             if (isEngineActive()) {
-                dominantThemes = calculateDominantThemes(thisWeekEntriesRaw.map { it.id }, selectedThemes)
-                thisWeekVibe = calculateAverageVibe(thisWeekEntriesRaw.map { it.id })
-                priorWeekVibe = calculateAverageVibe(priorWeekEntriesRaw.map { it.id })
+                dominantThemes = calculateDominantThemes(thisPeriodEntriesRaw.map { it.id }, selectedThemes)
+                thisPeriodVibe = calculateAverageVibe(thisPeriodEntriesRaw.map { it.id })
+                priorPeriodVibe = calculateAverageVibe(priorPeriodEntriesRaw.map { it.id })
             } else {
                 dominantThemes = emptyList()
-                thisWeekVibe = null
-                priorWeekVibe = null
+                thisPeriodVibe = null
+                priorPeriodVibe = null
             }
 
-            val thisWeekManualMood = calculateAverageManualMood(thisWeekEntriesRaw)
-            val priorWeekManualMood = calculateAverageManualMood(priorWeekEntriesRaw)
+            val thisPeriodManualMood = calculateAverageManualMood(thisPeriodEntriesRaw)
+            val priorPeriodManualMood = calculateAverageManualMood(priorPeriodEntriesRaw)
 
-            WeeklyDigest(
-                weekStart = weekStart,
-                weekEnd = anchorTimeMillis,
+            PeriodDigest(
+                periodStart = startDate,
+                periodEnd = endDate,
                 entryCount = entryCount,
                 activeDays = activeDays,
                 dominantThemes = dominantThemes,
-                avgEntryLength = thisWeekMetrics.avgLength,
-                avgEntryLengthPrior = priorWeekMetrics?.avgLength,
-                vocabularyDiversity = thisWeekMetrics.vocabDiversity,
-                vocabularyDiversityPrior = priorWeekMetrics?.vocabDiversity,
-                questionRatio = thisWeekMetrics.questionRatio,
-                questionRatioPrior = priorWeekMetrics?.questionRatio,
-                avgVibeScore = thisWeekVibe,
-                avgVibeScorePrior = priorWeekVibe,
-                avgManualMood = thisWeekManualMood,
-                avgManualMoodPrior = priorWeekManualMood
+                avgEntryLength = thisPeriodMetrics.avgLength,
+                avgEntryLengthPrior = priorPeriodMetrics?.avgLength,
+                vocabularyDiversity = thisPeriodMetrics.vocabDiversity,
+                vocabularyDiversityPrior = priorPeriodMetrics?.vocabDiversity,
+                questionRatio = thisPeriodMetrics.questionRatio,
+                questionRatioPrior = priorPeriodMetrics?.questionRatio,
+                avgVibeScore = thisPeriodVibe,
+                avgVibeScorePrior = priorPeriodVibe,
+                avgManualMood = thisPeriodManualMood,
+                avgManualMoodPrior = priorPeriodManualMood
             )
         }
     }

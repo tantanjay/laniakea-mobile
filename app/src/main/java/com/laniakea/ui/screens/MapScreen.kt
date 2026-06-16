@@ -30,6 +30,7 @@ import com.laniakea.engine.LayoutMode
 import com.laniakea.util.*
 import com.laniakea.manager.SecurityManager
 import com.laniakea.viewmodel.LaniakeaViewModel
+import com.laniakea.viewmodel.MapScreenState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -42,8 +43,8 @@ import com.laniakea.ui.components.map.MapNodeDetailPanel
 import com.laniakea.ui.components.map.MapStatsBadge
 import com.laniakea.ui.components.map.MapConnectionsDialog
 import com.laniakea.ui.components.map.MapEmptyState
-import kotlinx.coroutines.launch
 import androidx.core.content.edit
+import com.laniakea.data.ObjectBoxManager
 
 enum class ColorMode { MOOD, COMMUNITY }
 
@@ -88,7 +89,9 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val isEngineLoading = vm.isEngineLoading
 
     val context = androidx.compose.ui.platform.LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("map_prefs", android.content.Context.MODE_PRIVATE) }
+    val state = remember { MapScreenState(coroutineScope) }
 
     var colorMode by remember { 
         mutableStateOf(ColorMode.valueOf(prefs.getString("color_mode", ColorMode.MOOD.name) ?: ColorMode.MOOD.name)) 
@@ -143,8 +146,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     var allEdges by remember { mutableStateOf<List<GraphEdge>>(emptyList()) }
     
     // Replay controls visibility only — no physics during replay
-    var isReplaying by remember { mutableStateOf(false) }
-    var replayProgress by remember { mutableIntStateOf(0) }
+    // Variables migrated to MapScreenState
     
     // Settle button re-runs live physics briefly
     var isSettling by remember { mutableStateOf(false) }
@@ -198,7 +200,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     
     LaunchedEffect(isEngineActive) {
         if (isEngineActive) {
-            vectors = com.laniakea.data.ObjectBoxManager.vectorBox.all
+            vectors = ObjectBoxManager.vectorBox.all
             vectorsFetched = true
         }
     }
@@ -226,7 +228,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             }
             allNodes = initialNodes.sortedBy { it.date }
             allEdges = initialEdges
-            replayProgress = allNodes.size
+            state.replayProgress = allNodes.size
             hasBuiltGraph = true
             isBuildingGraph = false
         }
@@ -250,50 +252,13 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     
     // Automatically settle when switching layout modes
     LaunchedEffect(layoutMode) {
-        if (hasBuiltGraph && !isReplaying) {
+        if (hasBuiltGraph && !state.isReplaying) {
             isSettling = true
             camera = camera.resetForMode(layoutMode)
         }
     }
     
-    // Replay: reveal nodes, then transition into a continuous animation
-    LaunchedEffect(isReplaying) {
-        if (isReplaying) {
-            replayProgress = 0
-            // Small delay before starting
-            delay(300L.milliseconds)
-            launch {
-                while (replayProgress < allNodes.size && isReplaying) {
-                    replayProgress++
-                    // Faster for large graphs, slower for small
-                    val delayMs = if (allNodes.size > 30) 60L else 200L
-                    delay(delayMs.milliseconds)
-                }
-            }
-            
-            // Post-replay continuous animation
-            var animTime = 0f
-            while (isReplaying) {
-                delay(16L.milliseconds) // ~60fps
-                animTime += 0.016f
-                
-                if (layoutMode == LayoutMode.CLUSTERS) {
-                    // Spin the clusters slowly like a disk
-                    camera = camera.copy(roll = camera.roll - 0.003f)
-                } else if (layoutMode == LayoutMode.TIME_WARP) {
-                    // Warpy time tunnel animation: physically flow the nodes along the tube
-                    graphEngine.state.warpTimeOffset += 0.0015f
-                    graphEngine.applyLiveStep(allNodes, allEdges, nodeMap, layoutWidth, layoutHeight)
-                    allNodes = allNodes.toList() // trigger recomposition
-                }
-            }
-        } else {
-            if (layoutMode == LayoutMode.TIME_WARP && graphEngine.state.warpTimeOffset > 0f) {
-                graphEngine.state.warpTimeOffset = 0f
-                isSettling = true
-            }
-        }
-    }
+    // Replay loop logic migrated to MapScreenState
     
     // Continuous Background Animations
     LaunchedEffect(layoutMode) {
@@ -301,7 +266,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
         while (true) {
             delay(16L.milliseconds)
             t += 0.016f
-            if (selectedNode == null && !showDetailPanelInFocusMode && !isReplaying) {
+            if (selectedNode == null && !showDetailPanelInFocusMode && !state.isReplaying) {
                 if (layoutMode == LayoutMode.GALAXY) {
                     camera = camera.copy(
                         roll = camera.roll - 0.002f, // Spin around the galaxy's center
@@ -368,7 +333,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             return@Box
         }
 
-        val baseVisibleNodes = allNodes.take(replayProgress)
+        val baseVisibleNodes = allNodes.take(state.replayProgress)
         val focusCenter = if (isIsolateMode) (lockedFocusNode ?: selectedNode) else null
         
         val visibleNodes = if (focusCenter != null) {
@@ -568,11 +533,10 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     .align(Alignment.BottomEnd)
                     .padding(end = 16.dp, bottom = fabBottomOffset)
             ) {
-                if (isReplaying) {
+                if (state.isReplaying) {
                     FloatingActionButton(
-                        onClick = { 
-                            isReplaying = false
-                            replayProgress = allNodes.size
+                        onClick = {
+                            state.stopReplay(layoutMode)
                             camera = camera.reset()
                         },
                         containerColor = Color(0xFF2D1B1B),
@@ -582,7 +546,9 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     }
                 } else {
                     FloatingActionButton(
-                        onClick = { isReplaying = true },
+                        onClick = { 
+                            state.startReplay(layoutMode) { rollDelta -> camera = camera.copy(roll = camera.roll - rollDelta) } 
+                        },
                         containerColor = accentColor.copy(alpha = 0.15f),
                         contentColor = accentColor
                     ) {
@@ -598,7 +564,7 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                     Icon(Icons.Default.Info, contentDescription = "Layout Info")
                 }
                 
-                if (!isSettling && !isReplaying) {
+                if (!isSettling && !state.isReplaying) {
                     FloatingActionButton(
                         onClick = { camera = camera.reset() },
                         containerColor = Color.White.copy(alpha = 0.1f),
