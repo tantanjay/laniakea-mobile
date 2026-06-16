@@ -28,7 +28,7 @@ import com.laniakea.ui.components.insight.WritingTrendCard
 import com.laniakea.ui.components.insight.ThemeSelectionDialog
 import com.laniakea.ui.components.insight.ThemeClusterCard
 import com.laniakea.ui.components.insight.InfoSection
-import com.laniakea.viewmodel.InsightScreenState
+import com.laniakea.viewmodel.InsightState
 import com.laniakea.viewmodel.LaniakeaViewModel
 import kotlinx.coroutines.launch
 
@@ -38,7 +38,7 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val app = context.applicationContext as LaniakeaApplication
     val state = remember { 
         val prefs = context.getSharedPreferences("insight_prefs", android.content.Context.MODE_PRIVATE)
-        InsightScreenState(
+        InsightState(
             analyticsManager = app.container.analyticsManager,
             digestManager = app.container.digestManager,
             semanticManager = app.container.semanticManager,

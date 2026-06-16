@@ -16,7 +16,7 @@ import java.time.YearMonth
 import java.time.ZoneId
 import kotlin.time.Duration.Companion.milliseconds
 
-class JournalScreenState(
+class JournalState(
     private val db: DiaryDatabase,
     private val semanticManager: SemanticManager,
     private val securityManager: SecurityManager,

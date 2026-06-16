@@ -12,7 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class ProfileScreenState(
+class ProfileState(
     private val vaultManager: VaultManager,
     private val coroutineScope: CoroutineScope
 ) {

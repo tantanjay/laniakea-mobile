@@ -29,7 +29,7 @@ import com.laniakea.BuildConfig
 import com.laniakea.R
 import com.laniakea.ui.components.profile.ThemeOption
 import com.laniakea.ui.components.profile.BulletPoint
-import com.laniakea.viewmodel.ProfileScreenState
+import com.laniakea.viewmodel.ProfileState
 import com.laniakea.viewmodel.LaniakeaViewModel
 
 @Composable
@@ -39,7 +39,7 @@ fun ProfileScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
     val scrollState = rememberScrollState()
     
     val state = remember {
-        ProfileScreenState(
+        ProfileState(
             vaultManager = vm.vaultManager,
             coroutineScope = coroutineScope
         )
