@@ -48,6 +48,15 @@ interface DiaryDao {
     @Query("SELECT * FROM entries WHERE isVectorized = 0")
     suspend fun getUnprocessedEntries(): List<DiaryEntry>
 
+    @Query("SELECT * FROM entries WHERE needsThemeReclassification = 1")
+    suspend fun getEntriesNeedingReclassification(): List<DiaryEntry>
+
+    @Query("UPDATE entries SET needsThemeReclassification = 1 WHERE isVectorized = 1")
+    suspend fun flagAllVectorizedForReclassification()
+
+    @Query("UPDATE entries SET needsThemeReclassification = 0 WHERE id IN (:ids)")
+    suspend fun clearReclassificationFlag(ids: List<Long>)
+
     @Query("SELECT COUNT(*) FROM entries")
     suspend fun getTotalEntriesCount(): Int
 

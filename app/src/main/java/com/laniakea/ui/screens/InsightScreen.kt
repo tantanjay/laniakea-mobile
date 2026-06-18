@@ -31,6 +31,7 @@ import com.laniakea.ui.components.insight.InfoSection
 import com.laniakea.viewmodel.InsightState
 import com.laniakea.viewmodel.LaniakeaViewModel
 import kotlinx.coroutines.launch
+import kotlin.math.atanh
 
 @Composable
 fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
@@ -160,8 +161,14 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             // Period Digest
             val currentDigest = state.periodDigest
             if (currentDigest == null && state.isDigestLoading) {
-                Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
                     CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Generating period digest...", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                 }
             } else if (currentDigest != null) {
                 Box(modifier = Modifier.alpha(if (state.isDigestLoading) 0.5f else 1f)) {
@@ -179,7 +186,15 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 
             val metrics = state.writingMetrics
             if (metrics == null && state.isMetricsLoading) {
-                Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Calculating writing trends...", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                }
             } else if (metrics != null && metrics.entryLengths.isNotEmpty()) {
                 Box(modifier = Modifier.alpha(if (state.isMetricsLoading) 0.5f else 1f)) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -226,12 +241,23 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                             return if (avg.isNaN()) 0f else avg
                         }
 
-                        val avgAgency = metrics.agencyScore.avgScore()
-                        val avgModality = metrics.epistemicModality.avgScore()
-                        val avgHorizon = metrics.temporalHorizon.avgScore()
                         val avgPacing = metrics.syntacticPacing.avgScore()
                         val avgProcessing = metrics.processingMarkers.avgScore()
                         val avgFuturePast = metrics.futureVsPast.avgScore()
+
+                        // Desaturate vibe scores: scaleVibeSmooth uses tanh(raw/0.1)*2
+                        // which pushes nearly all scores to ±1.8-2.0, destroying variance.
+                        // atanh reverses this to recover the original linear projection.
+                        fun desaturate(score: Float): Float {
+                            val clamped = (score / 2f).coerceIn(-0.95f, 0.95f)
+                            val raw = atanh(clamped.toDouble()).toFloat() * 0.1f
+                            // Raw projections typically in [-0.2, 0.2]; rescale to [-1.5, 1.5]
+                            return (raw / 0.13f).coerceIn(-1.5f, 1.5f)
+                        }
+
+                        val avgAgency = desaturate(metrics.agencyScore.avgScore())
+                        val avgModality = desaturate(metrics.epistemicModality.avgScore())
+                        val avgHorizon = desaturate(metrics.temporalHorizon.avgScore())
 
                         CognitiveRadarChart(
                             agencyScore = avgAgency, epistemicModality = avgModality,
@@ -243,7 +269,7 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 
                         // Compact Gauges side-by-side
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            GradientGauge(title = "Future vs Past", leftLabel = "Past", rightLabel = "Future", score = avgFuturePast, modifier = Modifier.weight(1f))
+                            GradientGauge(title = "Future vs Past", leftLabel = "Past", rightLabel = "Future", score = avgFuturePast, minScore = -1f, maxScore = 1f, modifier = Modifier.weight(1f))
                             GradientGauge(title = "Agency", leftLabel = "Helpless", rightLabel = "Active", score = avgAgency, modifier = Modifier.weight(1f))
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -278,8 +304,17 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
             }
 
             if (vm.isEngineActive) {
+
                 if (state.isThemesLoading) {
-                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Analyzing semantic themes...", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                    }
                 } else if (state.themeClusters?.isNotEmpty() == true) {
                     Row(
                         modifier = Modifier
