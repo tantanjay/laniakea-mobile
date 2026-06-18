@@ -52,7 +52,7 @@ class SemanticManager(
             "Physical Wellbeing" to listOf(
                 "Body, health, exercise, fitness, diet, and sleep quality.",
                 "Fatigue, lacking energy, physical exhaustion, and body aches.",
-                "Physical sensations, resting, recovering, and medical health."
+                "Physical sensations, resting, feeling refreshed, recovering, and medical health."
             ),
             "Stress & Anxiety" to listOf(
                 "Feeling overwhelmed, anxious, worried, and stressed out.",
@@ -106,17 +106,17 @@ class SemanticManager(
             )
         )
 
-        const val THEME_TEMPLATE_VERSION = 4
+        const val THEME_TEMPLATE_VERSION = 7
         
         /**
          * Distance thresholds for normalized 768-dim vectors (L2 distance).
          * 0.0 = identical, ~1.0 = weakly related, ~1.41 = unrelated, 2.0 = opposite.
          *
          * SEARCH/SIMILAR: 0.85 ≈ cosine similarity 0.64 — filters clearly unrelated results.
-         * THEME_CLUSTER:  0.95 ≈ tighter threshold to ensure semantic relevance.
+         * THEME_CLUSTER:  0.90 ≈ cosine similarity 0.60 — strict threshold for accurate intent matching.
          */
         private const val MAX_DISTANCE_SEARCH = 0.85
-        const val MAX_DISTANCE_THEME = 0.95
+        const val MAX_DISTANCE_THEME = 0.90
     }
 
     suspend fun semanticSearch(query: String, limit: Int = 5): List<DiaryEntry> {
@@ -203,6 +203,8 @@ class SemanticManager(
                 } else {
                     // If not available or version mismatch, clear old data
                     themeBox.removeAll()
+                    // Flag all existing vectorized entries for re-theming due to version change
+                    db.diaryDao().flagAllVectorizedForReclassification()
                 }
                 
                 // Calculate missing themes
@@ -354,4 +356,39 @@ class SemanticManager(
         }
     }
 
+    suspend fun checkNeedsReclassification(): Boolean {
+        if (!isEngineActive()) return false
+        return withContext(Dispatchers.IO) {
+            db.diaryDao().getEntriesNeedingReclassification().isNotEmpty()
+        }
+    }
+
+    suspend fun reclassifyNeededEntries(): Int {
+        if (!isEngineActive()) return 0
+        
+        return withContext(Dispatchers.IO) {
+            val entries = db.diaryDao().getEntriesNeedingReclassification()
+            if (entries.isEmpty()) return@withContext 0
+
+            val vectorBox = ObjectBoxManager.vectorBox
+            val idsToClear = mutableListOf<Long>()
+
+            for (entry in entries) {
+                val vectorObj = vectorBox.query(ObjectBoxSentenceVector_.entryId.equal(entry.id)).build().findFirst()
+                if (vectorObj != null && vectorObj.vector != null) {
+                    val rawVector = vectorObj.vector
+                    vectorObj.semanticTheme = classifyTheme(rawVector)
+                    vectorObj.themeDistancesJson = calculateAllThemeDistancesJson(rawVector)
+                    vectorBox.put(vectorObj)
+                }
+                idsToClear.add(entry.id)
+            }
+            
+            if (idsToClear.isNotEmpty()) {
+                db.diaryDao().clearReclassificationFlag(idsToClear)
+            }
+            
+            idsToClear.size
+        }
+    }
 }

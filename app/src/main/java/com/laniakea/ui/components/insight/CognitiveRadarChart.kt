@@ -29,12 +29,13 @@ fun CognitiveRadarChart(
     processingMarkers: Float,
     modifier: Modifier = Modifier
 ) {
-    // Normalize values from VibeManager's [-2.0, 2.0] range to 0.0 - 1.0 range
-    val normalizedAgency = ((agencyScore.coerceIn(-2f, 2f) + 2f) / 4f)
-    val normalizedModality = ((epistemicModality.coerceIn(-2f, 2f) + 2f) / 4f)
-    val normalizedHorizon = ((temporalHorizon.coerceIn(-2f, 2f) + 2f) / 4f)
-    val normalizedPacing = (syntacticPacing / 3f).coerceIn(0f, 1f)
-    val normalizedProcessing = (processingMarkers / 10f).coerceIn(0f, 1f)
+    // Normalize values to 0.0 - 1.0 range using practical score bounds
+    // scaleVibeSmooth outputs ±1.5-1.8 per entry; averages sit within ±1.5
+    val normalizedAgency = ((agencyScore.coerceIn(-1.5f, 1.5f) + 1.5f) / 3f)
+    val normalizedModality = ((epistemicModality.coerceIn(-1.5f, 1.5f) + 1.5f) / 3f)
+    val normalizedHorizon = ((temporalHorizon.coerceIn(-1.5f, 1.5f) + 1.5f) / 3f)
+    val normalizedPacing = (syntacticPacing / 1.5f).coerceIn(0f, 1f)
+    val normalizedProcessing = (processingMarkers / 2f).coerceIn(0f, 1f)
 
     val dataPoints = listOf(
         normalizedAgency to "Agency",

@@ -31,8 +31,10 @@ fun GradientGauge(
     title: String,
     leftLabel: String,
     rightLabel: String,
-    score: Float, // assumed -1f to 1f
+    score: Float,
     modifier: Modifier = Modifier,
+    minScore: Float = -1.5f,
+    maxScore: Float = 1.5f,
     colors: List<Color> = listOf(
         MaterialTheme.colorScheme.tertiary,
         MaterialTheme.colorScheme.primary,
@@ -41,11 +43,12 @@ fun GradientGauge(
 ) {
     var animationPlayed by remember { mutableStateOf(false) }
     
-    LaunchedEffect(Unit) {
+    LaunchedEffect(score) {
         animationPlayed = true
     }
 
-    val normalizedScore = (score.coerceIn(-2f, 2f) + 2f) / 4f
+    // Normalize score to 0..1 using the caller-specified range
+    val normalizedScore = ((score.coerceIn(minScore, maxScore) - minScore) / (maxScore - minScore))
     val animatedScore by animateFloatAsState(
         targetValue = if (animationPlayed) normalizedScore else 0.5f,
         animationSpec = tween(durationMillis = 1000),

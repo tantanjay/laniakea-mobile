@@ -12,7 +12,7 @@ import androidx.room.migration.Migration
 
 @Database(
     entities = [DiaryEntry::class, AppSettings::class],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class DiaryDatabase : RoomDatabase() {
@@ -48,6 +48,12 @@ abstract class DiaryDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE entries ADD COLUMN needsThemeReclassification INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getDatabase(context: Context): DiaryDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -55,7 +61,7 @@ abstract class DiaryDatabase : RoomDatabase() {
                     DiaryDatabase::class.java,
                     "laniakea_db"
                 ).fallbackToDestructiveMigration(true)
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)

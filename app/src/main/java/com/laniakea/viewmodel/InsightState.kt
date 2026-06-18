@@ -140,6 +140,14 @@ class InsightState(
     }
 
     suspend fun refreshInsights(selectedThemes: List<String>) {
+        if (semanticManager.checkNeedsReclassification()) {
+            isThemesLoading = true
+            try {
+                semanticManager.reclassifyNeededEntries()
+            } finally {
+                // Keep loading true, as loadThemeClusters will manage it next
+            }
+        }
         loadThemeClusters(selectedThemes)
         loadPeriodDigest(selectedThemes)
     }
