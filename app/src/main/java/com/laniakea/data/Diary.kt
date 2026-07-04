@@ -29,6 +29,7 @@ data class DiaryEntry(
     val numericMood: Double = 0.0,
     val isVectorized: Boolean = false,
     val needsThemeReclassification: Boolean = false,
+    val needsCognitiveRescore: Boolean = false,
     val syntacticPacing: Float = 0f,
     val agencyScore: Float = 0f,
     val epistemicModality: Float = 0f,

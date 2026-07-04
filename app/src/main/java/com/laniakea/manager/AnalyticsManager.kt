@@ -1,6 +1,8 @@
     package com.laniakea.manager
 
 import com.laniakea.data.DiaryDatabase
+import com.laniakea.data.ObjectBoxManager
+import com.laniakea.data.ObjectBoxSentenceVector_
 import com.laniakea.data.TaglineTemplates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,8 +22,48 @@ import kotlinx.coroutines.withContext
 
 class AnalyticsManager(
     private val db: DiaryDatabase,
-    private val securityManager: SecurityManager
+    private val securityManager: SecurityManager,
+    private val vibeManager: VibeManager,
+    private val isEngineActive: () -> Boolean
 ) {
+
+    // Entries written before the raw-score pipeline was introduced still hold the old
+    // tanh-saturated value in agencyScore/epistemicModality/temporalHorizon. Recompute
+    // them as raw projections from their already-stored embedding vector so they're
+    // consistent with newly-written entries and safe to average together.
+    suspend fun checkNeedsCognitiveRescore(): Boolean {
+        if (!isEngineActive()) return false
+        return withContext(Dispatchers.IO) {
+            db.diaryDao().getEntriesNeedingCognitiveRescore().isNotEmpty()
+        }
+    }
+
+    suspend fun rescoreNeededEntries(): Int {
+        if (!isEngineActive()) return 0
+
+        return withContext(Dispatchers.IO) {
+            val entries = db.diaryDao().getEntriesNeedingCognitiveRescore()
+            if (entries.isEmpty()) return@withContext 0
+
+            val vectorBox = ObjectBoxManager.vectorBox
+            val updated = entries.map { entry ->
+                val vector = vectorBox.query(ObjectBoxSentenceVector_.entryId.equal(entry.id)).build().findFirst()?.vector
+                if (vector != null) {
+                    entry.copy(
+                        agencyScore = vibeManager.getAxisRawScore("Agency vs Helplessness", vector) ?: entry.agencyScore,
+                        epistemicModality = vibeManager.getAxisRawScore("Certainty vs Rumination", vector) ?: entry.epistemicModality,
+                        temporalHorizon = vibeManager.getAxisRawScore("Concrete vs Abstract", vector) ?: entry.temporalHorizon,
+                        needsCognitiveRescore = false
+                    )
+                } else {
+                    entry.copy(needsCognitiveRescore = false)
+                }
+            }
+
+            db.diaryDao().updateEntries(updated)
+            updated.size
+        }
+    }
 
     suspend fun analyzeWritingTrends(startDate: Long, endDate: Long): WritingMetrics {
         return withContext(Dispatchers.IO) {
