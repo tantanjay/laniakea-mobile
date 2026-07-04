@@ -172,17 +172,28 @@ class GraphEngine {
         
         val nodeMap = nodes.associateBy { it.entryId }
         val edgeCandidates = mutableListOf<GraphEdge>()
-        
+
+        // Precompute vector norms once per entry instead of re-deriving them on every pairwise comparison
+        val normMap = HashMap<Long, Float>(validEntries.size)
+        for (entry in validEntries) {
+            val v = vectorMap[entry.id]!!.vector ?: continue
+            var normSq = 0f
+            for (x in v) normSq += x * x
+            normMap[entry.id] = sqrt(normSq)
+        }
+
         for (i in validEntries.indices) {
             for (j in i + 1 until validEntries.size) {
                 val e1 = validEntries[i]
                 val e2 = validEntries[j]
                 val v1 = vectorMap[e1.id]!!.vector
                 val v2 = vectorMap[e2.id]!!.vector
-                
-                if (v1 != null && v2 != null) {
-                    val rawSim = cosineSimilarity(v1, v2)
-                    
+                val norm1 = normMap[e1.id]
+                val norm2 = normMap[e2.id]
+
+                if (v1 != null && v2 != null && norm1 != null && norm2 != null && norm1 > 0f && norm2 > 0f) {
+                    val rawSim = cosineSimilarity(v1, v2, norm1, norm2)
+
                     // Filter by raw semantic similarity first to drop unrelated thoughts
                     if (rawSim >= config.similarityThreshold) {
                         val daysApart = abs(e1.dateTime - e2.dateTime).toDouble() / (24L * 60 * 60 * 1000).toDouble()
@@ -465,32 +476,64 @@ class GraphEngine {
         }
         
         // --- Pairwise Physics: Repulsion & Theme Gravity ---
-        val repulsionCutoffSq = (idealSpacing * 3f) * (idealSpacing * 3f)
+        // Only nodes within this range exert any force, so bucket nodes into a uniform grid
+        // and only test nearby cells instead of every pair (O(n) instead of O(n^2)).
+        val repulsionRange = idealSpacing * 3f
+        val repulsionCutoffSq = repulsionRange * repulsionRange
+        val cellSize = repulsionRange.coerceAtLeast(1f)
+        fun cellCoord(v: Float) = kotlin.math.floor(v / cellSize).toInt()
+
+        val grid = HashMap<Triple<Int, Int, Int>, MutableList<Int>>()
         for (i in nodes.indices) {
-            for (j in i + 1 until n) {
-                val a = nodes[i]
-                val b = nodes[j]
-                val dx = a.x - b.x
-                val dy = a.y - b.y
-                val dz = a.z - b.z
-                val distSq = dx * dx + dy * dy + dz * dz
-                
-                if (distSq < 0.01f) continue
-                
-                val dist = sqrt(distSq).coerceAtLeast(1f)
-                val ux = dx / dist
-                val uy = dy / dist
-                val uz = dz / dist
-                
-                // 1. Repulsion: push apart when within 3x ideal spacing
-                if (distSq < repulsionCutoffSq) {
-                    val force = min(spacingSq / dist, temperature) * 0.5f
-                    a.vx += ux * force
-                    a.vy += uy * force
-                    a.vz += uz * force
-                    b.vx -= ux * force
-                    b.vy -= uy * force
-                    b.vz -= uz * force
+            val node = nodes[i]
+            val key = Triple(cellCoord(node.x), cellCoord(node.y), cellCoord(node.z))
+            grid.getOrPut(key) { mutableListOf() }.add(i)
+        }
+
+        // Half-shell of neighbor offsets: visits each unordered pair of cells exactly once
+        // (self cell, the 4 forward in-plane neighbors, and the 9 cells in the layer above).
+        val neighborOffsets = arrayOf(
+            Triple(0, 0, 0),
+            Triple(1, 0, 0), Triple(-1, 1, 0), Triple(0, 1, 0), Triple(1, 1, 0),
+            Triple(-1, -1, 1), Triple(0, -1, 1), Triple(1, -1, 1),
+            Triple(-1, 0, 1), Triple(0, 0, 1), Triple(1, 0, 1),
+            Triple(-1, 1, 1), Triple(0, 1, 1), Triple(1, 1, 1)
+        )
+
+        for ((cellKey, indices) in grid) {
+            val (cx, cy, cz) = cellKey
+            for (offset in neighborOffsets) {
+                val neighborKey = Triple(cx + offset.first, cy + offset.second, cz + offset.third)
+                val neighborIndices = grid[neighborKey] ?: continue
+                val sameCell = offset.first == 0 && offset.second == 0 && offset.third == 0
+
+                for (ii in indices.indices) {
+                    val i = indices[ii]
+                    val a = nodes[i]
+                    val startJ = if (sameCell) ii + 1 else 0
+                    for (jj in startJ until neighborIndices.size) {
+                        val j = neighborIndices[jj]
+                        val b = nodes[j]
+                        val dx = a.x - b.x
+                        val dy = a.y - b.y
+                        val dz = a.z - b.z
+                        val distSq = dx * dx + dy * dy + dz * dz
+
+                        if (distSq !in 0.01f..<repulsionCutoffSq) continue
+
+                        val dist = sqrt(distSq).coerceAtLeast(1f)
+                        val ux = dx / dist
+                        val uy = dy / dist
+                        val uz = dz / dist
+
+                        val force = min(spacingSq / dist, temperature) * 0.5f
+                        a.vx += ux * force
+                        a.vy += uy * force
+                        a.vz += uz * force
+                        b.vx -= ux * force
+                        b.vy -= uy * force
+                        b.vz -= uz * force
+                    }
                 }
             }
         }
@@ -683,16 +726,11 @@ class GraphEngine {
         }
     }
 
-    private fun cosineSimilarity(v1: FloatArray, v2: FloatArray): Float {
+    private fun cosineSimilarity(v1: FloatArray, v2: FloatArray, norm1: Float, norm2: Float): Float {
         var dot = 0f
-        var norm1 = 0f
-        var norm2 = 0f
         for (i in v1.indices) {
             dot += v1[i] * v2[i]
-            norm1 += v1[i] * v1[i]
-            norm2 += v2[i] * v2[i]
         }
-        if (norm1 == 0f || norm2 == 0f) return 0f
-        return (dot / (sqrt(norm1.toDouble()) * sqrt(norm2.toDouble()))).toFloat()
+        return dot / (norm1 * norm2)
     }
 }
