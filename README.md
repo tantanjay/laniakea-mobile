@@ -90,16 +90,18 @@ Laniakea completely replaces traditional keyword search with **meaning-based ret
 - **Semantic Memory (Find Similar):** Every journal entry features a "Find Similar" action. By calculating the L2 vector distance between entries, Laniakea resurfaces past entries where you shared the exact same state of mind, creating a continuous narrative of your thoughts over time.
 
 ### Writing Reflections (Insights)
-Laniakea analyzes decrypted journal entries locally to provide structural insights into how your writing evolves over time. The **Insight Screen** tracks 5 key metrics over your last 30 entries:
+Laniakea analyzes decrypted journal entries locally to provide structural insights into how your writing evolves over time. The **Insight Screen** lets you pick a period (7D, 14D, 1M, 3M, 6M, 1Y) and page back through previous periods, tracking 5 key writing trend metrics across whatever range is selected:
 1. **Entry Length:** Tracks word count over time.
 2. **Vocabulary Diversity:** Measures lexical richness (unique words vs total words).
 3. **Question Frequency:** Analyzes how often you use interrogative patterns (`?`).
 4. **First-Person Usage:** Tracks the density of self-referential pronouns (I, me, my).
 5. **Future vs Past Orientation:** Measures the temporal focus of your writing by comparing future-oriented keywords (will, hope, plan) against past-oriented ones (was, yesterday, remembered).
 
-### Semantic Themes & Weekly Digest
-- **Semantic Themes:** Using the generated embeddings, Laniakea automatically clusters your entries into recurring Semantic Themes (e.g., Relationships & Connection, Learning & Curiosity) without requiring manual tags.
-- **Weekly Reflection Digest:** An auto-generated weekly summary providing a structural snapshot of your journaling consistency, dominant semantic themes, and language evolution over the past week.
+Alongside these trends, a **Cognitive Footprint** radar chart and four directional gauges (Future vs Past, Agency, Certainty, Horizon) visualize the period-level average of the cognitive metrics described in [Section 6](#cognitive-style--pacing-tracker).
+
+### Semantic Themes & Period Digest
+- **Semantic Themes:** Using the generated embeddings, Laniakea automatically clusters your entries into recurring Semantic Themes (e.g., Relationships & Connection, Learning & Curiosity) without requiring manual tags. You can customize which themes are tracked from the Insight Screen.
+- **Period Digest:** An auto-generated summary providing a structural snapshot of your journaling consistency, dominant semantic themes, and language evolution over the currently selected period (not fixed to a week - it adapts to whatever range you're viewing).
 
 ### Quick Reflection (Questionnaire) Integration
 For moments when users lack the energy for a full written journal entry, Laniakea offers a structured **Quick Reflection** questionnaire (capturing Energy, Mental Pace, Social State, etc.). To maintain the integrity of the core NLP engine, these structured check-ins are handled with specific architectural nuances:
@@ -133,10 +135,12 @@ The engine mathematically tracks when a new thought drastically deviates from yo
 ### Cognitive Style & Pacing Tracker
 Moving beyond basic metrics, the on-device NLP engine now extracts advanced cognitive metadata for every entry:
 1. **Syntactic Pacing:** Measures thought complexity (ratio of conjunctions to sentences).
-2. **Agency Score:** Tracks active "I" statements vs passive phrasing to gauge personal empowerment.
-3. **Epistemic Modality:** Analyzes the ratio of absolute words (never, always) vs hedged words (maybe, perhaps).
+2. **Agency Score:** Uses vector projection onto an "Agency vs Helplessness" semantic axis to gauge personal empowerment.
+3. **Epistemic Modality:** Uses vector projection onto a "Certainty vs Rumination" semantic axis.
 4. **Processing Markers:** Counts cognitive processing words (realize, understand, because) indicating causal reasoning.
-5. **Temporal Horizon:** Uses vector projection to determine if an entry leans heavily Concrete or Abstract.
+5. **Temporal Horizon:** Uses vector projection onto a "Concrete vs Abstract" semantic axis to determine if an entry leans heavily concrete or abstract.
+
+**Period-level aggregation:** Agency, Epistemic Modality, and Temporal Horizon are stored as raw (uncompressed) projections per entry and averaged directly across whatever period is selected in the Insight Screen. Earlier revisions compressed each entry with a saturating `tanh` transform before averaging, which pushed nearly every entry to the extreme ends of its range and destroyed the real variance the average was supposed to reflect. Averaging the raw values first, and only shaping the result for gauge/radar display afterward, keeps the Cognitive Footprint visualization faithful to genuine period-over-period differences in your writing.
 
 ### Mood-Text Alignment
 The engine calculates the vector position of your writing along a predefined emotional axis. It uses this to mathematically check if the subconscious tone of your text aligns with the mood you manually logged for the day.
