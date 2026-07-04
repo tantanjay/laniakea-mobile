@@ -175,11 +175,24 @@ class VibeManager(
     fun getAxisScore(axisName: String, vector: FloatArray): Float? {
         val axes = cachedAxes ?: return null
         val axis = axes.find { it.axisName == axisName } ?: return null
-        
+
         val axisVec = axis.axisVector ?: return null
         val centerVec = axis.centerVector ?: return null
-        
+
         return VibeEngine.calculateVibeScore(vector, axisVec, centerVec)
+    }
+
+    // Unlike getAxisScore, this skips the tanh compression so callers can average
+    // many entries' raw projections before compressing once, instead of compressing
+    // per-entry first (which saturates and destroys variance across the average).
+    fun getAxisRawScore(axisName: String, vector: FloatArray): Float? {
+        val axes = cachedAxes ?: return null
+        val axis = axes.find { it.axisName == axisName } ?: return null
+
+        val axisVec = axis.axisVector ?: return null
+        val centerVec = axis.centerVector ?: return null
+
+        return VibeEngine.calculateRawScore(vector, axisVec, centerVec)
     }
 
     private fun averageVectors(vectors: List<FloatArray>): FloatArray {

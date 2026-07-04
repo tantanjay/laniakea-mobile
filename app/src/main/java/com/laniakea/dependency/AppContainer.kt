@@ -16,13 +16,12 @@ class AppContainer(private val context: Context) {
     val securityManager: SecurityManager by lazy { SecurityManager(context) }
     val embedder: SentenceEmbedder by lazy { SentenceEmbedder(context, database, securityManager) }
     
-    val analyticsManager: AnalyticsManager by lazy { AnalyticsManager(database, securityManager) }
-    
     var engineActiveProvider: () -> Boolean = { false }
     private val delegatedEngineActive: () -> Boolean = { engineActiveProvider() }
-    
+
     val semanticManager: SemanticManager by lazy { SemanticManager(database, embedder, securityManager, delegatedEngineActive) }
     val vibeManager: VibeManager by lazy { VibeManager(embedder, delegatedEngineActive) }
+    val analyticsManager: AnalyticsManager by lazy { AnalyticsManager(database, securityManager, vibeManager, delegatedEngineActive) }
     val digestManager: PeriodDigestManager by lazy { PeriodDigestManager(database, securityManager, delegatedEngineActive) }
     
     val anomalyDetector: AnomalyDetector by lazy { AnomalyDetector(database.diaryDao()) }
