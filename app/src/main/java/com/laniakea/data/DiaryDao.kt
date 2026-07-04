@@ -57,6 +57,9 @@ interface DiaryDao {
     @Query("UPDATE entries SET needsThemeReclassification = 0 WHERE id IN (:ids)")
     suspend fun clearReclassificationFlag(ids: List<Long>)
 
+    @Query("SELECT * FROM entries WHERE needsCognitiveRescore = 1")
+    suspend fun getEntriesNeedingCognitiveRescore(): List<DiaryEntry>
+
     @Query("SELECT COUNT(*) FROM entries")
     suspend fun getTotalEntriesCount(): Int
 

@@ -43,7 +43,7 @@ object VibeEngine {
         return Pair(axis, center)
     }
 
-    fun scaleVibeSmooth(raw: Float, maxExpected: Float = 0.1f): Float {
+    fun scaleVibeSmooth(raw: Float, maxExpected: Float = 1.0f): Float {
         // normalized relative to expected max
         val normalized = raw / maxExpected
         // tanh naturally clamps between -1 and 1, but large values saturate smoothly
@@ -52,14 +52,18 @@ object VibeEngine {
         return (scaled * 2.0).toFloat()
     }
 
-    fun calculateVibeScore(embedding: FloatArray, axisVec: FloatArray, centerVec: FloatArray): Float {
+    fun calculateRawScore(embedding: FloatArray, axisVec: FloatArray, centerVec: FloatArray): Float {
         var score = 0f
 
         for (i in embedding.indices) {
             score += (embedding[i] - centerVec[i]) * axisVec[i]
         }
 
-        return scaleVibeSmooth(score)
+        return score
+    }
+
+    fun calculateVibeScore(embedding: FloatArray, axisVec: FloatArray, centerVec: FloatArray): Float {
+        return scaleVibeSmooth(calculateRawScore(embedding, axisVec, centerVec))
     }
 
     fun calculateDistance(a: FloatArray, b: FloatArray): Float {

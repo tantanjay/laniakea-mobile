@@ -194,7 +194,7 @@ class HomeScreenState(
                     val themeDistancesJson = semanticManager.calculateAllThemeDistancesJson(rawVector)
                     
                     val metrics = cognitiveTracker.analyze(content, vector) { axisName, vec ->
-                        vibeManager.getAxisScore(axisName, vec)
+                        vibeManager.getAxisRawScore(axisName, vec)
                     }
                     
                     val entryToSave = securityManager.encryptEntry(

@@ -12,7 +12,7 @@ import androidx.room.migration.Migration
 
 @Database(
     entities = [DiaryEntry::class, AppSettings::class],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class DiaryDatabase : RoomDatabase() {
@@ -54,6 +54,16 @@ abstract class DiaryDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE entries ADD COLUMN needsCognitiveRescore INTEGER NOT NULL DEFAULT 0")
+                // agencyScore/epistemicModality/temporalHorizon used to store the already-saturated
+                // tanh-compressed value; they now store the raw pre-compression projection instead.
+                // Flag existing vectorized entries so their stored values get recomputed as raw.
+                db.execSQL("UPDATE entries SET needsCognitiveRescore = 1 WHERE isVectorized = 1")
+            }
+        }
+
         fun getDatabase(context: Context): DiaryDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -61,7 +71,7 @@ abstract class DiaryDatabase : RoomDatabase() {
                     DiaryDatabase::class.java,
                     "laniakea_db"
                 ).fallbackToDestructiveMigration(true)
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
