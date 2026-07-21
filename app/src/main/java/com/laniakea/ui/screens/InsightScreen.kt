@@ -31,7 +31,6 @@ import com.laniakea.ui.components.insight.InfoSection
 import com.laniakea.viewmodel.InsightState
 import com.laniakea.viewmodel.LaniakeaViewModel
 import kotlinx.coroutines.launch
-import kotlin.math.atanh
 
 @Composable
 fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
@@ -245,19 +244,13 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
                         val avgProcessing = metrics.processingMarkers.avgScore()
                         val avgFuturePast = metrics.futureVsPast.avgScore()
 
-                        // Desaturate vibe scores: scaleVibeSmooth uses tanh(raw/0.1)*2
-                        // which pushes nearly all scores to ±1.8-2.0, destroying variance.
-                        // atanh reverses this to recover the original linear projection.
-                        fun desaturate(score: Float): Float {
-                            val clamped = (score / 2f).coerceIn(-0.95f, 0.95f)
-                            val raw = atanh(clamped.toDouble()).toFloat() * 0.1f
-                            // Raw projections typically in [-0.2, 0.2]; rescale to [-1.5, 1.5]
-                            return (raw / 0.13f).coerceIn(-1.5f, 1.5f)
-                        }
-
-                        val avgAgency = desaturate(metrics.agencyScore.avgScore())
-                        val avgModality = desaturate(metrics.epistemicModality.avgScore())
-                        val avgHorizon = desaturate(metrics.temporalHorizon.avgScore())
+                        // agencyScore/epistemicModality/temporalHorizon are raw (uncompressed)
+                        // per-entry projections. No compression here - averaged directly, same as
+                        // avgPacing/avgProcessing/avgFuturePast above. The gauge/radar's own
+                        // min/max range does the scaling for display (see AGENCY_AXIS_RANGE below).
+                        val avgAgency = metrics.agencyScore.avgScore()
+                        val avgModality = metrics.epistemicModality.avgScore()
+                        val avgHorizon = metrics.temporalHorizon.avgScore()
 
                         CognitiveRadarChart(
                             agencyScore = avgAgency, epistemicModality = avgModality,
@@ -267,14 +260,21 @@ fun InsightScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 
                         Spacer(modifier = Modifier.height(8.dp))
 
+                        // Agency/Certainty/Horizon are raw, uncompressed cosine-projection averages,
+                        // typically small in magnitude. This range is a first guess for what counts
+                        // as a "full swing" on the gauge - tune it once real data shows the actual
+                        // typical spread. Must match the bounds used in CognitiveRadarChart's
+                        // normalizedAgency/normalizedModality/normalizedHorizon.
+                        val axisRange = 0.4f
+
                         // Compact Gauges side-by-side
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             GradientGauge(title = "Future vs Past", leftLabel = "Past", rightLabel = "Future", score = avgFuturePast, minScore = -1f, maxScore = 1f, modifier = Modifier.weight(1f))
-                            GradientGauge(title = "Agency", leftLabel = "Helpless", rightLabel = "Active", score = avgAgency, modifier = Modifier.weight(1f))
+                            GradientGauge(title = "Agency", leftLabel = "Helpless", rightLabel = "Active", score = avgAgency, minScore = -axisRange, maxScore = axisRange, modifier = Modifier.weight(1f))
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            GradientGauge(title = "Certainty", leftLabel = "Rumination", rightLabel = "Certain", score = avgModality, modifier = Modifier.weight(1f))
-                            GradientGauge(title = "Horizon", leftLabel = "Concrete", rightLabel = "Abstract", score = avgHorizon, modifier = Modifier.weight(1f))
+                            GradientGauge(title = "Certainty", leftLabel = "Rumination", rightLabel = "Certain", score = avgModality, minScore = -axisRange, maxScore = axisRange, modifier = Modifier.weight(1f))
+                            GradientGauge(title = "Horizon", leftLabel = "Concrete", rightLabel = "Abstract", score = avgHorizon, minScore = -axisRange, maxScore = axisRange, modifier = Modifier.weight(1f))
                         }
                     }
                 }

@@ -163,6 +163,9 @@ class InsightState(
     }
 
     suspend fun analyzeWritingTrends(): WritingMetrics {
+        if (analyticsManager.checkNeedsCognitiveRescore()) {
+            analyticsManager.rescoreNeededEntries()
+        }
         val (start, end) = getInsightDateRange()
         val metrics = analyticsManager.analyzeWritingTrends(start, end)
         writingMetrics = metrics

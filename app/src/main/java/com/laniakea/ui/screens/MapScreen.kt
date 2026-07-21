@@ -74,7 +74,9 @@ fun MapScreen(padding: PaddingValues, vm: LaniakeaViewModel) {
 
     LaunchedEffect(isEngineActive) {
         if (isEngineActive) {
-            state.vectors = ObjectBoxManager.vectorBox.all
+            state.vectors = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                ObjectBoxManager.vectorBox.all
+            }
             state.vectorsFetched = true
         }
     }

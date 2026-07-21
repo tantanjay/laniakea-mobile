@@ -29,11 +29,13 @@ fun CognitiveRadarChart(
     processingMarkers: Float,
     modifier: Modifier = Modifier
 ) {
-    // Normalize values to 0.0 - 1.0 range using practical score bounds
-    // scaleVibeSmooth outputs ±1.5-1.8 per entry; averages sit within ±1.5
-    val normalizedAgency = ((agencyScore.coerceIn(-1.5f, 1.5f) + 1.5f) / 3f)
-    val normalizedModality = ((epistemicModality.coerceIn(-1.5f, 1.5f) + 1.5f) / 3f)
-    val normalizedHorizon = ((temporalHorizon.coerceIn(-1.5f, 1.5f) + 1.5f) / 3f)
+    // agencyScore/epistemicModality/temporalHorizon are raw, uncompressed cosine-projection
+    // averages, typically small in magnitude. This range is a first guess for what counts as
+    // a "full swing" - tune it once real data shows the actual typical spread. Must match the
+    // axisRange used for the Agency/Certainty/Horizon GradientGauges in InsightScreen.
+    val normalizedAgency = ((agencyScore.coerceIn(-0.4f, 0.4f) + 0.4f) / 0.8f)
+    val normalizedModality = ((epistemicModality.coerceIn(-0.4f, 0.4f) + 0.4f) / 0.8f)
+    val normalizedHorizon = ((temporalHorizon.coerceIn(-0.4f, 0.4f) + 0.4f) / 0.8f)
     val normalizedPacing = (syntacticPacing / 1.5f).coerceIn(0f, 1f)
     val normalizedProcessing = (processingMarkers / 2f).coerceIn(0f, 1f)
 

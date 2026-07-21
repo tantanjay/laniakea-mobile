@@ -227,7 +227,7 @@ class LaniakeaViewModel(application: Application) : AndroidViewModel(application
                         val themeDistancesJson = semanticManager.calculateAllThemeDistancesJson(rawVector)
                         
                         val metrics = cognitiveTracker.analyze(decryptedContent, vector) { axisName, vec ->
-                            vibeManager.getAxisScore(axisName, vec)
+                            vibeManager.getAxisRawScore(axisName, vec)
                         }
                         
                         updatedEntriesBatch.add(entry.copy(
