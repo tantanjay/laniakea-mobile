@@ -10,12 +10,14 @@ It is not a mental health tool, diagnostic system, or clinical assessment instru
 
 No claims of psychological validity are made.
 
+> **July 2026:** Several Phase 2 insight gauges are under active reconsideration and likely redesign. See **Design Notes — Rethinking the Insight Gauges** at the end of this document.
+
 ---
 
 ## App Description
 **Laniakea** is a security-focused, privacy-first personal journaling application. It is designed to be a **digital sanctuary** where users can record their thoughts while maintaining total control over their data.
 
-Its standout feature is its **On-Device NLP Engine**, which uses **Artificial Intelligence (AI)** to analyze the semantic meaning and structural language patterns of journal entries. Unlike typical apps that rely on cloud-based inference, Laniakea performs all analysis **entirely on the device** and applies mathematically grounded, privacy-preserving transformations (referred to as **Privacy Shields**) to ensure that reflections remain truly private.
+Its standout feature is its **On-Device NLP Engine**, which uses **Artificial Intelligence (AI)** to analyze the semantic meaning and structural language patterns of journal entries. Unlike typical apps that rely on cloud-based inference, Laniakea performs all analysis **entirely on the device** and applies obfuscation layers (referred to as **Privacy Shields**) that raise the cost of embedding-inversion attacks if local storage is ever compromised.
 
 Ultimately, Laniakea acts as a **personal semantic memory system** that reveals patterns in your writing over time.
 
@@ -35,7 +37,7 @@ Laniakea is designed as a **personal reflection tool**, not a diagnostic or judg
 - All analysis is **performed locally** on your device.
 - The system observes **language patterns and structure** (e.g., vocabulary diversity, question frequency); it does **not label, diagnose, or interpret** your psychology.
 - You remain in **full control** of your data and the meaning of your journal entries.
-- The AI’s readings are **informational**, helping you track "How has my writing changed?" rather than "How do I feel?".
+- The AI's readings are **informational**, helping you track "How has my writing changed?" rather than "How do I feel?".
 
 ---
 
@@ -70,13 +72,15 @@ Laniakea uses **TensorFlow Lite (TFLite)** to run an on-device sentence encoder 
 The model produces **768-dimensional semantic embeddings** and supports sequences of up to **256 tokens** (approximately 180–200 words), enabling meaningful analysis of long-form journal entries **without transmitting data off-device**.
 
 ### Privacy Shields
-To reduce the risk of embedding inversion attacks—where original text is reconstructed from vectors—a multi-layered Privacy Shield is applied to every embedding:
+Laniakea's core privacy guarantee comes from its architecture: on-device inference, AES-256-GCM encryption, and zero network transmission. On top of that baseline, a multi-layered **Privacy Shield** is applied to every stored embedding as defense-in-depth — obfuscation that raises the cost of embedding-inversion attacks (where original text is approximated from vectors) in the event local storage is compromised:
 
 | Feature | Method | Purpose |
 |------|------|------|
-| **Laplace Noise** | Differential privacy | Adds calibrated statistical noise to prevent exact phrasing reconstruction |
+| **Laplace Noise** | Calibrated statistical noise | Perturbs stored vectors to hinder exact phrasing reconstruction |
 | **Precision Clipping** | Decimal rounding | Limits information leakage by rounding values to 4 decimal places (0.0001) |
-| **Vector Shuffling** | Fixed user-specific permutation | Scrambles vector indices so extracted embeddings are meaningless outside the user’s device |
+| **Vector Shuffling** | Fixed user-specific permutation | Scrambles vector indices so extracted embeddings are meaningless outside the user's device |
+
+> **Honest framing:** These layers are obfuscation, not formal privacy guarantees. The noise injection is *inspired by* differential-privacy techniques but does not constitute formal DP (no epsilon budget is defined), and the permutation is a keyed transform rather than cryptography. They complement — not replace — the encryption and offline architecture that do the real work.
 
 ---
 
@@ -94,7 +98,7 @@ Laniakea analyzes decrypted journal entries locally to provide structural insigh
 1. **Entry Length:** Tracks word count over time.
 2. **Vocabulary Diversity:** Measures lexical richness (unique words vs total words).
 3. **Question Frequency:** Analyzes how often you use interrogative patterns (`?`).
-4. **First-Person Usage:** Tracks the density of self-referential pronouns (I, me, my).
+4. **First-Person Usage:** Tracks the density of self-referential pronouns (I, me, my). *(under review — see Design Notes)*
 5. **Future vs Past Orientation:** Measures the temporal focus of your writing by comparing future-oriented keywords (will, hope, plan) against past-oriented ones (was, yesterday, remembered).
 
 ### Semantic Themes & Weekly Digest
@@ -130,15 +134,15 @@ An animated chronological replay that redraws your constellation node-by-node fr
 ### Anomaly & Novelty Detection
 The engine mathematically tracks when a new thought drastically deviates from your established baseline. Using a specialized `AnomalyDetector`, it calculates the L2 distance between a new entry and the centroid of your last 30 entries. Entries exceeding the orthogonal threshold (1.4f) are structurally flagged as completely novel thoughts.
 
-### Cognitive Style & Pacing Tracker
+### Cognitive Style & Pacing Tracker *(under review — see Design Notes)*
 Moving beyond basic metrics, the on-device NLP engine now extracts advanced cognitive metadata for every entry:
 1. **Syntactic Pacing:** Measures thought complexity (ratio of conjunctions to sentences).
-2. **Agency Score:** Tracks active "I" statements vs passive phrasing to gauge personal empowerment.
-3. **Epistemic Modality:** Analyzes the ratio of absolute words (never, always) vs hedged words (maybe, perhaps).
+2. **Agency Score:** Tracks active "I" statements vs passive phrasing to gauge personal empowerment. *(under review)*
+3. **Epistemic Modality:** Analyzes the ratio of absolute words (never, always) vs hedged words (maybe, perhaps). *(under review)*
 4. **Processing Markers:** Counts cognitive processing words (realize, understand, because) indicating causal reasoning.
 5. **Temporal Horizon:** Uses vector projection to determine if an entry leans heavily Concrete or Abstract.
 
-### Mood-Text Alignment
+### Mood-Text Alignment *(under review — see Design Notes)*
 The engine calculates the vector position of your writing along a predefined emotional axis. It uses this to mathematically check if the subconscious tone of your text aligns with the mood you manually logged for the day.
 
 ## 7. The Accuracy Paradox: Shuffling & Noise
@@ -149,10 +153,10 @@ The engine calculates the vector position of your writing along a predefined emo
 - **Permutation Invariance:** The dot product is invariant under identical reordering of dimensions. If vectors \(A\) and \(B\) are permuted using the same mapping, \(A \cdot B\) remains unchanged.
 
 ### Why Noise Does Not Break Accuracy
-Laplace noise is applied using a small calibrated scale (`scale = 0.002`). In high-dimensional spaces, this level of noise preserves local neighborhood structure and does not materially affect a vector’s relative position along the Joy–Distress axis, while still preventing exact reconstruction.
+Laplace noise is applied using a small calibrated scale (`scale = 0.002`). In high-dimensional spaces, this level of noise preserves local neighborhood structure and does not materially affect a vector's relative position along the reference axes, while still hindering exact reconstruction. (This is also why the noise is obfuscation rather than a formal privacy guarantee — noise weak enough to preserve all neighborhood structure is, by the same token, not strong enough to defeat a determined inversion attack. The threat it addresses is casual/offline vector scraping, not a resourced adversary.)
 
 ### Result
-Each user operates within a **personal vector space**. To an external observer, stored data appears as noisy, permuted numerical vectors that cannot be matched to public AI models. Internally, semantic relationships remain stable, measurable, and meaningful—without exposing original text.
+Each user operates within a **personal vector space**. To an external observer, stored data appears as noisy, permuted numerical vectors that cannot be trivially matched to public AI models. Internally, semantic relationships remain stable, measurable, and meaningful—without exposing original text.
 
 ---
 
@@ -160,14 +164,51 @@ Each user operates within a **personal vector space**. To an external observer, 
 - No cloud-based analytics or inference
 - No server-side storage of journal data
 - No social or shared journaling features
+- No psychological interpretation, scoring, or wellness claims
 
 ---
 
 ## Threat Model (High-Level)
-- **Protected Against:** Data exfiltration, cloud leaks, embedding inversion attacks, unauthorized local access
-- **Not Protected Against:** Compromised or rooted devices, malicious OS-level attackers, or physical access with valid device unlock credentials
+- **Protected Against:** Data exfiltration, cloud leaks, casual embedding-inversion attempts, unauthorized local access
+- **Not Protected Against:** Compromised or rooted devices, malicious OS-level attackers, physical access with valid device unlock credentials, or well-resourced inversion attacks against extracted embeddings
+
+---
+
+## Design Notes — Rethinking the Insight Gauges (July 2026)
+
+> This section documents an open design problem, recorded here for transparency while the redesign is in progress.
+
+### The problem
+
+Laniakea's stated principle is that it observes **structure, not psychology** — "How has my writing changed?" rather than "How do I feel?". On review, several Phase 2 gauges don't fully honor that principle. The measurements themselves are structural (ratios, counts, vector projections), but the **labels and framing are interpretive**:
+
+- **Agency Score** claims to "gauge personal empowerment" — that is a psychological interpretation of a grammatical ratio, not a description of it.
+- **Mood-Text Alignment** projects writing onto a "Joy–Distress" emotional axis and implies the app can detect a *subconscious* tone the user themselves didn't report. That is exactly the kind of interpretive claim the ethics note disavows.
+- **Epistemic Modality** (absolutist vs hedged words) and **First-Person Usage** (pronoun density) are, as constructs, the same linguistic markers used in clinical language-analysis research. Tracking them is structurally defensible; *presenting them as personal gauges* invites users to read them as mental-health signals — which the app explicitly is not qualified to provide and does not validate.
+
+In short: the disclaimers say one thing, and a handful of gauge labels quietly say another. A user watching their "Agency Score" decline over a month will not experience that as a neutral syntax statistic, regardless of what the ethics note says.
+
+### Redesign direction (tentative)
+
+The redesign principle: **every gauge must be describable in one sentence that contains no psychological noun.** If a metric can't be named without words like *agency, empowerment, mood, distress*, either the name changes or the metric goes.
+
+| Current | Problem | Candidate redesign |
+|---|---|---|
+| Agency Score ("personal empowerment") | Interprets grammar as psychology | Rename to **Active vs Passive Phrasing** — show the ratio, drop the empowerment framing entirely |
+| Mood-Text Alignment (Joy–Distress axis) | Claims access to subconscious emotional tone | Likely **remove**, or invert the direction: let the user's *own* logged mood be the ground truth and simply show nearest-entry similarity ("entries you wrote on days you logged similar moods"), with no axis and no alignment verdict |
+| Epistemic Modality | Clinical-adjacent construct presented as a personal gauge | Rename to **Absolute vs Hedged Word Ratio**; present as a vocabulary statistic in the trends list, not a standalone gauge |
+| First-Person Usage | Pronoun density is a known clinical marker; standalone tracking invites self-diagnosis | Keep the data but demote it: fold into the general vocabulary trends view rather than a dedicated chart |
+
+Additional guardrails under consideration:
+- **No single-number scores.** Trends over time only — a score implies a rating; a trend is just a record.
+- **No baseline judgments.** The app may show that a metric changed; it should never suggest whether the change is good, bad, or concerning.
+- **Gauge-level opt-in.** The interpretive-adjacent metrics (if any survive) become individually toggleable and off by default, consistent with the app's consent-first philosophy.
+
+### Status
+
+Reconsidering — probably a redesign of the Insight Screen and the Cognitive Style tracker before any public release. The semantic-search, themes, constellation, and anomaly features are unaffected; the issue is confined to how a subset of metrics is *labeled and surfaced*, not to the NLP engine itself.
 
 ---
 
 ## Summary
-Laniakea is built around a single principle: **your thoughts should belong to you alone**. By combining modern Android architecture, strong cryptography, on-device machine learning, and mathematically sound privacy techniques, the app delivers meaningful emotional insight without sacrificing user trust or control.
+Laniakea is built around a single principle: **your thoughts should belong to you alone**. By combining modern Android architecture, strong cryptography, on-device machine learning, and layered obfuscation techniques, the app delivers meaningful reflection on your own writing without sacrificing user trust or control.
