@@ -26,7 +26,7 @@ Ultimately, Laniakea acts as a **personal semantic memory system** that reveals 
 - **Personal Semantic Memory:** Automatically connects related past entries to create a continuous narrative of thought.
 - **Meaning-Based Search:** Replaces rigid keyword search with deep semantic retrieval.
 - **Structural Language Trends:** Tracks how your writing evolves over time (e.g., vocabulary diversity, question frequency) instead of assigning emotional scores.
-- **Weekly Digests & Themes:** Auto-generates weekly insights and clusters entries into semantic themes without manual tagging.
+- **Period Digests & Themes:** Auto-generates insights for any selected period and clusters entries into semantic themes without manual tagging.
 - **Quick Reflections:** A structured check-in system for low-energy days that seamlessly maps onto the constellation without skewing natural language analytics.
 
 ## User Privacy & Ethical Use
@@ -101,7 +101,7 @@ Laniakea analyzes decrypted journal entries locally to provide structural insigh
 4. **First-Person Usage:** Tracks the density of self-referential pronouns (I, me, my). *(under review — see Design Notes)*
 5. **Future vs Past Orientation:** Measures the temporal focus of your writing by comparing future-oriented keywords (will, hope, plan) against past-oriented ones (was, yesterday, remembered).
 
-Alongside these trends, a **Cognitive Footprint** radar chart and four directional gauges (Future vs Past, Agency, Certainty, Horizon) visualize the period-level average of the cognitive metrics described in [Section 6](#cognitive-style--pacing-tracker).
+Alongside these trends, a **Cognitive Footprint** radar chart and four directional gauges (Future vs Past, Agency, Certainty, Horizon) visualize the period-level average of the cognitive metrics described in [Section 6](#cognitive-style--pacing-tracker). *(under review — see Design Notes)*
 
 ### Semantic Themes & Period Digest
 - **Semantic Themes:** Using the generated embeddings, Laniakea automatically clusters your entries into recurring Semantic Themes (e.g., Relationships & Connection, Learning & Curiosity) without requiring manual tags. You can customize which themes are tracked from the Insight Screen.
@@ -140,7 +140,7 @@ The engine mathematically tracks when a new thought drastically deviates from yo
 Moving beyond basic metrics, the on-device NLP engine now extracts advanced cognitive metadata for every entry:
 1. **Syntactic Pacing:** Measures thought complexity (ratio of conjunctions to sentences).
 2. **Agency Score:** Tracks active "I" statements vs passive phrasing to gauge personal empowerment. *(under review)*
-3. **Epistemic Modality:** Analyzes the ratio of absolute words (never, always) vs hedged words (maybe, perhaps). *(under review)*
+3. **Epistemic Modality:** Analyzes the ratio of absolute words (never, always) vs hedged words (maybe, perhaps). Surfaced in the Insight Screen as the "Certainty" gauge. *(under review)*
 4. **Processing Markers:** Counts cognitive processing words (realize, understand, because) indicating causal reasoning.
 5. **Temporal Horizon:** Uses vector projection onto a "Concrete vs Abstract" semantic axis to determine if an entry leans heavily concrete or abstract.
 
@@ -188,29 +188,32 @@ Laniakea's stated principle is that it observes **structure, not psychology** �
 
 - **Agency Score** claims to "gauge personal empowerment" — that is a psychological interpretation of a grammatical ratio, not a description of it.
 - **Mood-Text Alignment** projects writing onto a "Joy–Distress" emotional axis and implies the app can detect a *subconscious* tone the user themselves didn't report. That is exactly the kind of interpretive claim the ethics note disavows.
-- **Epistemic Modality** (absolutist vs hedged words) and **First-Person Usage** (pronoun density) are, as constructs, the same linguistic markers used in clinical language-analysis research. Tracking them is structurally defensible; *presenting them as personal gauges* invites users to read them as mental-health signals — which the app explicitly is not qualified to provide and does not validate.
+- **Epistemic Modality** (absolutist vs hedged words) and **First-Person Usage** (pronoun density) are, as constructs, the same linguistic markers used in clinical language-analysis research. Tracking them is structurally defensible; *presenting them as personal gauges* invites users to read them as mental-health signals — which the app explicitly is not qualified to provide and does not validate. (Note: the UI already renames Epistemic Modality to "Certainty" — a softer word, but still a trait-like label rather than a description of a word ratio.)
 
-In short: the disclaimers say one thing, and a handful of gauge labels quietly say another. A user watching their "Agency Score" decline over a month will not experience that as a neutral syntax statistic, regardless of what the ethics note says.
+The current Insight Screen makes the stakes concrete: the **Cognitive Footprint radar chart** and the **four directional gauges** (Future vs Past, Agency, Certainty, Horizon) present period-level averages of these metrics as a personal readout. The recent aggregation fix — averaging raw values instead of `tanh`-saturated ones — made those averages *statistically* honest, but statistical honesty sharpens the framing problem rather than softening it: an accurate "Agency" reading averaged over a 3-month period reads even more like a personality assessment than a noisy one did. A radar chart of a person's "cognitive footprint" is, visually, a personality profile — whatever the axes are actually measuring.
+
+In short: the disclaimers say one thing, and a handful of gauge labels quietly say another. A user watching their "Agency" gauge decline over a quarter will not experience that as a neutral syntax statistic, regardless of what the ethics note says.
 
 ### Redesign direction (tentative)
 
-The redesign principle: **every gauge must be describable in one sentence that contains no psychological noun.** If a metric can't be named without words like *agency, empowerment, mood, distress*, either the name changes or the metric goes.
+The redesign principle: **every gauge must be describable in one sentence that contains no psychological noun.** If a metric can't be named without words like *agency, empowerment, certainty, mood, distress*, either the name changes or the metric goes.
 
 | Current | Problem | Candidate redesign |
 |---|---|---|
 | Agency Score ("personal empowerment") | Interprets grammar as psychology | Rename to **Active vs Passive Phrasing** — show the ratio, drop the empowerment framing entirely |
+| Certainty gauge (Epistemic Modality) | Trait-like label on a clinical-adjacent construct | Rename to **Absolute vs Hedged Word Ratio**; present as a vocabulary statistic in the trends list, not a standalone gauge |
+| Cognitive Footprint radar + directional gauges | Period-averaged "profile" visualization reads as a personality assessment, independent of axis names | Re-label every axis descriptively (Active/Passive, Absolute/Hedged, Concrete/Abstract, Future/Past) — and consider replacing the single radar "profile" with per-metric trend lines, which show *change* rather than *identity* |
 | Mood-Text Alignment (Joy–Distress axis) | Claims access to subconscious emotional tone | Likely **remove**, or invert the direction: let the user's *own* logged mood be the ground truth and simply show nearest-entry similarity ("entries you wrote on days you logged similar moods"), with no axis and no alignment verdict |
-| Epistemic Modality | Clinical-adjacent construct presented as a personal gauge | Rename to **Absolute vs Hedged Word Ratio**; present as a vocabulary statistic in the trends list, not a standalone gauge |
 | First-Person Usage | Pronoun density is a known clinical marker; standalone tracking invites self-diagnosis | Keep the data but demote it: fold into the general vocabulary trends view rather than a dedicated chart |
 
 Additional guardrails under consideration:
-- **No single-number scores.** Trends over time only — a score implies a rating; a trend is just a record.
+- **No single-number scores.** Trends over time only — a score implies a rating; a trend is just a record. This applies to the directional gauges too: a period-averaged gauge is still a score.
 - **No baseline judgments.** The app may show that a metric changed; it should never suggest whether the change is good, bad, or concerning.
 - **Gauge-level opt-in.** The interpretive-adjacent metrics (if any survive) become individually toggleable and off by default, consistent with the app's consent-first philosophy.
 
 ### Status
 
-Reconsidering — probably a redesign of the Insight Screen and the Cognitive Style tracker before any public release. The semantic-search, themes, constellation, and anomaly features are unaffected; the issue is confined to how a subset of metrics is *labeled and surfaced*, not to the NLP engine itself.
+Reconsidering — probably a redesign of the Insight Screen (the Cognitive Footprint radar and the four directional gauges in particular) and the Cognitive Style tracker before any public release. The semantic-search, themes, constellation, anomaly, and period-aggregation features are unaffected; the issue is confined to how a subset of metrics is *labeled and surfaced*, not to the NLP engine or its math.
 
 ---
 
