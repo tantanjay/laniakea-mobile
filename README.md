@@ -31,7 +31,7 @@ Ultimately, Laniakea acts as a **personal semantic memory system** that reveals 
 
 ## User Privacy & Ethical Use
 
-> **Note on App Purpose & Ethics:** Laniakea is a technical showcase of on-device AI (TensorFlow Lite / Universal Sentence Encoder) used for semantic text clustering. It is designed purely as a personal journaling and self-reflection tool. It is not a medical device, nor is it intended to diagnose, treat, or monitor any psychological or mental health conditions. All thematic clustering is based purely on mathematical vector distance (L2), not clinical psychology.
+> **Note on App Purpose & Ethics:** Laniakea is a technical showcase of on-device AI (TensorFlow Lite / USE-CMLM, a BERT-base sentence encoder) used for semantic text clustering. It is designed purely as a personal journaling and self-reflection tool. It is not a medical device, nor is it intended to diagnose, treat, or monitor any psychological or mental health conditions. All thematic clustering is based purely on mathematical vector distance (L2), not clinical psychology.
 
 Laniakea is designed as a **personal reflection tool**, not a diagnostic or judgmental app.
 - All analysis is **performed locally** on your device.
@@ -67,7 +67,9 @@ Laniakea is designed as a **personal reflection tool**, not a diagnostic or judg
 
 ## 4. On-Device AI (NLP Engine)
 
-Laniakea uses **TensorFlow Lite (TFLite)** to run an on-device sentence encoder (`sentence_encoder.tflite`), based on a **TensorFlow 2–compatible `cmlm-en-base` model** derived from the **Universal Sentence Encoder (USE)** architecture.
+Laniakea uses **TensorFlow Lite (TFLite)** to run an on-device sentence encoder (`sentence_encoder.tflite`), converted from Google's **Universal Sentence Encoder CMLM (`cmlm-en-base`)** model. Despite the Universal Sentence Encoder name, CMLM is not the classic USE architecture (DAN/Transformer, 512 dimensions): it is a **BERT-base** encoder (12 layers, 768 hidden size) trained with Conditional Masked Language Modeling.
+
+Because it is BERT-based, the app tokenizes text itself with a **WordPiece** tokenizer (`vocab.txt`), feeds the model token IDs, an attention mask, and token type IDs, and **mean-pools** the per-token outputs into one sentence vector (skipping padding tokens) when the model doesn't pool them itself.
 
 The model produces **768-dimensional semantic embeddings** and supports sequences of up to **256 tokens** (approximately 180–200 words), enabling meaningful analysis of long-form journal entries **without transmitting data off-device**.
 
